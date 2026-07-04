@@ -51,6 +51,23 @@ static volatile bool s_operating = false;  /* which mode the button acts on */
 #define BUTTON_GPIO GPIO_NUM_0   /* classic devkit BOOT; C3 SuperMini env passes GPIO_NUM_9 */
 #endif
 
+/* ── onboard LED: lit while provisioning ─────────────────────────────────── */
+
+#ifndef LED_GPIO
+#define LED_GPIO GPIO_NUM_2      /* classic devkit LED; C3 SuperMini env passes GPIO_NUM_8 */
+#endif
+#ifndef LED_ACTIVE_LOW
+#define LED_ACTIVE_LOW 0         /* SuperMini's LED sinks into the pin — env passes 1 */
+#endif
+
+/* Entering provisioning mode is otherwise invisible from the outside — the
+ * first field test of the BOOT button read as "nothing happened" while the
+ * window was in fact open (2026-07-04). LED on = BLE window open. */
+static void led_set(bool on) {
+    gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_GPIO, LED_ACTIVE_LOW ? !on : on);
+}
+
 static void button_task(void *p) {
     gpio_config_t io = {
         .pin_bit_mask = 1ULL << BUTTON_GPIO,
@@ -224,6 +241,7 @@ static void host_task(void *p) {
 
 static void provisioning_mode(bool have_config) {
     ESP_LOGI(TAG, "provisioning mode — advertising %s", s_id);
+    led_set(true);
     if (have_config) {
         /* Credentials exist, so this is a fallback visit: bound it, then
          * reboot to retry — a transient outage self-heals with no human. */
@@ -257,6 +275,7 @@ void app_main(void) {
     bool provision_requested = (s_provision_request == PROVISION_MAGIC);
     s_provision_request = 0;
 
+    led_set(false);   /* also pins the active-low pin high so it can't glow half-lit */
     xTaskCreate(button_task, "button", 2048, NULL, 5, NULL);
 
     char ssid[33], pass[65], loc[65];
