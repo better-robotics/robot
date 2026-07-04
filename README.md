@@ -28,8 +28,8 @@ On first boot (no stored config) the rover enters **BLE provisioning mode** and
 advertises as `rover-XXXX` (XXXX = last 2 bytes of the Wi-Fi MAC address, e.g.
 `rover-c9d0`).
 
-Provision it with [`rover.html`](https://github.com/better-robotics/provision) or
-any Improv-over-BLE client:
+Provision it with the [Rover setup page](https://better-robotics.github.io/provision/rover.html)
+or any Improv-over-BLE client:
 
 1. Connect to `rover-XXXX`.
 2. Send Wi-Fi credentials (Improv `SEND_WIFI_SETTINGS` command).
