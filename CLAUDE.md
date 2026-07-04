@@ -97,5 +97,6 @@ AP mode (`hub-0d08`, open router): BLE provisioning → Wi-Fi → zenoh session 
 telemetry delivered to a subscriber; hub outage → 19 s dead-session detection →
 provisioning window → window expiry → automatic rejoin, no human touch. Window
 re-provisioning (new locator over BLE mid-fallback) also verified. BOOT-button
-switch implemented, not yet hand-tested. v3: `led` queryable + chip temp. Roadmap:
+hand-verified both directions (operating → window; window → retry now, ending a
+window at 24.7 s; boot → publishing in 3.2 s). v3: `led` queryable + chip temp. Roadmap:
 `better-robotics/hub#1`.
