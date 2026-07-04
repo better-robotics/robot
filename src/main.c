@@ -166,7 +166,7 @@ static void operating_mode(const char *ssid, const char *pass, const char *locat
         int64_t up_ms = esp_timer_get_time() / 1000;
         uint32_t heap = esp_get_free_heap_size();
         snprintf(buf, sizeof buf,
-                 "{\"uptime_ms\":%lld,\"free_heap\":%u,\"synthetic\":false}",
+                 "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD "\",\"synthetic\":false}",
                  (long long)up_ms, (unsigned)heap);
         z_owned_bytes_t payload;
         z_bytes_copy_from_str(&payload, buf);

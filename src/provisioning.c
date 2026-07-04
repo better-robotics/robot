@@ -219,7 +219,7 @@ static int improv_rpccmd_access(uint16_t conn_handle, uint16_t attr_handle,
         notify_rpc_result(out, on);
         if (rover_config_is_complete() && s_done_cb) s_done_cb();
     } else if (r == IMPROV_OK && c.cmd == IMPROV_CMD_DEVICE_INFO) {
-        const char *info[] = {"rover", "2", "ESP32", ""};
+        const char *info[] = {"rover", "2", HW_BOARD, ""};
         uint8_t out[64];
         size_t on = improv_encode_result(IMPROV_CMD_DEVICE_INFO, info, 4, out, sizeof out);
         notify_rpc_result(out, on);
