@@ -8,9 +8,11 @@ this is the device end, C/ESP-IDF, not the Rust router.
 ## Build
 - **PlatformIO + ESP-IDF** — zenoh-pico's official ESP-IDF path (its `library.json` +
   `extra_script.py` compile the lib). Pure `idf.py` won't work. `pio run -t upload`.
-- Two envs: `esp32dev` (classic ESP32-D0WD devkit, CP2102, BOOT=GPIO0) and
+- Three envs: `esp32dev` (classic ESP32-D0WD devkit, CP2102, BOOT=GPIO0),
   `esp32c3-supermini` (ESP32-C3 QFN32, native USB-Serial/JTAG, BOOT=GPIO9 via
-  `-DBUTTON_GPIO`).
+  `-DBUTTON_GPIO`), `esp32cam` (AI-Thinker ESP32-CAM — no USB socket, flashed
+  via a plug-in USB↔UART adapter; **no BOOT button**, so provisioning re-entry
+  is only via the join-failure fallback; LED=GPIO33 rear red, active-low).
 - Platform pinned **`espressif32@6.13.0`** (`<7.x` — 7.0 jumps to IDF 6 and breaks
   zenoh-pico's PIO build).
 - **Custom `partitions.csv`** — BLE + Wi-Fi + zenoh-pico together exceed the 1 MB
@@ -93,8 +95,8 @@ correct code.
 - **One radio path per boot** — operating mode: Wi-Fi only; provisioning mode: BLE only.
 
 ## Status
-v2 **hardware-verified 2026-07-04** on ESP32-C3 SuperMini and classic ESP32 devkits
-— a three-rover fleet (a044 · b79c · c9d0) against the Pi hub in AP mode
+v2 **hardware-verified 2026-07-04** — a three-rover fleet against the Pi hub in AP mode:
+a044 (classic devkit) · b79c (C3 SuperMini) · c9d0 (ESP32-CAM)
 (`hub-0d08`, open router): BLE
 provisioning → Wi-Fi → zenoh session → both rovers' telemetry interleaved at one
 subscriber; hub outage → 19 s dead-session detection → provisioning window →
