@@ -58,10 +58,11 @@ Zero config — each board self-identifies at boot.
   (`run → init (0xf00)` loop) despite correct PSK; open AP joins in ~6 s. C3 client
   vs NM/wpa_supplicant AP interop, unresolved — investigate before shipping a
   secured hub-AP.
-- **Re-provision race** — with config already complete, the *first* GATT write
-  re-completes it and reboots, racing any second write. Fix candidate: debounce the
-  done-reboot a few seconds (esp_timer, not a host-task sleep — a sleep blocks the
-  pending second write).
+- **Never `esp_restart()` in GATT write context** — it races the peer's next
+  operation (read-back, second write, Improv notify); the client sees "Device
+  disconnected" mid-exchange. Fixed: the done-reboot is a 4 s esp_timer one-shot,
+  re-armed per completing write and deferred while a client is connected (a
+  host-task sleep is not an alternative — it blocks the pending second write).
 
 ## zenoh-pico API notes (1.9.0)
 - Config: `zp_config_insert(z_loan_mut(config), Z_CONFIG_MODE_KEY, "client")` +
@@ -92,11 +93,12 @@ correct code.
 - **One radio path per boot** — operating mode: Wi-Fi only; provisioning mode: BLE only.
 
 ## Status
-v2 **hardware-verified 2026-07-04** on ESP32-C3 SuperMini against the Pi hub running
-AP mode (`hub-0d08`, open router): BLE provisioning → Wi-Fi → zenoh session →
-telemetry delivered to a subscriber; hub outage → 19 s dead-session detection →
-provisioning window → window expiry → automatic rejoin, no human touch. Window
-re-provisioning (new locator over BLE mid-fallback) also verified. BOOT-button
-hand-verified both directions (operating → window; window → retry now, ending a
-window at 24.7 s; boot → publishing in 3.2 s). v3: `led` queryable + chip temp. Roadmap:
-`better-robotics/hub#1`.
+v2 **hardware-verified 2026-07-04** on ESP32-C3 SuperMini and classic ESP32 devkit
+— a two-rover fleet against the Pi hub in AP mode (`hub-0d08`, open router): BLE
+provisioning → Wi-Fi → zenoh session → both rovers' telemetry interleaved at one
+subscriber; hub outage → 19 s dead-session detection → provisioning window →
+window expiry → automatic rejoin, no human touch. Window re-provisioning, the
+debounced done-reboot (read-back + linger survive; reboot exactly 4 s after the
+last write, post-disconnect), and the BOOT button both directions (window → retry
+now at 24.7 s; boot → publishing in 3.2 s) all verified. v3: `led` queryable +
+chip temp. Roadmap: `better-robotics/hub#1`.

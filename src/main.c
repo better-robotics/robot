@@ -187,10 +187,29 @@ static void window_expired(void *p) {
     esp_restart();
 }
 
-static void on_provision_done(void) {
+/* Reboot-on-complete is debounced and deferred while a BLE client is attached:
+ * s_done_cb fires in GATT write context, and an immediate restart there races
+ * the peer's next operation (read-back, second write, Improv's PROVISIONED
+ * notify) — the client sees "Device disconnected" mid-exchange. */
+static esp_timer_handle_t s_done_reboot;
+#define DONE_REBOOT_DELAY_US (4 * 1000000LL)
+
+static void done_reboot(void *p) {
+    if (provisioning_client_connected()) {
+        esp_timer_start_once(s_done_reboot, DONE_REBOOT_DELAY_US);
+        return;
+    }
     ESP_LOGI(TAG, "provisioning complete — rebooting into operating mode");
-    vTaskDelay(pdMS_TO_TICKS(500));   /* let the PROVISIONED notify flush */
     esp_restart();
+}
+
+static void on_provision_done(void) {
+    if (!s_done_reboot) {
+        const esp_timer_create_args_t t = {.callback = done_reboot, .name = "prov_done"};
+        ESP_ERROR_CHECK(esp_timer_create(&t, &s_done_reboot));
+    }
+    esp_timer_stop(s_done_reboot);   /* no-op if not armed */
+    ESP_ERROR_CHECK(esp_timer_start_once(s_done_reboot, DONE_REBOOT_DELAY_US));
 }
 
 static void on_sync(void) {

@@ -69,7 +69,7 @@ static int loc_access(uint16_t conn_handle, uint16_t attr_handle,
         strncpy(s_locator, buf, sizeof(s_locator) - 1);
         ESP_LOGI(TAG, "locator set: %s", s_locator);
         /* Order-independent completion: if Wi-Fi was already written first,
-         * this second write completes provisioning and triggers the reboot. */
+         * this second write completes provisioning and arms the debounced reboot. */
         if (rover_config_is_complete() && s_done_cb) s_done_cb();
         return 0;
     }
