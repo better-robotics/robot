@@ -93,8 +93,9 @@ correct code.
 - **One radio path per boot** — operating mode: Wi-Fi only; provisioning mode: BLE only.
 
 ## Status
-v2 **hardware-verified 2026-07-04** on ESP32-C3 SuperMini and classic ESP32 devkit
-— a two-rover fleet against the Pi hub in AP mode (`hub-0d08`, open router): BLE
+v2 **hardware-verified 2026-07-04** on ESP32-C3 SuperMini and classic ESP32 devkits
+— a three-rover fleet (a044 · b79c · c9d0) against the Pi hub in AP mode
+(`hub-0d08`, open router): BLE
 provisioning → Wi-Fi → zenoh session → both rovers' telemetry interleaved at one
 subscriber; hub outage → 19 s dead-session detection → provisioning window →
 window expiry → automatic rejoin, no human touch. Window re-provisioning, the
