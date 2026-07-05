@@ -11,14 +11,15 @@ static bool get_str(nvs_handle_t h, const char *key, char *out, size_t cap) {
     return nvs_get_str(h, key, out, &len) == ESP_OK && len > 0;
 }
 
-bool rover_config_load(char ssid[33], char pass[65], char locator[65]) {
+void rover_config_load(char ssid[33], char pass[65], char locator[65]) {
+    ssid[0] = pass[0] = locator[0] = 0;
     nvs_handle_t h;
-    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return false;
-    bool ok = get_str(h, "ssid", ssid, 33) && get_str(h, "locator", locator, 65);
-    size_t pl = 65;
-    if (nvs_get_str(h, "pass", pass, &pl) != ESP_OK) pass[0] = 0;   // empty = open net
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return;
+    get_str(h, "ssid", ssid, 33);
+    get_str(h, "pass", pass, 65);   // empty = open net
+    if (get_str(h, "locator", locator, 65) && !rover_validate_locator(locator))
+        locator[0] = 0;             // corrupt entry degrades to "derive from gateway"
     nvs_close(h);
-    return ok && rover_validate_locator(locator);
 }
 
 esp_err_t rover_config_set_wifi(const char *ssid, const char *pass) {
@@ -43,5 +44,6 @@ esp_err_t rover_config_set_locator(const char *locator) {
 
 bool rover_config_is_complete(void) {
     char s[33], p[65], l[65];
-    return rover_config_load(s, p, l);
+    rover_config_load(s, p, l);
+    return s[0] != 0;
 }

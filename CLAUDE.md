@@ -12,7 +12,8 @@ this is the device end, C/ESP-IDF, not the Rust router.
   `esp32c3-supermini` (ESP32-C3 QFN32, native USB-Serial/JTAG, BOOT=GPIO9 via
   `-DBUTTON_GPIO`), `esp32cam` (AI-Thinker ESP32-CAM — no USB socket, flashed
   via a plug-in USB↔UART adapter; **no BOOT button**, so provisioning re-entry
-  is only via the join-failure fallback; LED=GPIO33 rear red, active-low).
+  is the join-failure fallback or the `reprovision` topic; LED=GPIO33 rear red,
+  active-low).
 - Platform pinned **`espressif32@6.13.0`** (`<7.x` — 7.0 jumps to IDF 6 and breaks
   zenoh-pico's PIO build).
 - **Custom `partitions.csv`** — BLE + Wi-Fi + zenoh-pico together exceed the 1 MB
@@ -20,32 +21,42 @@ this is the device end, C/ESP-IDF, not the Rust router.
 
 ## Boot flow
 
-Mode dispatch is **stateless**: NVS holds only credentials; behavior is a pure
-function of "is config complete" plus a one-shot provision request in RTC noinit
-RAM (survives `esp_restart()`, not a power cycle — no stale mode state can strand
-a robot). One radio path per boot.
+Mode dispatch is **stateless**: NVS holds only explicit choices; behavior is a
+pure function of that config plus a one-shot provision request in RTC noinit
+RAM (survives `esp_restart()`, not a power cycle — no stale mode state can
+strand a robot). One radio path per boot. **Nothing stored is fully operable**:
+no ssid → scan-join the strongest *open* `hub-*` network (the classroom AP
+convention is the onboarding channel); no locator → dial the DHCP gateway
+(on its own AP the hub is the gateway). Discovery results are never persisted —
+stored config is retried first every boot, and when a stored join fails, a live
+open `hub-*` is tried before giving up (the stored locator is ignored on that
+path: half-stale config isn't trusted by halves).
 
 ```
-boot ── no config ──► provisioning mode (BLE, no timeout)
-  │ config complete
-  ▼
-operating mode: Wi-Fi STA → z_open → publish robots/rover-XXXX/sys every 2s
-  │ join fails (30s) · z_open fails · 5 consecutive put failures · button
+boot ──► operating mode: stored ssid (or discover hub-*) → Wi-Fi STA
+         → z_open(stored locator, or tcp/<gateway>:7447)
+         → publish robots/rover-XXXX/sys every 2s
+         → subscribe robots/rover-XXXX/reprovision
+  │ nothing to join · join fails (30s) · z_open fails · 5 put failures
+  │ · button · reprovision sample
   ▼
 provisioning window (BLE, 3 min; extends while a client is connected)
   │ window expires (or button)
   ▼
-esp_restart() → retry stored creds        ← transient outages self-heal
+esp_restart() → operating mode again      ← outages and pre-hub power-on
+                                            self-heal by alternating
 ```
 
 **BOOT button (GPIO0, hold ~1 s):** operating → provisioning window;
 provisioning → retry Wi-Fi now. The human within arm's reach is the out-of-band
 channel — this is its API (covers wedged states the firmware can't self-detect).
+**Remote twin:** publish anything to `robots/<id>/reprovision` — the only
+re-entry an ESP32-CAM has besides join failure (no button).
 
-**Locator is provisioned, not discovered** — Zenoh scouting (UDP multicast
-`224.0.0.224:7446`) is blocked on the target networks (campus Wi-Fi filters
-multicast and isolates clients), so the rover must be told its one bootstrap
-locator over BLE alongside Wi-Fi creds.
+**Zenoh scouting stays unused** — UDP multicast (`224.0.0.224:7446`) is blocked
+on the target networks (campus Wi-Fi filters multicast and isolates clients).
+Gateway derivation replaces it on the hub-AP path without multicast; explicit
+locator covers everything else.
 
 ## Identity
 `rover-XXXX` derived from last 2 bytes of Wi-Fi MAC via `rover_format_robot_id`.

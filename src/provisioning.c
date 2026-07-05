@@ -43,7 +43,8 @@ static int loc_access(uint16_t conn_handle, uint16_t attr_handle,
         const char *val = s_locator;
         if (s_locator[0] == '\0') {
             /* Try loading from NVS if in-memory cache is empty */
-            if (rover_config_load(ssid, pass, loc)) {
+            rover_config_load(ssid, pass, loc);
+            if (loc[0]) {
                 strncpy(s_locator, loc, sizeof(s_locator) - 1);
                 val = s_locator;
             }
