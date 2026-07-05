@@ -43,7 +43,7 @@ path: half-stale config isn't trusted by halves).
 boot ──► operating mode: stored ssid (or discover hub-*) → Wi-Fi STA
          → z_open(stored locator, or tcp/<gateway>:7447)
          → publish robots/rover-XXXX/sys every 2s
-         → subscribe robots/rover-XXXX/reprovision
+         → subscribe robots/rover-XXXX/cmd/reprovision
   │ nothing to join · join fails (30s) · z_open fails · 5 put failures
   │ · button · reprovision sample
   ▼
@@ -57,7 +57,7 @@ esp_restart() → operating mode again      ← outages and pre-hub power-on
 **BOOT button (GPIO0, hold ~1 s):** operating → provisioning window;
 provisioning → retry Wi-Fi now. The human within arm's reach is the out-of-band
 channel — this is its API (covers wedged states the firmware can't self-detect).
-**Remote twin:** publish anything to `robots/<id>/reprovision` — the only
+**Remote twin:** publish anything to `robots/<id>/cmd/reprovision` — the only
 re-entry an ESP32-CAM has besides join failure (no button).
 
 **Zenoh scouting stays unused** — UDP multicast (`224.0.0.224:7446`) is blocked

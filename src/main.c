@@ -166,7 +166,8 @@ static bool discover_hub(char out[33]) {
     return best >= 0;
 }
 
-/* Fabric-triggered re-entry: publish anything to robots/<id>/reprovision and
+/* Fabric-triggered re-entry: publish anything to robots/<id>/cmd/reprovision
+ * (cmd/<verb> is the command plane — future verbs sit beside it) and
  * the rover reboots into a provisioning window. The BOOT button's remote
  * twin — and the only re-entry an ESP32-CAM has (no button at all). */
 static void on_reprovision(z_loaned_sample_t *sample, void *arg) {
@@ -248,7 +249,7 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
     }
 
     char rkey[48];
-    snprintf(rkey, sizeof rkey, "robots/%s/reprovision", s_id);
+    snprintf(rkey, sizeof rkey, "robots/%s/cmd/reprovision", s_id);
     z_view_keyexpr_t rke;
     z_view_keyexpr_from_str(&rke, rkey);
     z_owned_closure_sample_t rcb;

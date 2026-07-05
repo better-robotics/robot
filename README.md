@@ -55,7 +55,7 @@ A robot needs nothing configured:
 - **BOOT button (hold ~1 s).** Operating mode → drop into a provisioning window
   now; provisioning mode → reboot and retry now. (The ESP32-CAM has no BOOT
   button — use the remote path.)
-- **Remote.** Publish anything to `robots/<id>/reprovision` and the robot reboots
+- **Remote.** Publish anything to `robots/<id>/cmd/reprovision` and the robot reboots
   into a provisioning window.
 
 Mode state never persists: the fallback rides RTC memory that survives a software
@@ -67,7 +67,7 @@ restart but not a power cycle, so power-cycling always yields a clean boot.
 - Opens a zenoh-pico client session to the locator (stored, or gateway-derived).
 - Publishes `{"uptime_ms":…,"free_heap":…,"hw":"<board>","synthetic":false}`
   every 2 s on `robots/rover-XXXX/sys`.
-- Subscribes to `robots/rover-XXXX/reprovision`.
+- Subscribes to `robots/rover-XXXX/cmd/reprovision`.
 
 ## Identity
 
