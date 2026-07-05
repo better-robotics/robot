@@ -1,9 +1,16 @@
-# rover — project context
+# robot — project context
 
 ESP32 firmware: a `zenoh-pico` client for the classroom Robotics Hub
 ([`better-robotics/hub`](https://github.com/better-robotics/hub), Zenoh). Publishes
 telemetry to the hub router; will serve the `led` RPC. Sibling layer to the hub —
 this is the device end, C/ESP-IDF, not the Rust router.
+
+**Naming** (repo renamed `rover`→`robot` 2026-07-04): the repo covers any MCU node
+role; robots are *role-named* — `rover-XXXX` is today's only role (a future camera
+role would be `cam-XXXX`, same codebase). Hardware model is metadata (`hw` in
+telemetry + Improv device-info), never part of a name. Don't "fix" role-prefixed
+identifiers (`rover-`, `rover.html`, `namePrefix`) to say robot — role vocabulary
+is product surface and stays.
 
 ## Build
 - **PlatformIO + ESP-IDF** — zenoh-pico's official ESP-IDF path (its `library.json` +
