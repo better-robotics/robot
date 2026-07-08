@@ -1,9 +1,13 @@
 # robot — project context
 
 ESP32 firmware: a `zenoh-pico` client for the classroom Robotics Hub
-([`better-robotics/hub`](https://github.com/better-robotics/hub), Zenoh). Publishes
-telemetry to the hub router; will serve the `led` RPC. Sibling layer to the hub —
-this is the device end, C/ESP-IDF, not the Rust router.
+([`better-robotics/hub-zenoh`](https://github.com/better-robotics/hub-zenoh)).
+Publishes telemetry to the hub router; will serve the `led` RPC. Sibling layer
+to the hub — this is the device end, C/ESP-IDF, not the Rust router.
+hub-zenoh is one of two live transport contenders (with
+[`better-robotics/hub-mqtt`](https://github.com/better-robotics/hub-mqtt)) —
+an `esp-mqtt` firmware env alongside this `zenoh-pico` one is on the roadmap
+once the MQTT variant's transport lands (hub-mqtt#1).
 
 **Naming** (repo renamed `rover`→`robot` 2026-07-04): the repo covers any MCU node
 role; robots are *role-named* — `rover-XXXX` is today's only role (a future camera
@@ -122,4 +126,4 @@ window expiry → automatic rejoin, no human touch. Window re-provisioning, the
 debounced done-reboot (read-back + linger survive; reboot exactly 4 s after the
 last write, post-disconnect), and the BOOT button both directions (window → retry
 now at 24.7 s; boot → publishing in 3.2 s) all verified. v3: `led` queryable +
-chip temp. Roadmap: `better-robotics/hub#1`.
+chip temp. Roadmap: `better-robotics/hub-zenoh#1`.

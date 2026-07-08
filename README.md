@@ -3,7 +3,7 @@
 ESP32 firmware for the robot end of the classroom Robotics Hub — a
 [`zenoh-pico`](https://github.com/eclipse-zenoh/zenoh-pico) client that publishes
 telemetry to (and will serve the `led` RPC from) the Zenoh hub at
-[`better-robotics/hub`](https://github.com/better-robotics/hub). Robots are
+[`better-robotics/hub-zenoh`](https://github.com/better-robotics/hub-zenoh). Robots are
 role-named — every unit today is a rover (`rover-XXXX`); the hardware model rides
 telemetry as metadata, so one codebase covers every board, and future roles, without
 renaming anything.
