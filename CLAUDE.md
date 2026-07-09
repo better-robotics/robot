@@ -31,8 +31,9 @@ is product surface and stays.
   via a plug-in USB↔UART adapter; **no BOOT button**, so provisioning re-entry
   is the join-failure fallback or the `reprovision` topic; LED=GPIO33 rear red,
   active-low). Each env passes `-DMQTT_USER`/`-DMQTT_PASS` (default demo `team1`)
-  — override per board to flash different teams until BLE provisioning of creds
-  lands.
+  as a *fallback* only — a rover's team is assigned post-join over MQTT
+  (`robots/<id>/cmd/config`, persisted to NVS) from the hub dashboard's "Assign
+  a rover" panel, so boards flash identically and get named at the hub.
 - Platform pinned **`espressif32@6.13.0`** (IDF 5.1) for reproducible builds —
   the old `<7.x` constraint was zenoh-pico's PIO build; that reason is gone, the
   pin is now just stability.
@@ -135,8 +136,10 @@ correct code.
 ## Conventions
 - **Measured data only** — publish only what the board truly measures (uptime, heap).
   No faked IMU. `synthetic:false`.
-- **NVS namespace `"rover"`** — keys: `ssid`, `pass`, `locator`. Nothing else —
-  mode state deliberately does not persist.
+- **NVS namespace `"rover"`** — keys: `ssid`/`pass`/`locator` (network),
+  `user`/`mpass`/`name` (post-join team identity), `mpins` (6-byte motor-pin
+  blob, a custom-wired chassis). All optional — absent falls back to the
+  compile-time default. Mode state deliberately does not persist.
 - **One radio path per boot** — operating mode: Wi-Fi only; provisioning mode: BLE only.
 
 ## Status

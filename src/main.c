@@ -224,6 +224,15 @@ static volatile bool s_mqtt_up = false;   /* live session; drives dead-session s
 #define ENCODER_LEFT  32
 #define ENCODER_RIGHT 34
 
+/* Runtime pins — default to the macros above, overridable post-join via
+ * robots/<id>/cmd/config {"pins":{ena,in1,in2,enb,in3,in4}} → NVS. A student
+ * wires their own chassis, so the pinout is config, not a build constant.
+ * Encoders stay compile-time: nothing reads them yet (odometry is duke#18), so
+ * a config field for them would claim a capability that isn't wired. */
+static int s_pin_ena = MOTOR_ENA, s_pin_in1 = MOTOR_IN1, s_pin_in2 = MOTOR_IN2,
+           s_pin_enb = MOTOR_ENB, s_pin_in3 = MOTOR_IN3, s_pin_in4 = MOTOR_IN4;
+static bool s_motor_ready = false;   /* false if init failed on a bad pin — drive is a no-op */
+
 enum { CH_ENA, CH_ENB };   /* two LEDC channels, one per enable/speed pin */
 static esp_timer_handle_t s_motor_watchdog;
 
@@ -234,41 +243,52 @@ static void motor_speed(int ch, int duty) {
 
 /* signed ±255 per wheel: sign → the IN direction pair, magnitude → EN duty. */
 static void motor_drive(int left, int right) {
-    gpio_set_level(MOTOR_IN1, left > 0);
-    gpio_set_level(MOTOR_IN2, left < 0);
+    if (!s_motor_ready) return;   /* a bad pin config left motors uninitialized */
+    gpio_set_level(s_pin_in1, left > 0);
+    gpio_set_level(s_pin_in2, left < 0);
     motor_speed(CH_ENA, left  < 0 ? -left  : left);
-    gpio_set_level(MOTOR_IN3, right > 0);
-    gpio_set_level(MOTOR_IN4, right < 0);
+    gpio_set_level(s_pin_in3, right > 0);
+    gpio_set_level(s_pin_in4, right < 0);
     motor_speed(CH_ENB, right < 0 ? -right : right);
 }
 
 static void motor_stop(void *unused) { (void)unused; motor_drive(0, 0); }
 
+/* Graceful, not ESP_ERROR_CHECK: a student-supplied pin could be invalid for
+ * this chip, and aborting would reboot → re-read the same pin → abort again, a
+ * permanent boot loop. On failure the motors stay a no-op (s_motor_ready=false)
+ * and the rover still boots, connects, and reports — recoverable by re-config. */
 static void motor_init(void) {
     gpio_config_t dirs = {
-        .pin_bit_mask = (1ULL << MOTOR_IN1) | (1ULL << MOTOR_IN2) |
-                        (1ULL << MOTOR_IN3) | (1ULL << MOTOR_IN4),
+        .pin_bit_mask = (1ULL << s_pin_in1) | (1ULL << s_pin_in2) |
+                        (1ULL << s_pin_in3) | (1ULL << s_pin_in4),
         .mode = GPIO_MODE_OUTPUT,
     };
-    ESP_ERROR_CHECK(gpio_config(&dirs));
+    esp_err_t e = gpio_config(&dirs);
     ledc_timer_config_t timer = {
         .speed_mode = LEDC_LOW_SPEED_MODE, .timer_num = LEDC_TIMER_0,
         .duty_resolution = LEDC_TIMER_8_BIT, .freq_hz = 1000, .clk_cfg = LEDC_AUTO_CLK,
     };
-    ESP_ERROR_CHECK(ledc_timer_config(&timer));
-    const int en[2] = { MOTOR_ENA, MOTOR_ENB };
-    for (int ch = 0; ch < 2; ch++) {
+    if (e == ESP_OK) e = ledc_timer_config(&timer);
+    const int en[2] = { s_pin_ena, s_pin_enb };
+    for (int ch = 0; ch < 2 && e == ESP_OK; ch++) {
         ledc_channel_config_t c = {
             .gpio_num = en[ch], .speed_mode = LEDC_LOW_SPEED_MODE,
             .channel = ch, .timer_sel = LEDC_TIMER_0, .duty = 0, .hpoint = 0,
         };
-        ESP_ERROR_CHECK(ledc_channel_config(&c));
+        e = ledc_channel_config(&c);
     }
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "motor init failed (%s) — bad pin config? motors disabled",
+                 esp_err_to_name(e));
+        return;
+    }
+    s_motor_ready = true;
     motor_drive(0, 0);   /* enables low, direction defined */
     const esp_timer_create_args_t wd = { .callback = motor_stop, .name = "motor_wd" };
     ESP_ERROR_CHECK(esp_timer_create(&wd, &s_motor_watchdog));
     ESP_LOGI(TAG, "motors: L ena=%d in=%d/%d  R enb=%d in=%d/%d",
-             MOTOR_ENA, MOTOR_IN1, MOTOR_IN2, MOTOR_ENB, MOTOR_IN3, MOTOR_IN4);
+             s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4);
 }
 
 static int json_int(const cJSON *root, const char *key, int dflt) {
@@ -306,6 +326,8 @@ static void config_apply(const char *json, int len) {
     if (cJSON_IsString(target) && strcmp(target->valuestring, s_id) != 0) {
         cJSON_Delete(root); return;   /* not addressed to this board */
     }
+    bool changed = false;
+
     const cJSON *team = cJSON_GetObjectItemCaseSensitive(root, "team");
     const cJSON *pass = cJSON_GetObjectItemCaseSensitive(root, "pass");
     const cJSON *name = cJSON_GetObjectItemCaseSensitive(root, "name");
@@ -313,13 +335,37 @@ static void config_apply(const char *json, int len) {
         rover_config_set_identity(team->valuestring,
                                   cJSON_IsString(pass) ? pass->valuestring : "",
                                   cJSON_IsString(name) ? name->valuestring : "");
-        ESP_LOGW(TAG, "assigned team '%s' — rebooting to reconnect", team->valuestring);
-        cJSON_Delete(root);
+        ESP_LOGW(TAG, "assigned team '%s'", team->valuestring);
+        changed = true;
+    }
+
+    /* Optional {"pins":{ena,in1,in2,enb,in3,in4}} — a student's chassis wiring.
+     * Seed with current pins so a partial object only overrides what it names;
+     * set_motor_pins rejects out-of-range and won't persist a boot-loop pin. */
+    const cJSON *pins = cJSON_GetObjectItemCaseSensitive(root, "pins");
+    if (cJSON_IsObject(pins)) {
+        int p[6] = { s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4 };
+        const char *keys[6] = { "ena", "in1", "in2", "enb", "in3", "in4" };
+        for (int i = 0; i < 6; i++) {
+            const cJSON *v = cJSON_GetObjectItemCaseSensitive(pins, keys[i]);
+            if (cJSON_IsNumber(v)) p[i] = v->valueint;
+        }
+        if (rover_config_set_motor_pins(p) == ESP_OK) {
+            ESP_LOGW(TAG, "motor pins updated: %d %d %d %d %d %d",
+                     p[0], p[1], p[2], p[3], p[4], p[5]);
+            changed = true;
+        } else {
+            ESP_LOGW(TAG, "config: motor pins out of range (0..33), ignored");
+        }
+    }
+
+    cJSON_Delete(root);
+    if (changed) {   /* reboot re-reads NVS: new team reconnects, new pins re-init */
+        ESP_LOGW(TAG, "config applied — rebooting");
         vTaskDelay(pdMS_TO_TICKS(300));   /* flush log + let the broker ack */
         esp_restart();
     }
-    ESP_LOGW(TAG, "config: no 'team' field, ignored");
-    cJSON_Delete(root);
+    ESP_LOGW(TAG, "config: nothing to apply");
 }
 
 /* Three subscriptions: robots/<id>/pwm (drive), /cmd/config (post-join team
@@ -421,6 +467,14 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
         },
         .session.keepalive = 15,
     };
+    {   /* pins default to the macros; NVS overrides when a chassis was configured */
+        int pins[6] = { s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4 };
+        if (rover_config_load_motor_pins(pins)) {
+            s_pin_ena = pins[0]; s_pin_in1 = pins[1]; s_pin_in2 = pins[2];
+            s_pin_enb = pins[3]; s_pin_in3 = pins[4]; s_pin_in4 = pins[5];
+            ESP_LOGI(TAG, "motor pins from NVS");
+        }
+    }
     motor_init();   /* ready before CONNECTED can deliver a pwm command */
     esp_mqtt_client_handle_t cli = esp_mqtt_client_init(&mcfg);
     if (!cli) { ESP_LOGE(TAG, "mqtt init failed"); goto fail; }

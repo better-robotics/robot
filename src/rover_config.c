@@ -69,3 +69,29 @@ esp_err_t rover_config_set_identity(const char *user, const char *pass, const ch
     nvs_close(h);
     return e;
 }
+
+// Stored as one 6-byte blob under "mpins" — GPIO numbers fit in a byte and the
+// set is atomic (all six or none).
+bool rover_config_load_motor_pins(int pins[6]) {
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return false;
+    uint8_t raw[6]; size_t len = sizeof raw;
+    bool ok = nvs_get_blob(h, "mpins", raw, &len) == ESP_OK && len == 6;
+    nvs_close(h);
+    if (ok) for (int i = 0; i < 6; i++) pins[i] = raw[i];
+    return ok;
+}
+
+esp_err_t rover_config_set_motor_pins(const int pins[6]) {
+    uint8_t raw[6];
+    for (int i = 0; i < 6; i++) {
+        if (pins[i] < 0 || pins[i] > 33) return ESP_ERR_INVALID_ARG;  // 34-39 are input-only
+        raw[i] = (uint8_t)pins[i];
+    }
+    nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+    e = nvs_set_blob(h, "mpins", raw, sizeof raw);
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+    return e;
+}
