@@ -90,13 +90,19 @@ existed to dodge a live STA→APSTA switch; it also caused two HW bugs — the
 `RTC_DATA` wipe loop and the pi-watch stack panic). **Islands, not attraction:** a
 self-broker board's AP is `rover-<id>`, *not* `hub-*`, so nothing joins it. A
 shared broker (central control) is opt-in via an explicit hub (a Pi, or a board
-pinned to `role_pref=HUB`). An island board yields **only** to a Pi (`hub-pi-*`)
-via a **clean restart** (board_run re-runs, discovers the Pi, joins it); it does
-not fight peer islands. All APs **open** by default. mDNS: a board is
-**`rover.local`**, a hub is `hub.local` (a board never claims `hub.local` — it
-would collide with the Pi). The always-on AP keeps `http://rover.local/`
-reachable for the #17 config panel ("set your home Wi-Fi" = the home switch);
-cost is per-board beacons in a classroom (`hub#3`, measure-then-mitigate).
+pinned to `role_pref=HUB`). An island board yields to any **`hub-*`** via a
+**clean restart** (board_run re-runs, discovers the hub, joins it) — safe against
+peer islands, which advertise `rover-<id>` not `hub-*`, so it also self-heals a
+missed boot scan and joins a hub started after boot. It does not fight peer
+islands. A board's own AP sits on **192.168.99.1** (not the ESP default
+192.168.4.1) so its STA can pull a clean 192.168.4.x lease from a hub — else it
+associates but can't route (two interfaces, one subnet) and wrongly islands.
+`discover_hub` retries the scan 3× (a single active scan can miss a present AP).
+All APs **open** by default. mDNS: a board is **`rover.local`**, a hub is
+`hub.local` (a board never claims `hub.local` — it would collide with the Pi).
+The always-on AP keeps `http://rover.local/` reachable for the #17 config panel
+("set your home Wi-Fi" = the home switch); cost is per-board beacons in a
+classroom (`hub#3`, measure-then-mitigate).
 
 > **Status (2026-07-09):** always-APSTA board built and **hardware-validated on
 > the C3** — APSTA from boot, `rover.local`, island broker, drive, **no reboot**,

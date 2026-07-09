@@ -33,6 +33,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
+#include "lwip/ip4_addr.h"       /* IP4_ADDR — relocating the board AP off 192.168.4.0/24 */
 #include "mosq_broker.h"
 #include "mdns.h"
 #include "roles.h"
@@ -144,12 +145,29 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
  * Brings up netif + Wi-Fi in APSTA with the given open AP SSID and mDNS
  * hostname, and starts the radio. The STA leg is left unconfigured — the caller
  * sets it (a fixed uplink for the hub, a discovered/stored one for a board). */
-static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host)
+static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, bool ap_alt_subnet)
 {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ap_netif = esp_netif_create_default_wifi_ap();
     sta_netif = esp_netif_create_default_wifi_sta();
+
+    /* A board keeps its OWN AP up while its STA joins a hub — but every ESP32
+     * softAP defaults to 192.168.4.1/24, the SAME subnet the hub leases from, so
+     * the STA can associate yet never route (two interfaces, one subnet → DHCP/
+     * routing breaks; observed: board associates with hub-e349, gets no IP, and
+     * wrongly falls back to islanding). Relocate the board's AP to 192.168.99.0/24
+     * so its STA can pull a clean 192.168.4.x lease. The dedicated hub keeps
+     * .4.1 (it's the one boards join, not the other way round). */
+    if (ap_alt_subnet) {
+        esp_netif_ip_info_t ip = {0};
+        IP4_ADDR(&ip.ip, 192, 168, 99, 1);
+        IP4_ADDR(&ip.gw, 192, 168, 99, 1);
+        IP4_ADDR(&ip.netmask, 255, 255, 255, 0);
+        ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
+        ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &ip));
+        ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
+    }
 
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                                         &wifi_events, NULL, NULL));
@@ -214,10 +232,9 @@ static bool sta_join(const char *ssid, const char *pass)
 
 /* Zero-touch onboarding: an OPEN network named hub-* is the classroom
  * convention, so its existence is all the config a rover needs; strongest wins. */
-static bool discover_hub(char out[33])
+/* One active scan; returns the strongest open hub-* found (or false). */
+static bool scan_for_hub(char out[33])
 {
-    s_want_connect = false;   /* don't let a reconnect fire mid-scan ("scan not allowed") */
-    ESP_LOGI(TAG, "scanning for an open hub-* network");
     if (esp_wifi_scan_start(NULL, true) != ESP_OK) return false;
     uint16_t n = 0;
     esp_wifi_scan_get_ap_num(&n);
@@ -239,33 +256,52 @@ static bool discover_hub(char out[33])
     return best >= 0;
 }
 
-/* ── Pi-preference (DESIGN-unified.md § Pi-preference) ────────────────────────
- * A board self-hubbed because it saw no hub — but a Pi boots ~30-60 s slower, so
- * it may appear just after. For a bounded window, watch for the Pi (`hub-pi-*`)
- * ONLY and step down to it; peer ESP islands are left alone. Yielding = a clean
- * esp_restart (NOT a mode switch, and no RTC flag): board_run re-runs, discovers
- * the now-present Pi, and joins it as a rover. */
-#define PI_WATCH_WINDOW_MS  180000   /* watch the first ~3 min, then commit as the island */
-#define PI_WATCH_SCAN_MS     20000   /* slow — an active scan interrupts AP+STA briefly */
-#define PI_SCAN_MAX_AP 20            /* heap-sized cap; a classroom sees far fewer hubs */
+/* Zero-touch onboarding: an OPEN network named hub-* is the classroom convention,
+ * so its existence is all the config a rover needs; strongest wins. Retried a few
+ * times — a single active scan (especially while our own AP is beaconing) can miss
+ * an AP that IS there, and a false "no hub" wrongly drops an AUTO board to islanding. */
+#define HUB_SCAN_TRIES 3
+static bool discover_hub(char out[33])
+{
+    s_want_connect = false;   /* don't let a reconnect fire mid-scan ("scan not allowed") */
+    ESP_LOGI(TAG, "scanning for an open hub-* network");
+    for (int t = 0; t < HUB_SCAN_TRIES; t++) {
+        if (scan_for_hub(out)) return true;
+    }
+    return false;
+}
 
-static bool sees_pi_to_yield_to(const uint8_t self_bssid[6])
+/* ── hub-watch: an island yields to a real hub (DESIGN-unified.md § Pi-preference)
+ * A board islanded because it saw no hub — but one may appear just after (a Pi
+ * boots ~30-60 s slower than an ESP; a professor's hub is switched on; or our own
+ * boot scan simply missed it). For a bounded window, watch for any `hub-*` and
+ * step down to it. This is SAFE against peer islands because an island raises
+ * `rover-<id>`, NOT `hub-*` — so a `hub-*` beacon can only be a *real* designated
+ * hub (a Pi `hub-pi-*` or a tier-2 professor hub), never another home board.
+ * Yielding = a clean esp_restart (NOT a mode switch, no RTC flag): board_run
+ * re-runs, discovers the now-present hub, and joins it as a rover. */
+#define HUB_WATCH_WINDOW_MS 180000   /* watch the first ~3 min, then commit as the island */
+#define HUB_WATCH_SCAN_MS    20000   /* slow — an active scan interrupts AP+STA briefly */
+#define HUB_SCAN_MAX_AP 20           /* heap-sized cap; a classroom sees far fewer hubs */
+
+static bool sees_hub_to_yield_to(const uint8_t self_bssid[6])
 {
     wifi_scan_config_t sc = { .show_hidden = false };
     if (esp_wifi_scan_start(&sc, true) != ESP_OK) return false;
     /* Heap, NOT stack: wifi_ap_record_t is ~80 B on IDF 5.5, so [20] is ~1.6 KB —
-     * a stack array here overran pi-watch's task stack and panicked the board into
+     * a stack array here overran hub-watch's task stack and panicked the board into
      * a reboot loop (Stack protection fault, observed on the C3 2026-07-09). */
-    wifi_ap_record_t *ap = malloc(PI_SCAN_MAX_AP * sizeof *ap);
+    wifi_ap_record_t *ap = malloc(HUB_SCAN_MAX_AP * sizeof *ap);
     if (!ap) return false;
-    uint16_t n = PI_SCAN_MAX_AP;
+    uint16_t n = HUB_SCAN_MAX_AP;
     bool yield = false;
     if (esp_wifi_scan_get_ap_records(&n, ap) == ESP_OK) {
         for (int i = 0; i < n; i++) {
             const char *ss = (const char *)ap[i].ssid;
             if (memcmp(ap[i].bssid, self_bssid, 6) == 0) continue;   /* our own AP beacon */
-            if (strncmp(ss, HUB_PI_SSID_PREFIX, sizeof HUB_PI_SSID_PREFIX - 1) == 0) {
-                ESP_LOGW(TAG, "yield: Pi hub '%s' present — stepping down (Pi is preferred)", ss);
+            if (ap[i].authmode == WIFI_AUTH_OPEN &&
+                strncmp(ss, HUB_SSID_PREFIX, sizeof HUB_SSID_PREFIX - 1) == 0) {
+                ESP_LOGW(TAG, "yield: hub '%s' present — stepping down (a real hub is preferred)", ss);
                 yield = true;
                 break;
             }
@@ -275,19 +311,19 @@ static bool sees_pi_to_yield_to(const uint8_t self_bssid[6])
     return yield;
 }
 
-static void pi_watch_task(void *arg)
+static void hub_watch_task(void *arg)
 {
     (void)arg;
     uint8_t self_bssid[6];
     esp_read_mac(self_bssid, ESP_MAC_WIFI_SOFTAP);
-    for (uint32_t waited = 0; waited < PI_WATCH_WINDOW_MS; waited += PI_WATCH_SCAN_MS) {
-        vTaskDelay(pdMS_TO_TICKS(PI_WATCH_SCAN_MS));
-        if (sees_pi_to_yield_to(self_bssid)) {
+    for (uint32_t waited = 0; waited < HUB_WATCH_WINDOW_MS; waited += HUB_WATCH_SCAN_MS) {
+        vTaskDelay(pdMS_TO_TICKS(HUB_WATCH_SCAN_MS));
+        if (sees_hub_to_yield_to(self_bssid)) {
             vTaskDelay(pdMS_TO_TICKS(500));
-            esp_restart();   /* clean restart → board_run → discovery → join the Pi */
+            esp_restart();   /* clean restart → board_run → discovery → join the hub */
         }
     }
-    ESP_LOGI(TAG, "no Pi appeared — committed as the island (Pi-watch window closed)");
+    ESP_LOGI(TAG, "no hub appeared — committed as the island (hub-watch window closed)");
     vTaskDelete(NULL);
 }
 
@@ -315,7 +351,8 @@ void board_run(bool self_broker_ok)
     esp_read_mac(stamac, ESP_MAC_WIFI_STA);
     char ap_ssid[16];
     rover_format_robot_id(stamac, ap_ssid);   /* "rover-<suffix>" — matches the board id */
-    wifi_apsta_up(ap_ssid, "rover");          /* AP + STA radio up; mDNS → rover.local */
+    wifi_apsta_up(ap_ssid, "rover", true);    /* AP on 192.168.99.1 (so the STA can join a
+                                               * hub cleanly); mDNS → rover.local */
 
     bool broker_started = false;
     for (;;) {
@@ -352,7 +389,7 @@ void board_run(bool self_broker_ok)
             if (!broker_started) {
                 xTaskCreate(broker_task, "broker", 4096, NULL, 5, NULL);
                 start_ws_mqtt_bridge();
-                xTaskCreate(pi_watch_task, "pi-watch", 4096, NULL, 4, NULL);
+                xTaskCreate(hub_watch_task, "hub-watch", 4096, NULL, 4, NULL);
                 broker_started = true;
                 vTaskDelay(pdMS_TO_TICKS(2000));   /* let the broker bind :1883 first */
             }
@@ -384,7 +421,8 @@ void hub_role_run(void)
     esp_read_mac(apmac, ESP_MAC_WIFI_SOFTAP);
     char ap_ssid[16];
     snprintf(ap_ssid, sizeof ap_ssid, AP_SSID_PREFIX "%02x%02x", apmac[4], apmac[5]);
-    wifi_apsta_up(ap_ssid, "hub");            /* mDNS → hub.local (matches the Pi) */
+    wifi_apsta_up(ap_ssid, "hub", false);     /* AP stays 192.168.4.1 — boards join THIS;
+                                               * mDNS → hub.local (matches the Pi) */
 
     /* Fixed venue uplink from the gitignored creds header — fire-and-forget: the
      * broker below must come up NOW (the classroom works offline), so we don't

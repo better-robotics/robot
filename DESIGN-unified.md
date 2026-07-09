@@ -48,11 +48,19 @@ complexity. Both later passes drop the distributed part entirely.
   one broker, one dashboard, one rover; the student joins *their* `rover-<id>`.
   A **shared** broker (central control — one dashboard, per-team ACL on the Pi) is
   opt-in: an explicit hub — a **Pi**, or a board **pinned to `role_pref=HUB`**.
-- **Pi-preference, minimal.** An island board keeps watching *only* for a Pi
-  (`hub-pi-*`) and steps down to it via a **clean restart** (not a mode switch,
-  no RTC flag — `board_run` re-runs, discovers the Pi, joins it). It does **not**
-  fight peer ESP islands — they're the intended steady state. (Owed: the Pi
-  advertises `hub-pi-<suffix>`, a `hub`-repo change.)
+- **Hub-preference.** An island board keeps watching for any **`hub-*`** and steps
+  down to it via a **clean restart** (not a mode switch, no RTC flag — `board_run`
+  re-runs, discovers the hub, joins it). This is safe against peer islands *because*
+  islands raise `rover-<id>`, not `hub-*` — so a `hub-*` beacon can only be a real
+  designated hub (a Pi `hub-pi-*` or a tier-2 professor hub), never another home
+  board. It also self-heals a boot scan that missed the hub, and lets a board join
+  a hub switched on *after* it booted. (Owed: the Pi advertises `hub-pi-<suffix>`.)
+- **The board's own AP sits on `192.168.99.1`, not the ESP default `192.168.4.1`.**
+  A board keeps its AP up while its STA joins a hub — but the hub also leases from
+  `192.168.4.0/24`, so a board on the default subnet associates yet never routes
+  (two interfaces, one subnet → DHCP/routing breaks; it wrongly falls back to
+  islanding). Relocating the board AP lets its STA pull a clean `192.168.4.x`
+  lease. The dedicated hub keeps `.4.1` — it's the one boards join.
 - **APs are open by default.** No password to join a hub or a rover island. An
   optional per-board WPA2 password can be set later (rides with the `#17` panel).
 - **mDNS: `rover.local` for a board, `hub.local` for a hub.** A board never claims
@@ -100,8 +108,8 @@ boot → load NVS (role_pref, uplink wifi, team creds, motor pins)
               ├─ open hub-* discovered ────► join it, drive off the gateway (classroom)
               └─ neither, and AUTO ────────► start local broker, drive 127.0.0.1 (island)
                                              │  (rover-pinned instead: rescan, no island)
-                                             └─ watch for a Pi (hub-pi-*) → clean restart
-                                                → re-run board_run → join the Pi
+                                             └─ watch for any hub-* → clean restart
+                                                → re-run board_run → join the hub
               (on a dead drive session: re-evaluate the same loop — no reboot)
 ```
 
@@ -127,13 +135,14 @@ emergent, and decided at runtime — the board never reboots to change it:
   central when a hub is provided, per-board islands when it isn't — and a board
   **degrades gracefully without a reboot**: lose the hub mid-session and an AUTO
   board's next loop pass islands itself; the hub returns and Pi-watch rejoins it.
-- **Pi-preference** — an island board keeps scanning and yields **only** to a Pi
-  (`hub-pi-*`), whatever its MAC; it does *not* step down for peer ESP islands.
-  The slow-Pi race (Pi's AP appears ~30–60 s after an ESP's ~1 s boot) is handled
-  by the island board seeing `hub-pi-*` and doing a **clean restart** (not a mode
-  switch, no RTC flag) — `board_run` re-runs, now discovers the Pi, and joins it.
-  **Owed (`hub` repo):** the Pi advertises `hub-pi-<suffix>` — until then an
-  already-islanded ESP has no marker to yield to.
+- **Hub-preference** — an island board keeps scanning and yields to any **`hub-*`**
+  via a **clean restart** (not a mode switch, no RTC flag) — `board_run` re-runs,
+  discovers the hub, joins it. Safe against peer islands because they advertise
+  `rover-<id>`, never `hub-*`; so this covers the slow-Pi race (Pi appears ~30–60 s
+  after an ESP's ~1 s boot), a boot scan that *missed* a present hub, and a hub
+  switched on after boot — all with one rule. **Owed (`hub` repo):** the Pi
+  advertises `hub-pi-<suffix>` so it's distinguishable as *the* preferred hub (for
+  a future rule that prefers a Pi over a peer tier-2 ESP hub).
 
 ## Onboarding: post-join config, not a captive portal (cold-pass revision)
 
