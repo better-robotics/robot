@@ -1,7 +1,7 @@
 .pio/
 /sdkconfig
-/sdkconfig.esp32*
-/sdkconfig.old
+/sdkconfig.*
+!/sdkconfig.defaults
 managed_components/
 dependencies.lock
 .superpowers/
