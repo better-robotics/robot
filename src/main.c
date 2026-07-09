@@ -26,13 +26,17 @@
 
 static const char *TAG = "boot";
 
-/* Transient "boot as hub this time" flag (self-hub claim, roles.h). RTC slow
- * memory survives esp_restart — the self-hub claim reboot and the hub's Pi-yield
- * reboot — but is re-initialized on power-on, so a power cycle always re-runs
- * discovery. That's the point: a tier-3 board must re-evaluate and yield to a Pi
- * that is now present, rather than persist as a second hub. */
+/* Transient "boot as hub this time" flag (self-hub claim, roles.h). MUST be
+ * RTC_NOINIT, not RTC_DATA: startup RE-INITIALIZES .rtc.data from its load value
+ * (0) on a normal esp_restart, which silently wiped the flag before the
+ * dispatcher read it — a self-hub board just rebooted as a rover forever
+ * (observed on the C3, 2026-07-09). .rtc_noinit is never touched by startup, so
+ * it survives esp_restart (the claim reboot, the Pi-yield reboot). On a true
+ * power-on it holds garbage — the HUB_BOOT_MAGIC check rejects that, so a power
+ * cycle re-runs discovery and a tier-3 board re-evaluates (yields to a Pi now
+ * present) rather than persisting as a second hub. */
 #define HUB_BOOT_MAGIC  0x48554221u   /* "HUB!" */
-static RTC_DATA_ATTR uint32_t s_hub_boot_flag;
+static RTC_NOINIT_ATTR uint32_t s_hub_boot_flag;
 
 void role_boot_as_hub(void) {
     s_hub_boot_flag = HUB_BOOT_MAGIC;
