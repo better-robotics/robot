@@ -13,7 +13,7 @@
 #include "esp_wifi.h"
 #include "esp_attr.h"
 #include "driver/gpio.h"
-#include "zenoh-pico.h"
+#include "mqtt_client.h"
 #include "rover_config.h"
 #include "provisioning_util.h"
 #include "provisioning.h"
@@ -40,7 +40,7 @@ static char s_id[16];
  *
  * The two radios never run in the same boot:
  *
- *   operating (Wi-Fi + zenoh) ── failure, button, or fabric command ──► provisioning window
+ *   operating (Wi-Fi + MQTT)  ── failure, button, or fabric command ──► provisioning window
  *   provisioning (BLE)        ── done, window expiry, or button ──► restart into operating,
  *                                which retries stored credentials or re-scans for a hub
  */
@@ -94,7 +94,7 @@ static void button_task(void *p) {
     }
 }
 
-/* ── operating mode: Wi-Fi STA + zenoh client ────────────────────────────── */
+/* ── operating mode: Wi-Fi STA + esp-mqtt client ─────────────────────────── */
 
 static volatile bool s_got_ip = false;
 static volatile bool s_want_connect = false;   /* gates auto-reconnect during scans */
@@ -166,15 +166,50 @@ static bool discover_hub(char out[33]) {
     return best >= 0;
 }
 
+/* MQTT identity. robot-id == the team credential (CONTRACT.md § Discovery &
+ * isolation): the rover authenticates as its team and publishes under its own
+ * robots/<team> subtree, so the Pi's `pattern robots/%u/#` ACL admits it and a
+ * team can't touch another's subtree. The MAC-derived s_id stays the BLE adv
+ * name + a payload field — hardware is metadata, never the topic id.
+ * Demo defaults; real per-team creds arrive via provisioning (hub#1 follow-up). */
+#ifndef MQTT_USER
+#define MQTT_USER "team1"
+#endif
+#ifndef MQTT_PASS
+#define MQTT_PASS "change-me-team1"
+#endif
+static const char *s_topic_id = MQTT_USER;
+
+static volatile bool s_mqtt_up = false;   /* live session; drives dead-session self-heal */
+
 /* Fabric-triggered re-entry: publish anything to robots/<id>/cmd/reprovision
- * (cmd/<verb> is the command plane — future verbs sit beside it) and
- * the rover reboots into a provisioning window. The BOOT button's remote
- * twin — and the only re-entry an ESP32-CAM has (no button at all). */
-static void on_reprovision(z_loaned_sample_t *sample, void *arg) {
-    (void)sample; (void)arg;
-    ESP_LOGW(TAG, "reprovision command — opening a provisioning window");
-    s_provision_request = PROVISION_MAGIC;
-    esp_restart();
+ * (cmd/<verb> is the command plane) and the rover reboots into a provisioning
+ * window. The BOOT button's remote twin — the only re-entry an ESP32-CAM has.
+ * We subscribe only that one topic, so any MQTT_EVENT_DATA is the reprovision. */
+static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
+    (void)arg; (void)base;
+    esp_mqtt_event_handle_t e = data;
+    switch ((esp_mqtt_event_id_t)id) {
+    case MQTT_EVENT_CONNECTED: {
+        s_mqtt_up = true;
+        char rkey[48];
+        snprintf(rkey, sizeof rkey, "robots/%s/cmd/reprovision", s_topic_id);
+        esp_mqtt_client_subscribe(e->client, rkey, 0);
+        ESP_LOGI(TAG, "mqtt connected; subscribed %s", rkey);
+        break;
+    }
+    case MQTT_EVENT_DISCONNECTED:
+        s_mqtt_up = false;
+        ESP_LOGW(TAG, "mqtt disconnected");
+        break;
+    case MQTT_EVENT_DATA:
+        ESP_LOGW(TAG, "reprovision command — opening a provisioning window");
+        s_provision_request = PROVISION_MAGIC;
+        esp_restart();
+        break;
+    default:
+        break;
+    }
 }
 
 static void operating_mode(char *ssid, const char *pass, const char *locator) {
@@ -205,80 +240,73 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
         }
     }
 
-    char derived[65];
-    if (!locator[0] || on_discovered) {
-        /* The discovered network's hub IS its gateway (NM shared mode); and a
-         * stored locator, when we're here via stale-config fallback, is as
-         * stale as the ssid it was written alongside. */
-        snprintf(derived, sizeof derived, "tcp/" IPSTR ":7447", IP2STR(&s_gw));
-        locator = derived;
-        ESP_LOGI(TAG, "hub address derived from gateway: %s", locator);
+    /* Broker URI. Gateway-first (CONTRACT.md): on the hub's own AP the DHCP
+     * gateway IS the hub, so <gateway>:1883 reaches the broker with no name
+     * lookup and no hardcoded IP — the one address the two hub hosts (Pi,
+     * ESP32) don't share. A stored locator overrides: a full mqtt:// URI is
+     * used as-is, a bare host becomes mqtt://<host>:1883. */
+    char uri[80];
+    if (locator[0] && !on_discovered) {
+        if (strncmp(locator, "mqtt://", 7) == 0)
+            snprintf(uri, sizeof uri, "%s", locator);
+        else
+            snprintf(uri, sizeof uri, "mqtt://%s:1883", locator);
+    } else {
+        snprintf(uri, sizeof uri, "mqtt://" IPSTR ":1883", IP2STR(&s_gw));
     }
+    ESP_LOGI(TAG, "broker %s as '%s'", uri, MQTT_USER);
 
-    z_owned_config_t config;
-    z_config_default(&config);
-    zp_config_insert(z_loan_mut(config), Z_CONFIG_MODE_KEY, "client");
-    zp_config_insert(z_loan_mut(config), Z_CONFIG_CONNECT_KEY, locator);
-    /* No auth: zenoh-pico 1.9 declares Z_CONFIG_USER/PASSWORD_KEY but its
-     * transport never implements the usrpwd extension, so a usrpwd-enforcing
-     * router rejects the session outright (verified on hardware 2026-07-04).
-     * MCU identity needs TLS certs or endpoint segregation — design open. */
+    /* esp-mqtt authenticates with username/password — the capability
+     * zenoh-pico lacked (usrpwd unimplemented), and the reason the rover ships
+     * on MQTT. Same firmware reaches either hub: both are raw-TCP brokers on
+     * :1883, and a rover never needs the WebSocket transport (that's the
+     * browser's constraint). */
+    esp_mqtt_client_config_t mcfg = {
+        .broker.address.uri = uri,
+        .credentials = {
+            .username = MQTT_USER,
+            .authentication.password = MQTT_PASS,
+        },
+        .session.keepalive = 15,
+    };
+    esp_mqtt_client_handle_t cli = esp_mqtt_client_init(&mcfg);
+    if (!cli) { ESP_LOGE(TAG, "mqtt init failed"); goto fail; }
+    esp_mqtt_client_register_event(cli, ESP_EVENT_ANY_ID, mqtt_evt, NULL);
+    esp_mqtt_client_start(cli);
 
-    z_owned_session_t s;
-    if (z_open(&s, z_move(config), NULL) < 0) {
-        ESP_LOGE(TAG, "z_open failed -> %s", locator);
-        goto fail;
-    }
-
-    /* The read task is what makes the session bidirectional — without it the
-     * reprovision subscriber below never sees a sample. Lease keepalives ride
-     * their own task; publish-only firmware got by on put traffic alone. */
-    if (zp_start_read_task(z_loan_mut(s), NULL) < 0 ||
-        zp_start_lease_task(z_loan_mut(s), NULL) < 0)
-        ESP_LOGW(TAG, "transport tasks failed — remote reprovision unavailable");
+    /* First connect gates everything: it proves both reachability AND that the
+     * team credential was accepted (a bad password disconnects here, never
+     * reaching s_mqtt_up). No connect in 10 s → dead → provisioning window. */
+    for (int i = 0; i < 40 && !s_mqtt_up; i++) vTaskDelay(pdMS_TO_TICKS(250));
+    if (!s_mqtt_up) { ESP_LOGE(TAG, "broker unreachable or credential rejected"); goto fail; }
 
     char key[48];
-    snprintf(key, sizeof key, "robots/%s/sys", s_id);
-    z_view_keyexpr_t ke;
-    z_view_keyexpr_from_str(&ke, key);
-
-    z_owned_publisher_t pub;
-    if (z_declare_publisher(z_loan(s), &pub, z_loan(ke), NULL) < 0) {
-        ESP_LOGE(TAG, "declare_publisher failed");
-        goto fail;  /* restart cleans up; z_close() not needed before esp_restart */
-    }
-
-    char rkey[48];
-    snprintf(rkey, sizeof rkey, "robots/%s/cmd/reprovision", s_id);
-    z_view_keyexpr_t rke;
-    z_view_keyexpr_from_str(&rke, rkey);
-    z_owned_closure_sample_t rcb;
-    z_closure(&rcb, on_reprovision, NULL, NULL);
-    z_owned_subscriber_t sub;
-    if (z_declare_subscriber(z_loan(s), &sub, z_loan(rke), z_move(rcb), NULL) < 0)
-        ESP_LOGW(TAG, "declare_subscriber failed — remote reprovision unavailable");
-
+    snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);
     ESP_LOGI(TAG, "publishing %s every 2 s", key);
 
-    char buf[160];
-    int put_fails = 0;   /* consecutive failed puts — detects a dead session */
+    char buf[192];
+    int down = 0;   /* consecutive 2 s ticks with no live session — dead → reprovision */
     for (;;) {
-        int64_t up_ms = esp_timer_get_time() / 1000;
-        uint32_t heap = esp_get_free_heap_size();
-        snprintf(buf, sizeof buf,
-                 "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD "\",\"synthetic\":false}",
-                 (long long)up_ms, (unsigned)heap);
-        z_owned_bytes_t payload;
-        z_bytes_copy_from_str(&payload, buf);
-        if (z_publisher_put(z_loan(pub), z_move(payload), NULL) < 0) {
-            if (++put_fails >= 5) {
-                ESP_LOGE(TAG, "5 consecutive put failures — session dead");
-                goto fail;
-            }
-            ESP_LOGW(TAG, "publish failed (%d/5)", put_fails);
+        if (s_mqtt_up) {
+            down = 0;
+            int64_t up_ms = esp_timer_get_time() / 1000;
+            uint32_t heap = esp_get_free_heap_size();
+            /* board id is metadata in the payload, not the topic (id == team). */
+            snprintf(buf, sizeof buf,
+                     "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
+                     "\",\"board\":\"%s\",\"synthetic\":false}",
+                     (long long)up_ms, (unsigned)heap, s_id);
+            if (esp_mqtt_client_publish(cli, key, buf, 0, 0, 0) >= 0)
+                ESP_LOGI(TAG, "pub %s", buf);
+            else
+                ESP_LOGW(TAG, "publish enqueue failed");
+        } else if (++down >= 10) {
+            /* esp-mqtt auto-reconnects, so a brief hub outage self-heals; only
+             * a sustained dead session (~20 s) drops to a provisioning window. */
+            ESP_LOGE(TAG, "20 s with no broker — session dead");
+            goto fail;
         } else {
-            put_fails = 0;
-            ESP_LOGI(TAG, "pub %s", buf);
+            ESP_LOGW(TAG, "waiting for reconnect (%d/10)", down);
         }
         vTaskDelay(pdMS_TO_TICKS(2000));
     }

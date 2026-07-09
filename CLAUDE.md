@@ -1,13 +1,17 @@
 # robot — project context
 
-ESP32 firmware: a `zenoh-pico` client for the classroom Robotics Hub
-([`better-robotics/hub-zenoh`](https://github.com/better-robotics/hub-zenoh)).
-Publishes telemetry to the hub router; will serve the `led` RPC. Sibling layer
-to the hub — this is the device end, C/ESP-IDF, not the Rust router.
-hub-zenoh is one of two live transport contenders (with
-[`better-robotics/hub-mqtt`](https://github.com/better-robotics/hub-mqtt)) —
-an `esp-mqtt` firmware env alongside this `zenoh-pico` one is on the roadmap
-once the MQTT variant's transport lands (hub-mqtt#1).
+ESP32 firmware: an `esp-mqtt` client for the classroom Robotics Hub
+([`better-robotics/hub`](https://github.com/better-robotics/hub)). Publishes
+telemetry to the hub broker, drives from `robots/<id>/pwm`, will serve the
+`led` RPC. Sibling layer to the hub — the device end, C/ESP-IDF, against the
+broker (Mosquitto on the Pi, or on-chip on the ESP32 hub; one firmware reaches
+either — both are raw-TCP brokers on :1883, CONTRACT.md § Discovery & isolation).
+
+**Transport: MQTT, ported from zenoh-pico 2026-07-09.** MQTT won the bake-off
+(hub-zenoh archived); the deciding factor for *this* firmware was auth —
+zenoh-pico has no usrpwd, so a per-team rover identity was impossible; esp-mqtt
+authenticates with username/password, which is the whole classroom isolation
+model. See git history for the zenoh-era firmware.
 
 **Naming** (repo renamed `rover`→`robot` 2026-07-04): the repo covers any MCU node
 role; robots are *role-named* — `rover-XXXX` is today's only role (a future camera
@@ -17,18 +21,23 @@ identifiers (`rover-`, `rover.html`, `namePrefix`) to say robot — role vocabul
 is product surface and stays.
 
 ## Build
-- **PlatformIO + ESP-IDF** — zenoh-pico's official ESP-IDF path (its `library.json` +
-  `extra_script.py` compile the lib). Pure `idf.py` won't work. `pio run -t upload`.
+- **PlatformIO + ESP-IDF** — `pio run -e <env> [-t upload]`. esp-mqtt is in-tree
+  with ESP-IDF (no external lib), so `mqtt` is just a component in `REQUIRES`
+  (src/CMakeLists.txt). Both `esp32dev` (xtensa) and `esp32c3-supermini` (riscv)
+  build-verified 2026-07-09.
 - Three envs: `esp32dev` (classic ESP32-D0WD devkit, CP2102, BOOT=GPIO0),
   `esp32c3-supermini` (ESP32-C3 QFN32, native USB-Serial/JTAG, BOOT=GPIO9 via
   `-DBUTTON_GPIO`), `esp32cam` (AI-Thinker ESP32-CAM — no USB socket, flashed
   via a plug-in USB↔UART adapter; **no BOOT button**, so provisioning re-entry
   is the join-failure fallback or the `reprovision` topic; LED=GPIO33 rear red,
-  active-low).
-- Platform pinned **`espressif32@6.13.0`** (`<7.x` — 7.0 jumps to IDF 6 and breaks
-  zenoh-pico's PIO build).
-- **Custom `partitions.csv`** — BLE + Wi-Fi + zenoh-pico together exceed the 1 MB
-  `single_app_large` default; custom table gives the app 3 MB.
+  active-low). Each env passes `-DMQTT_USER`/`-DMQTT_PASS` (default demo `team1`)
+  — override per board to flash different teams until BLE provisioning of creds
+  lands.
+- Platform pinned **`espressif32@6.13.0`** (IDF 5.1) for reproducible builds —
+  the old `<7.x` constraint was zenoh-pico's PIO build; that reason is gone, the
+  pin is now just stability.
+- **Custom `partitions.csv`** — kept from the zenoh era (it needed 3 MB). esp-mqtt
+  is far leaner (Flash ~34%), so the table is now roomy, not tight; harmless to keep.
 
 ## Boot flow
 
@@ -45,11 +54,11 @@ path: half-stale config isn't trusted by halves).
 
 ```
 boot ──► operating mode: stored ssid (or discover hub-*) → Wi-Fi STA
-         → z_open(stored locator, or tcp/<gateway>:7447)
-         → publish robots/rover-XXXX/sys every 2s
-         → subscribe robots/rover-XXXX/cmd/reprovision
-  │ nothing to join · join fails (30s) · z_open fails · 5 put failures
-  │ · button · reprovision sample
+         → mqtt connect(stored locator, or mqtt://<gateway>:1883) as <team>
+         → publish robots/<team>/sys every 2s
+         → subscribe robots/<team>/cmd/reprovision
+  │ nothing to join · join fails (30s) · no CONNACK in 10s (unreachable OR
+  │ credential rejected) · ~20s dead session · button · reprovision message
   ▼
 provisioning window (BLE, 3 min; extends while a client is connected)
   │ window expires (or button)
@@ -57,6 +66,8 @@ provisioning window (BLE, 3 min; extends while a client is connected)
 esp_restart() → operating mode again      ← outages and pre-hub power-on
                                             self-heal by alternating
 ```
+esp-mqtt **auto-reconnects**, so a brief hub outage self-heals in place; only a
+sustained (~20 s) dead session drops to a provisioning window.
 
 **BOOT button (GPIO0, hold ~1 s):** operating → provisioning window;
 provisioning → retry Wi-Fi now. The human within arm's reach is the out-of-band
@@ -64,20 +75,27 @@ channel — this is its API (covers wedged states the firmware can't self-detect
 **Remote twin:** publish anything to `robots/<id>/cmd/reprovision` — the only
 re-entry an ESP32-CAM has besides join failure (no button).
 
-**Zenoh scouting stays unused** — UDP multicast (`224.0.0.224:7446`) is blocked
-on the target networks (campus Wi-Fi filters multicast and isolates clients).
-Gateway derivation replaces it on the hub-AP path without multicast; explicit
-locator covers everything else.
+**Broker discovery = the DHCP gateway** — on the hub's own AP the gateway IS the
+hub, so `mqtt://<gateway>:1883` reaches the broker with no name lookup and no
+hardcoded IP (the one address the Pi and ESP32 hubs don't share). A stored
+locator overrides. No multicast — campus Wi-Fi filters it and isolates clients.
 
 ## Identity
-`rover-XXXX` derived from last 2 bytes of Wi-Fi MAC via `rover_format_robot_id`.
-Zero config — each board self-identifies at boot.
+Two ids, split by job (CONTRACT.md § Discovery & isolation):
+- **Topic/auth id == the team.** The rover authenticates as its team credential
+  and publishes under `robots/<team>/*`, so the Pi's `pattern robots/%u/#` ACL
+  admits it and teams can't cross. Currently a compile-time demo `team1`
+  (`-DMQTT_USER`); BLE provisioning of per-team creds is the next step.
+- **`rover-XXXX`** (last 2 MAC bytes via `rover_format_robot_id`) stays the BLE
+  advertising name + a `board` field in the sys payload — hardware is metadata,
+  never the topic id.
 
 ## Hardware-earned traps (2026-07-04, ESP32-C3 + Pi hub)
-- **zenoh-pico has no usrpwd** — `Z_CONFIG_USER/PASSWORD_KEY` exist in its config
-  header but no transport code consumes them; a usrpwd-enforcing router rejects the
-  session in ~200 ms (loud). MCU identity needs TLS certs or endpoint segregation.
-  Rust clients authenticate fine against the same router.
+- **~~zenoh-pico has no usrpwd~~ → RESOLVED by the MQTT port (2026-07-09).** This
+  was the deciding scar: zenoh-pico declares `Z_CONFIG_USER/PASSWORD_KEY` but no
+  transport code consumes them, so a per-team MCU identity was impossible (a
+  usrpwd router rejected the session in ~200 ms). esp-mqtt authenticates with
+  username/password natively — the reason the rover ships on MQTT, not Zenoh.
 - **WPA2 join fails against the Pi's brcmfmac AP** — 4-way handshake timeout
   (`run → init (0xf00)` loop) despite correct PSK; open AP joins in ~6 s. C3 client
   vs NM/wpa_supplicant AP interop, unresolved — investigate before shipping a
@@ -88,15 +106,20 @@ Zero config — each board self-identifies at boot.
   re-armed per completing write and deferred while a client is connected (a
   host-task sleep is not an alternative — it blocks the pending second write).
 
-## zenoh-pico API notes (1.9.0)
-- Config: `zp_config_insert(z_loan_mut(config), Z_CONFIG_MODE_KEY, "client")` +
-  `Z_CONFIG_CONNECT_KEY, "tcp/<ip>:7447"`.
-- `z_open(&s, z_move(config), NULL)` — read/lease tasks **auto-start** (multi-thread
-  default); do NOT call `zp_start_read_task`/`zp_start_lease_task`.
-- Publish: `z_bytes_copy_from_str(&payload, buf)` → `z_publisher_put(z_loan(pub), z_move(payload), NULL)`.
-- `z_close` takes a `z_loaned_session_t*` — do NOT call `z_close(z_move(s))` (API
-  mismatch); before `esp_restart()` just restart, the OS tears down everything.
-- `CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192` — the 3584 default overflows `z_open` + the loop.
+## esp-mqtt API notes (ESP-IDF 5.1)
+- Config: `esp_mqtt_client_config_t{ .broker.address.uri = "mqtt://<ip>:1883",
+  .credentials.username, .credentials.authentication.password,
+  .session.keepalive }`.
+- `esp_mqtt_client_init` → `esp_mqtt_client_register_event(cli, ESP_EVENT_ANY_ID,
+  cb, NULL)` → `esp_mqtt_client_start`. The client owns its own task; no manual
+  read/lease tasks (that was zenoh).
+- Auth + reachability both surface as **`MQTT_EVENT_CONNECTED`** — a rejected
+  password never reaches it (disconnects first), so "no CONNECT in 10 s" covers
+  both unreachable-broker and bad-credential in one gate.
+- Publish `esp_mqtt_client_publish(cli, topic, payload, 0, qos, retain)` (len 0 =
+  strlen); telemetry is qos 0, no retain. Subscribe in `MQTT_EVENT_CONNECTED`,
+  re-fires on every reconnect automatically.
+- Before `esp_restart()` just restart — the OS tears the client down.
 
 ## NimBLE API notes
 - `provisioning_advertise(name)` — sets adv fields + starts GAP advertising; owns
@@ -117,13 +140,16 @@ correct code.
 - **One radio path per boot** — operating mode: Wi-Fi only; provisioning mode: BLE only.
 
 ## Status
-v2 **hardware-verified 2026-07-04** — a three-rover fleet against the Pi hub in AP mode:
-a044 (classic devkit) · b79c (C3 SuperMini) · c9d0 (ESP32-CAM)
-(`hub-0d08`, open router): BLE
-provisioning → Wi-Fi → zenoh session → both rovers' telemetry interleaved at one
-subscriber; hub outage → 19 s dead-session detection → provisioning window →
-window expiry → automatic rejoin, no human touch. Window re-provisioning, the
-debounced done-reboot (read-back + linger survive; reboot exactly 4 s after the
-last write, post-disconnect), and the BOOT button both directions (window → retry
-now at 24.7 s; boot → publishing in 3.2 s) all verified. v3: `led` queryable +
-chip temp. Roadmap: `better-robotics/hub-zenoh#1`.
+**v3 (MQTT port) — build-verified 2026-07-09, hardware validation pending.**
+`esp32dev` + `esp32c3-supermini` both build clean; the whole zenoh transport
+swapped for esp-mqtt with per-team username/password auth (main.c). Not yet run
+on a board (none connected at port time). Validation gate: flash a rover, join
+the hub AP, confirm `robots/team1/sys` lands at a subscriber and a wrong password
+is refused — then wire motor drive from `robots/<id>/pwm` (hub#1).
+
+The v2 **zenoh** firmware was hardware-verified 2026-07-04 (three-rover fleet vs
+the Pi hub — BLE provision → Wi-Fi → session → interleaved telemetry, 19 s
+dead-session self-heal, debounced done-reboot, BOOT button both directions). The
+transport-independent halves of that — provisioning, Wi-Fi join/scan, self-heal
+alternation, the BOOT button — carry forward unchanged; only the session layer
+changed. Full detail in git history (pre-2026-07-09).
