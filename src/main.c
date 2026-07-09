@@ -246,12 +246,13 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
      * ESP32) don't share. A stored locator overrides: a full mqtt:// URI is
      * used as-is, a bare host becomes mqtt://<host>:1883. */
     char uri[80];
-    if (locator[0] && !on_discovered) {
-        if (strncmp(locator, "mqtt://", 7) == 0)
-            snprintf(uri, sizeof uri, "%s", locator);
-        else
-            snprintf(uri, sizeof uri, "mqtt://%s:1883", locator);
+    if (locator[0] && !on_discovered && strncmp(locator, "mqtt://", 7) == 0) {
+        /* a valid stored MQTT locator (full URI) overrides discovery */
+        snprintf(uri, sizeof uri, "%s", locator);
     } else {
+        /* gateway IS the hub on its own AP (CONTRACT.md). Also the fallback when
+         * the stored locator is a stale zenoh-era value (tcp/<ip>:7447) — not a
+         * translatable MQTT URI, so ignore it rather than build a garbage host. */
         snprintf(uri, sizeof uri, "mqtt://" IPSTR ":1883", IP2STR(&s_gw));
     }
     ESP_LOGI(TAG, "broker %s as '%s'", uri, MQTT_USER);
