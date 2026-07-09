@@ -95,3 +95,24 @@ esp_err_t rover_config_set_motor_pins(const int pins[6]) {
     nvs_close(h);
     return e;
 }
+
+// Boot role for the unified image — one byte under "role". Unset or any value
+// outside the enum degrades to AUTO, so a garbage/older NVS never wedges the
+// dispatcher into an unknown role.
+rover_role_pref_t rover_config_load_role_pref(void) {
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return ROLE_AUTO;
+    uint8_t v = ROLE_AUTO;
+    nvs_get_u8(h, "role", &v);   // leaves v = AUTO if the key is absent
+    nvs_close(h);
+    return (v == ROLE_HUB || v == ROLE_ROVER) ? (rover_role_pref_t)v : ROLE_AUTO;
+}
+
+esp_err_t rover_config_set_role_pref(rover_role_pref_t role) {
+    nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+    e = nvs_set_u8(h, "role", (uint8_t)role);
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+    return e;
+}

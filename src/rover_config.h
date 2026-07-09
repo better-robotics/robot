@@ -33,4 +33,14 @@ esp_err_t rover_config_set_identity(const char *user, const char *pass, const ch
 bool rover_config_load_motor_pins(int pins[6]);
 esp_err_t rover_config_set_motor_pins(const int pins[6]);
 
+/* Boot role for the unified image (hub self-election). The dispatcher (main.c)
+ * reads this to pick rover_role_run vs hub_role_run. AUTO is the default and,
+ * until the election protocol lands, resolves to the rover role; HUB/ROVER pin
+ * it. Set from the hub dashboard / config page. Stored as one byte under "role";
+ * load returns AUTO when unset or unrecognized. The numeric values are persisted,
+ * so keep them stable. */
+typedef enum { ROLE_AUTO = 0, ROLE_HUB = 1, ROLE_ROVER = 2 } rover_role_pref_t;
+rover_role_pref_t rover_config_load_role_pref(void);
+esp_err_t rover_config_set_role_pref(rover_role_pref_t role);
+
 #endif

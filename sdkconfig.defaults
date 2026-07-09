@@ -1,3 +1,23 @@
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# Unified image: the rover role needs little, the HUB ROLE needs the rest.
+# (The hub role's broker/NAT/WS-bridge config, folded in 2026-07-09.)
+
+# mosq_broker_run() blocks in the main task and Mosquitto wants >=5KB stack; the
+# rover role runs in the same task and is happy with the headroom.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
+
+# NAT: the hub role forwards AP-side traffic out the STA uplink (built into
+# ESP-IDF lwIP). Without these, a device joining the hub's AP is a dead-end island.
+CONFIG_LWIP_IP_FORWARD=y
+CONFIG_LWIP_IPV4_NAPT=y
+
+# WebSocket server support for the hub role's WS<->TCP bridge (browser MQTT-over-WS).
+CONFIG_HTTPD_WS_SUPPORT=y
+
+# Each browser bridge uses 2 sockets (WS + broker TCP); the default 10 is too
+# tight once a few clients + the httpd listeners stack up.
+CONFIG_LWIP_MAX_SOCKETS=16
+
+# 4 MB flash. The app partition comes from the custom partitions.csv (3 MB
+# factory) via platformio.ini; SINGLE_APP_LARGE is the idf.py fallback.
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y

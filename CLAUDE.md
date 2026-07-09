@@ -1,11 +1,22 @@
 # robot — project context
 
-ESP32 firmware: an `esp-mqtt` client for the classroom Robotics Hub
-([`better-robotics/hub`](https://github.com/better-robotics/hub)). Publishes
-telemetry to the hub broker, drives from `robots/<id>/pwm`, will serve the
-`led` RPC. Sibling layer to the hub — the device end, C/ESP-IDF, against the
-broker (Mosquitto on the Pi, or on-chip on the ESP32 hub; one firmware reaches
-either — both are raw-TCP brokers on :1883, CONTRACT.md § Discovery & isolation).
+ESP32 firmware for the classroom Robotics Hub
+([`better-robotics/hub`](https://github.com/better-robotics/hub)). **One unified
+image, two boot roles** (hub self-election, folded in 2026-07-09 — see below):
+
+- **rover role** (the norm): an `esp-mqtt` client — publishes telemetry, drives
+  an L298N from `robots/<id>/pwm`, takes its team + pins post-join. The device
+  end against the broker (Mosquitto on the Pi, or on-chip on the ESP32 hub; one
+  image reaches either — both are raw-TCP brokers on :1883, CONTRACT.md §
+  Discovery & isolation).
+- **hub role**: the *whole* on-chip hub — AP+STA+NAPT + Mosquitto broker + WS
+  bridge + the served dashboard. Folded in from `better-robotics/hub/esp32`
+  (now superseded) so a rover that finds no `hub-*` can become one.
+
+`src/main.c` is the boot dispatcher; `rover_role.c` / `hub_role.c` are the roles.
+Which runs is `role_pref` in NVS (§ Boot flow). **The ESP hub role's contract
+sources — `dashboard.html`, CONTRACT — stay canonical in the `hub` monorepo**;
+this repo vendors `web/dashboard.html` (drift-checked, `tools/sync-dashboard.sh`).
 
 **Transport: MQTT, ported from zenoh-pico 2026-07-09.** MQTT won the bake-off
 (hub-zenoh archived); the deciding factor for *this* firmware was auth —
@@ -21,27 +32,57 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
 
 ## Build
 - **PlatformIO + ESP-IDF** — `pio run -e <env> [-t upload]`. esp-mqtt is in-tree
-  with ESP-IDF (no external lib), so `mqtt` is just a component in `REQUIRES`
-  (src/CMakeLists.txt). Both `esp32dev` (xtensa) and `esp32c3-supermini` (riscv)
-  build-verified 2026-07-09.
-- Three envs: `esp32dev` (classic ESP32-D0WD devkit, CP2102, BOOT=GPIO0),
+  with ESP-IDF; the **hub role** adds two managed components (`src/idf_component.yml`:
+  `espressif/mosquitto` = the on-chip broker, `espressif/mdns`). Unified image
+  build-verified 2026-07-09 on both `esp32dev` (xtensa, 48% flash) and
+  `esp32c3-supermini` (riscv, 51%) — ~1.5 MB of the 3 MB factory partition.
+- Envs: `esp32dev` (classic ESP32-D0WD devkit, CP2102, BOOT=GPIO0),
   `esp32c3-supermini` (ESP32-C3 QFN32, native USB-Serial/JTAG, BOOT=GPIO9 via
   `-DBUTTON_GPIO`), `esp32cam` (AI-Thinker ESP32-CAM — no USB socket, flashed
   via a plug-in USB↔UART adapter; **no BOOT button**, so its only manual
-  re-entry is the `reprovision` topic; LED=GPIO33 rear red, active-low). Each env passes `-DMQTT_USER`/`-DMQTT_PASS` (default demo `team1`)
-  as a *fallback* only — a rover's team is assigned post-join over MQTT
-  (`robots/<id>/cmd/config`, persisted to NVS) from the hub dashboard's "Assign
-  a rover" panel, so boards flash identically and get named at the hub.
-- Platform pinned **`espressif32@6.13.0`** (IDF 5.1) for reproducible builds —
-  the old `<7.x` constraint was zenoh-pico's PIO build; that reason is gone, the
-  pin is now just stability.
-- **Custom `partitions.csv`** — kept from the zenoh era (it needed 3 MB). The
-  MQTT + no-BLE firmware is far leaner (Flash ~29%), so the table is now
-  over-large, not tight; harmless to keep.
+  re-entry is the `reprovision` topic; LED=GPIO33 rear red, active-low),
+  `rover-l298n` (extends esp32dev). Each passes `-DMQTT_USER`/`-DMQTT_PASS`
+  (demo `team1`) as a *fallback* only — a rover's team is assigned post-join over
+  MQTT (`robots/<id>/cmd/config` → NVS) from the dashboard's "Assign a rover"
+  panel, so boards flash identically and get named at the hub.
+- Platform pinned **`espressif32@6.13.0`** (ships **IDF 5.5.3**, not 5.1 as an
+  earlier note claimed) for reproducible builds — the old `<7.x` constraint was
+  zenoh-pico's; the pin is now just stability (and 5.5.x is what the mosquitto
+  component resolves against).
+- **Dashboard embed (hub role):** PlatformIO's SCons build does **not** wire an
+  objcopy/`.S` embed into the link — `EMBED_TXTFILES`, `target_add_binary_data`,
+  and `board_build.embed_txtfiles` all fail (missing `.S`, or generated-but-not-linked).
+  So `tools/embed_dashboard.py` (a **pre-build** `extra_scripts` hook; uses
+  `$PROJECT_DIR`, not `__file__`, which SCons doesn't define) generates
+  `src/dashboard_html.c` — the dashboard as a plain byte array — from
+  `web/dashboard.html`, compiled as an ordinary source. `web/dashboard.html` is a
+  VENDORED copy (canonical in the `hub` monorepo); `tools/sync-dashboard.sh`
+  resyncs it and `--check` gates drift. `src/dashboard_html.c` is gitignored.
+- **Custom `partitions.csv`** (3 MB factory) — the unified image genuinely needs
+  it now (~48–51% used); the "over-large, harmless" note from the lean rover-only
+  era no longer applies.
+- **`src/wifi_creds.h`** (gitignored) — the hub role's STA uplink credentials;
+  copy `src/wifi_creds.example.h`. NEVER commit the real one.
 
 ## Boot flow
 
-One mode, one radio: Wi-Fi STA + esp-mqtt (BLE removed 2026-07-09 — see below).
+**Dispatcher first (`src/main.c`).** Shared init (NVS) runs once, then
+`role_pref` (NVS key `role`, § Identity) picks the boot role and calls it
+(neither returns):
+```
+app_main ─► role_pref == HUB   → hub_role_run()    (AP + broker + WS bridge + NAT)
+            role_pref == ROVER → rover_role_run()
+            role_pref == AUTO  → rover_role_run()   ← default TODAY
+```
+`AUTO` resolves to the rover role **for now**: the scan-elect *"no `hub-*` in
+range → become the hub"* is the **election protocol (self-election step 3)**,
+not yet built — it shares the Wi-Fi lifecycle + convergence logic and is being
+done as its own piece. Until then a device is made a hub *explicitly*
+(`role_pref = HUB`, set from the dashboard / config page). So the dispatcher is
+the mechanical role switch; the election is the next step.
+
+### Rover role
+One radio: Wi-Fi STA + esp-mqtt (BLE removed 2026-07-09 — see below).
 Boot is a pure function of NVS; no stored state is ever a dead end. **Nothing
 stored is fully operable**: no ssid → scan-join the strongest *open* `hub-*`
 network (the classroom AP convention is the onboarding channel); no locator →
@@ -52,7 +93,7 @@ stored join fails, a live open `hub-*` is tried before giving up (the stored
 locator is ignored on that path: half-stale config isn't trusted by halves).
 
 ```
-boot ──► Wi-Fi STA: stored ssid, or discover open hub-*
+boot ──► [dispatcher: role_pref] ──► rover role ──► Wi-Fi STA: stored ssid, or discover open hub-*
          → mqtt connect(stored locator, or mqtt://<gateway>:1883) as <team>
          → LED on; publish robots/<team>/sys every 2s
          → subscribe robots/<team>/{pwm, cmd/config, cmd/reprovision}
@@ -91,6 +132,9 @@ Two ids, split by job (CONTRACT.md § Discovery & isolation):
   (`robots/<id>/cmd/config` → NVS).
 - **`rover-XXXX`** (last 2 MAC bytes via `rover_format_robot_id`) is a `board`
   field in the sys payload — hardware is metadata, never the topic id.
+- **`role_pref`** (NVS key `role`, one byte; `rover_config_load/set_role_pref`,
+  enum `AUTO`=0/`HUB`=1/`ROVER`=2) selects the boot role (§ Boot flow). Unset or
+  unrecognized → `AUTO`, so stale/garbage NVS never wedges an unknown role.
 
 ## Hardware-earned traps (2026-07-04, ESP32-C3 + Pi hub)
 - **~~zenoh-pico has no usrpwd~~ → RESOLVED by the MQTT port (2026-07-09).** This
@@ -105,7 +149,7 @@ Two ids, split by job (CONTRACT.md § Discovery & isolation):
 - *(Retired 2026-07-09 with the BLE removal: the "never `esp_restart()` in GATT
   write context" scar — no GATT context can recur now that NimBLE is gone.)*
 
-## esp-mqtt API notes (ESP-IDF 5.1)
+## esp-mqtt API notes (ESP-IDF 5.5)
 - Config: `esp_mqtt_client_config_t{ .broker.address.uri = "mqtt://<ip>:1883",
   .credentials.username, .credentials.authentication.password,
   .session.keepalive }`.
@@ -130,22 +174,33 @@ correct code.
   No faked IMU. `synthetic:false`.
 - **NVS namespace `"rover"`** — keys: `ssid`/`pass`/`locator` (network),
   `user`/`mpass`/`name` (post-join team identity), `mpins` (6-byte motor-pin
-  blob, a custom-wired chassis). All optional — absent falls back to the
-  compile-time default.
+  blob, a custom-wired chassis), `role` (boot role, § Identity). All optional —
+  absent falls back to the compile-time / AUTO default.
 
 ## Status
-**v5 (MQTT + drive, BLE removed) — hardware-validated 2026-07-09.** The rover is
-an esp-mqtt client with per-team auth, drives an L298N from `robots/<id>/pwm`,
-takes its team + motor pins post-join from the dashboard (`cmd/config` → NVS),
-and the entire BLE stack is gone (#11 — post-join config made it redundant),
-freeing ~175 KB flash + ~44 KB heap. Validated on rover-a044 (ESP32-D0WD) and
-rover-b79c (ESP32-C3) against a live hub: boot → join open `hub-*` → connect as
-the NVS-stored team → publish + drive; motor init, LED-on-connect, and NVS
-identity persistence across reflash all confirmed.
+**v6 (unified image) — builds green 2026-07-09; hub role not yet hardware-run.**
+One firmware now carries both roles behind the `role_pref` dispatcher (§ Boot
+flow). Build-verified on both arches: `esp32dev`/xtensa 48% flash, `esp32c3`/riscv
+51% (~1.5 MB of the 3 MB partition) — the two MQTT stacks (embedded broker +
+esp-mqtt client) and the 408 KB embedded dashboard coexist in one image.
 
-**Next: hub self-election** — a board that finds no `hub-*` becomes one (AP +
-on-chip broker) and serves a Wi-Fi picker, which also restores the
-specific-network setup BLE used to do. See `hub/esp32/DESIGN-unified.md`.
+- **rover role** — hardware-validated at **v5** (2026-07-09) on rover-a044
+  (ESP32-D0WD) + rover-b79c (ESP32-C3): boot → join open `hub-*` → connect as the
+  NVS team → publish + drive; motor init, LED-on-connect, NVS persistence across
+  reflash confirmed. Unchanged by the fold (same code, now `rover_role.c`).
+- **hub role** — folded in from the former `hub/esp32` project (feasibility-
+  validated there on hardware; that standalone project was **removed** from the
+  `hub` monorepo once its source landed here). Forced via `role_pref = HUB`;
+  **not yet boot-run from this repo's image** (next after election lands).
+- BLE gone since v5 (#11), freeing ~175 KB flash + ~44 KB heap.
 
-History (git, pre-2026-07-09): v2 zenoh firmware (three-rover fleet, BLE
-provisioning, dead-session self-heal); v3/v4 the MQTT port + motor drive.
+**Next: hub self-election, step 3 (the election protocol)** — `AUTO` currently
+resolves to the rover role; the "no `hub-*` in range → become one, converge to
+exactly one hub" logic (jitter/backoff, lowest-MAC tiebreak, Pi preference) is
+the correctness-critical piece, best done fresh. Then step 4: the config page
+(Wi-Fi picker — restores the specific-network setup BLE used to do) +
+LED-per-role + force-rover button. See `DESIGN-unified.md` (moved here with the
+firmware).
+
+History (git): v2 zenoh firmware (three-rover fleet, BLE provisioning); v3/v4 the
+MQTT port + motor drive; v5 BLE removed; v6 the unified rover+hub image.

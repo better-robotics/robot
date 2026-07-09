@@ -1,0 +1,9 @@
+## Managed dependencies for the HUB ROLE of the unified image.
+## espressif/mosquitto = the on-chip MQTT broker (mosq_broker.h); espressif/mdns
+## advertises hub.local. The rover role uses neither — they cost flash only in
+## the one image that also carries the hub role (feasibility: ~1.49 MB total,
+## ~48% of the 3 MB factory partition). The component manager auto-adds these to
+## the src component's REQUIRES.
+dependencies:
+  espressif/mosquitto: "*"
+  espressif/mdns: "*"
