@@ -198,8 +198,30 @@
   </div>
   <div id="banner" class="notice">Hub unreachable — retrying…</div>
   <div id="uplink" class="notice"></div>
+  <!-- Device-served Wi-Fi setup — shown only when this page is served BY a hub
+       (a standalone/github.io copy has no /wifi endpoints). Replaces the old
+       BLE/website provisioning: join the hub's own Wi-Fi, open this page, set
+       the uplink here. Hidden by default; initWifiSetup() reveals it. -->
+  <div id="wifi-setup" class="notice" style="display:none; flex-direction:column; align-items:stretch; gap:0.5rem">
+    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap">
+      <span id="wifi-status" style="flex:1; min-width:12rem"></span>
+      <button id="wifi-open" class="btn-drive" style="margin:0">Set up Wi-Fi</button>
+    </div>
+    <div id="wifi-panel" style="display:none; flex-direction:column; gap:0.5rem">
+      <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
+        <button id="wifi-scan" class="btn-drive" style="margin:0">Scan for networks</button>
+      </div>
+      <div id="wifi-list" style="display:flex; flex-direction:column; gap:0.25rem"></div>
+      <div id="wifi-join" style="display:none; gap:0.5rem; align-items:center; flex-wrap:wrap">
+        <strong id="wifi-join-ssid"></strong>
+        <input id="wifi-pass" type="password" placeholder="network password" autocomplete="off">
+        <button id="wifi-connect" class="btn-drive" style="margin:0">Connect</button>
+      </div>
+      <p id="wifi-msg" class="hint" role="status"></p>
+    </div>
+  </div>
   <p id="empty">No robots yet — power one on near the hub and it appears here within seconds.
-    <span class="hint">New board with no firmware? <a href="https://better-robotics.github.io/provision/flash/">Flash it over USB</a>.</span></p>
+    <span class="hint">New board with no firmware? <a href="https://better-robotics.github.io/flash/">Flash it over USB</a>.</span></p>
   <div id="robots"></div>
 
   <div id="controls">
@@ -364,6 +386,87 @@ safe-buffer/index.js:
       uplinkEl.style.display = msg ? "block" : "none";
     }
 
+    /* Device-served Wi-Fi setup (hubd /wifi/*). Only meaningful when this page
+       is served BY a hub — a standalone/github.io copy has no /wifi endpoints,
+       so a failed /wifi/status just leaves the panel hidden. This is the whole
+       replacement for the deleted BLE/website provisioning flow: a phone joins
+       the hub's own hub-XXXX Wi-Fi, opens this page, and picks the uplink here
+       (works on iOS — no Web Bluetooth needed). */
+    async function initWifiSetup() {
+      const $ = id => document.getElementById(id);
+      const getStatus = async () => {
+        try { return await (await fetch("/wifi/status")).json(); }
+        catch { return null; }
+      };
+      const status = await getStatus();
+      if (!status) return;                     // /wifi absent → not hub-served
+      $("wifi-setup").style.display = "flex";
+
+      const renderStatus = s => {
+        $("wifi-status").textContent = s && s.ssid
+          ? `Uplink: ${s.ssid}${s.uplink === "full" ? " · online"
+              : s.uplink === "portal" ? " · needs venue sign-in" : ""}`
+          : "No uplink yet — pick a Wi-Fi network so the hub gets internet.";
+      };
+      renderStatus(status);
+      if (!status.ssid) $("wifi-panel").style.display = "flex";  // day-zero: open it
+
+      $("wifi-open").addEventListener("click", () => {
+        const p = $("wifi-panel");
+        p.style.display = p.style.display === "none" ? "flex" : "none";
+      });
+
+      let chosen = null;
+      $("wifi-scan").addEventListener("click", async () => {
+        const list = $("wifi-list"), msg = $("wifi-msg");
+        list.innerHTML = ""; msg.textContent = "Scanning…";
+        let nets;
+        try { nets = await (await fetch("/wifi/scan")).json(); }
+        catch { msg.textContent = "Scan failed — try again."; return; }
+        msg.textContent = nets.length ? "" : "No networks found.";
+        // SSIDs come off the air — escape before they touch innerHTML.
+        list.innerHTML = nets.map(n =>
+          `<button class="btn-drive wifi-net" style="margin:0; text-align:left"
+             data-ssid="${esc(n.ssid)}" data-open="${n.security === "NO"}">
+             ${esc(n.ssid)} <span class="hint">${n.security === "NO" ? "open" : esc(n.security)} · ${n.signal}%</span>
+           </button>`).join("");
+      });
+
+      $("wifi-list").addEventListener("click", e => {
+        const btn = e.target.closest(".wifi-net");
+        if (!btn) return;
+        chosen = btn.dataset.ssid;
+        const open = btn.dataset.open === "true";
+        $("wifi-join").style.display = "flex";
+        $("wifi-join-ssid").textContent = chosen;
+        const pass = $("wifi-pass");
+        pass.style.display = open ? "none" : "inline-block";
+        pass.value = "";
+        if (!open) pass.focus();
+      });
+
+      $("wifi-connect").addEventListener("click", async () => {
+        if (!chosen) return;
+        const msg = $("wifi-msg");
+        msg.textContent = `Joining ${chosen}…`;
+        let res;
+        try {
+          res = await (await fetch("/wifi/connect", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ssid: chosen, password: $("wifi-pass").value }),
+          })).json();
+        } catch { msg.textContent = "Connect request failed — try again."; return; }
+        if (res.ok) {
+          msg.textContent = `Joined ${chosen}.`;
+          $("wifi-join").style.display = "none";
+          // NM needs a moment to associate + get an address; then re-read status.
+          setTimeout(async () => { const s = await getStatus(); if (s) renderStatus(s); }, 3000);
+        } else {
+          msg.textContent = `Couldn't join: ${res.error || "check the password and try again."}`;
+        }
+      });
+    }
+
     function renderRobots() {
       const ids = [...robots.keys()].sort();
       document.getElementById("empty").style.display = ids.length ? "none" : "block";
@@ -389,6 +492,7 @@ safe-buffer/index.js:
     if (!standalone) {
       refreshUplink();
       setInterval(refreshUplink, 2000);
+      initWifiSetup();
     }
     setInterval(() => { renderRobots(); renderBoards(); }, 2000); // re-render on a clock too, for offline aging
 
