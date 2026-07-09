@@ -35,14 +35,12 @@ Turn a rover on — that's it.
   dashboard's **"Assign a rover"** panel lists it by its board id. Give it a
   **team** (its credential + topic), an optional **name**, and — for a
   student-wired chassis — its **motor pins**. The rover saves them and reconnects
-  under the new team. This replaced per-device BLE onboarding: a rover is named
-  *after* it joins, not before.
-- **BLE (specific/secured network only).** To point a rover at a *particular*
-  network instead of the open classroom AP, use the
-  [Rover setup page](https://better-robotics.github.io/provision/rover.html) or
-  any Improv-over-BLE client. While the window is open the onboard LED is lit and
-  the rover advertises as `rover-XXXX`. Stored values win over discovery; a
-  Wi-Fi-only write is complete by itself (the broker derives from the gateway).
+  under the new team. A rover is named *after* it joins, not before — no
+  per-device onboarding step, no Bluetooth.
+
+Pointing a rover at a *specific* (non-open) network isn't supported yet — it
+returns with hub self-election (a board that finds no hub becomes one and serves
+a Wi-Fi picker). Until then a rover joins the open classroom `hub-*` AP.
 
 ## Drive
 
@@ -60,19 +58,17 @@ reconfigurable from the dashboard for a custom chassis.
 
 ## Recovery
 
-- **Automatic (duty cycle).** Can't join (30 s), no broker in 10 s, or a ~20 s
-  dead session → a **3-minute BLE provisioning window** (LED on; extends while a
-  client is connected) → reboot → retry stored config, or re-scan for a hub. A
-  rover powered on before its hub simply alternates scan → window until the hub
-  appears; `esp-mqtt` auto-reconnects, so brief outages self-heal in place.
-- **BOOT button (hold ~1 s).** Operating → drop into a provisioning window now;
-  provisioning → reboot and retry now. (The ESP32-CAM has no BOOT button — use
-  the remote path.)
+- **Automatic.** Can't join (30 s), no broker in 10 s, or a ~20 s dead session →
+  reboot → retry the whole discovery/connect path. A rover powered on before its
+  hub just loops, rescanning, until the hub's AP appears; `esp-mqtt`
+  auto-reconnects, so brief outages self-heal in place without a reboot.
+- **BOOT button (hold ~1 s).** Reboots — force a rescan / recover a wedged rover.
+  (The ESP32-CAM has no BOOT button — use the remote path.)
 - **Remote.** Publish anything to `robots/<id>/cmd/reprovision` and the rover
-  reboots into a provisioning window.
+  reboots.
 
-Mode state never persists: the fallback rides RTC memory that survives a software
-restart but not a power cycle, so power-cycling always yields a clean boot.
+The onboard LED lights when the rover reaches the broker — a visible "live and
+drivable" signal.
 
 ## Operating mode
 
@@ -92,8 +88,8 @@ Two ids, split by job:
   `robots/<team>/*`, and the broker's per-team ACL keeps teams from crossing.
   Assigned post-join from the dashboard (default demo `team1` until then).
 - **`rover-XXXX`** — the last 2 bytes of the Wi-Fi MAC (e.g. `rover-c9d0`), the
-  same token in the BLE advertisement, the `board` telemetry field, and serial
-  logs. It carries the robot's *role*; the hardware model (`esp32-devkit` ·
+  same token in the `board` telemetry field and serial logs. It carries the
+  robot's *role*; the hardware model (`esp32-devkit` ·
   `esp32c3-supermini` · `esp32cam`) is metadata, never part of the name — boards
   swap without identity churn.
 
@@ -101,21 +97,23 @@ Two ids, split by job:
 
 ```
 platformio.ini      PlatformIO/ESP-IDF; espressif32@6.13.0 (esp-mqtt is in-tree, no lib_deps)
-partitions.csv      3 MB app partition (roomy for esp-mqtt; kept from the BLE+Wi-Fi era)
+partitions.csv      3 MB app partition (over-large since BLE was removed; harmless)
 CMakeLists.txt      IDF project root
-src/main.c          Mode dispatch, discovery, duty cycle, BOOT button, MQTT client, motor drive
-src/provisioning.c  Improv + hubcfg GATT services (network provisioning); provisioning_advertise()
+src/main.c          Discovery, connect/retry, BOOT button, MQTT client, motor drive
+src/provisioning_util.c  Robot-id formatting + locator validation (no BLE — just helpers)
 src/rover_config.c  NVS config: network (ssid/pass/locator), team identity, motor pins
-src/CMakeLists.txt  component REQUIRES (adds mqtt, json)
-sdkconfig.defaults  Stack size, 4 MB flash, BT/NimBLE enabled
+src/CMakeLists.txt  component REQUIRES (mqtt, json — no bt)
+sdkconfig.defaults  Stack size, 4 MB flash (BLE removed)
 ```
 
 ## Status
 
-**v4: MQTT + drive** — ported from zenoh-pico to `esp-mqtt` (per-team
-username/password auth), motor drive from `robots/<id>/pwm`, and post-join team +
-motor-pin assignment from the hub dashboard. Zero-touch open-`hub-*` scan-join,
-gateway-derived broker, remote `reprovision`, provisioning LED, three board envs
-carry over. Hardware-validated on a classic ESP32-D0WD devkit and ESP32-C3
-SuperMini against a live hub. Next: LED RPC, securing the classroom AP (WPA2)
-once the Pi↔C3 join interop is settled.
+**v5: MQTT + drive, BLE removed** — an `esp-mqtt` client (per-team
+username/password auth), motor drive from `robots/<id>/pwm`, post-join team +
+motor-pin assignment from the hub dashboard, and — new in v5 — the entire BLE
+onboarding stack deleted (post-join config made it redundant), freeing ~175 KB
+flash and ~44 KB heap. Zero-touch open-`hub-*` scan-join, gateway-derived broker,
+remote reboot, three board envs. Hardware-validated on a classic ESP32-D0WD
+devkit and ESP32-C3 SuperMini against a live hub. Next: hub self-election (a
+board that finds no hub becomes one — also restores specific-network setup),
+then the LED RPC.

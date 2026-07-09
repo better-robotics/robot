@@ -17,49 +17,31 @@
 #include "mqtt_client.h"
 #include "cJSON.h"
 #include "rover_config.h"
-#include "provisioning_util.h"
-#include "provisioning.h"
-#include "nimble/nimble_port.h"
-#include "nimble/nimble_port_freertos.h"
-#include "host/ble_hs.h"
-#include "host/util/util.h"
-#include "services/gap/ble_svc_gap.h"
+#include "provisioning_util.h"   /* rover_format_robot_id + locator validation */
 
 static const char *TAG = "rover";
 static char s_id[16];
 
 /*
- * Mode dispatch is stateless: NVS holds only explicit choices, and behavior
- * is a pure function of that config plus a one-shot provision request. The
- * request rides RTC noinit RAM — it survives esp_restart() (how a mode asks
- * for the other one) but not a power cycle, so no robot can ever be stranded
- * in the wrong mode by stale state.
+ * One mode, one radio: Wi-Fi STA + esp-mqtt. Boot is a pure function of NVS —
+ * no stored state is ever a dead end. No ssid → scan-join the strongest open
+ * hub-* network (the classroom AP convention IS the onboarding channel); no
+ * locator → dial the network gateway (on its own AP the hub is the gateway);
+ * no team → the compile-time demo credential until the dashboard assigns one.
  *
- * Nothing stored is a fully operable state: no ssid → scan-join the strongest
- * open hub-* network (the classroom AP convention IS the onboarding channel),
- * no locator → dial the network gateway (on its own AP the hub is the
- * gateway). BLE provisioning is the override path, not the front door.
- *
- * The two radios never run in the same boot:
- *
- *   operating (Wi-Fi + MQTT)  ── failure, button, or fabric command ──► provisioning window
- *   provisioning (BLE)        ── done, window expiry, or button ──► restart into operating,
- *                                which retries stored credentials or re-scans for a hub
+ * (BLE provisioning was removed 2026-07-09 — a rover auto-joins the open hub-*
+ * AP and is named post-join from the dashboard, so the offline BLE path had no
+ * job left. The one case it uniquely covered — pointing a rover at a *specific*
+ * network — returns with hub self-election, its intended replacement.)
  */
-#define PROVISION_MAGIC 0x50524f56u  /* "PROV" */
-static RTC_NOINIT_ATTR uint32_t s_provision_request;
 
-#define PROVISION_WINDOW_US (3 * 60 * 1000000LL)
-
-static volatile bool s_operating = false;  /* which mode the button acts on */
-
-/* ── BOOT button: hold ~1 s to switch modes ──────────────────────────────── */
+/* ── BOOT button: hold ~1 s to reboot (recover a wedged rover / force a rescan) ── */
 
 #ifndef BUTTON_GPIO
 #define BUTTON_GPIO GPIO_NUM_0   /* classic devkit BOOT; C3 SuperMini env passes GPIO_NUM_9 */
 #endif
 
-/* ── onboard LED: lit while provisioning ─────────────────────────────────── */
+/* ── onboard LED: lit while connected to the broker ──────────────────────── */
 
 #ifndef LED_GPIO
 #define LED_GPIO GPIO_NUM_2      /* classic devkit LED; C3 SuperMini env passes GPIO_NUM_8 */
@@ -68,9 +50,9 @@ static volatile bool s_operating = false;  /* which mode the button acts on */
 #define LED_ACTIVE_LOW 0         /* SuperMini's LED sinks into the pin — env passes 1 */
 #endif
 
-/* Entering provisioning mode is otherwise invisible from the outside — the
- * first field test of the BOOT button read as "nothing happened" while the
- * window was in fact open (2026-07-04). LED on = BLE window open. */
+/* Visible liveness: LED on = the rover reached the hub broker (set from the
+ * MQTT CONNECTED/DISCONNECTED events). A student sees it come on when the rover
+ * is live and drivable — the feedback the provisioning LED used to give. */
 static void led_set(bool on) {
     gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_level(LED_GPIO, LED_ACTIVE_LOW ? !on : on);
@@ -87,9 +69,7 @@ static void button_task(void *p) {
     for (;;) {
         held = (gpio_get_level(BUTTON_GPIO) == 0) ? held + 1 : 0;
         if (held >= 10) {
-            ESP_LOGI(TAG, "button held — switching to %s",
-                     s_operating ? "provisioning" : "operating");
-            if (s_operating) s_provision_request = PROVISION_MAGIC;
+            ESP_LOGI(TAG, "button held — rebooting");
             esp_restart();
         }
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -171,9 +151,10 @@ static bool discover_hub(char out[33]) {
 /* MQTT identity. robot-id == the team credential (CONTRACT.md § Discovery &
  * isolation): the rover authenticates as its team and publishes under its own
  * robots/<team> subtree, so the Pi's `pattern robots/%u/#` ACL admits it and a
- * team can't touch another's subtree. The MAC-derived s_id stays the BLE adv
- * name + a payload field — hardware is metadata, never the topic id.
- * Demo defaults; real per-team creds arrive via provisioning (hub#1 follow-up). */
+ * team can't touch another's subtree. The MAC-derived s_id stays a payload
+ * field — hardware is metadata, never the topic id.
+ * Compile-time demo defaults; the real team is assigned post-join over
+ * robots/<id>/cmd/config from the hub dashboard. */
 #ifndef MQTT_USER
 #define MQTT_USER "team1"
 #endif
@@ -377,6 +358,7 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     switch ((esp_mqtt_event_id_t)id) {
     case MQTT_EVENT_CONNECTED: {
         s_mqtt_up = true;
+        led_set(true);          /* reached the broker — visible "live" signal */
         char t[64];
         snprintf(t, sizeof t, "robots/%s/pwm", s_topic_id);
         esp_mqtt_client_subscribe(e->client, t, 0);
@@ -389,6 +371,7 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     }
     case MQTT_EVENT_DISCONNECTED:
         s_mqtt_up = false;
+        led_set(false);                                /* off the broker → not live */
         motor_stop(NULL);                              /* lose the broker → stop moving */
         ESP_LOGW(TAG, "mqtt disconnected");
         break;
@@ -398,8 +381,7 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
         } else if (e->topic_len >= 7 && memcmp(e->topic + e->topic_len - 7, "/config", 7) == 0) {
             config_apply(e->data, e->data_len);
         } else {                                       /* remaining sub: reprovision */
-            ESP_LOGW(TAG, "reprovision command — opening a provisioning window");
-            s_provision_request = PROVISION_MAGIC;
+            ESP_LOGW(TAG, "reprovision command — rebooting");
             esp_restart();
         }
         break;
@@ -519,81 +501,15 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
     }
 
 fail:
-    ESP_LOGW(TAG, "falling back to a provisioning window");
-    s_provision_request = PROVISION_MAGIC;
+    /* No offline provisioning to fall back to any more (BLE removed) — reboot
+     * and retry the whole discovery/connect path. A rover powered on before its
+     * hub just loops here, rescanning, until the hub's AP appears. */
+    ESP_LOGW(TAG, "connect failed — rebooting to retry");
     vTaskDelay(pdMS_TO_TICKS(1000));
     esp_restart();
 }
 
-/* ── provisioning mode: BLE (Improv Wi-Fi + hubcfg locator) ─────────────── */
-
-static esp_timer_handle_t s_window;
-
-static void window_expired(void *p) {
-    if (provisioning_client_connected()) {
-        /* Someone is mid-provisioning — give them another window. */
-        esp_timer_start_once(s_window, PROVISION_WINDOW_US);
-        return;
-    }
-    ESP_LOGI(TAG, "provisioning window expired — rebooting into operating mode");
-    esp_restart();
-}
-
-/* Reboot-on-complete is debounced and deferred while a BLE client is attached:
- * s_done_cb fires in GATT write context, and an immediate restart there races
- * the peer's next operation (read-back, second write, Improv's PROVISIONED
- * notify) — the client sees "Device disconnected" mid-exchange. */
-static esp_timer_handle_t s_done_reboot;
-#define DONE_REBOOT_DELAY_US (4 * 1000000LL)
-
-static void done_reboot(void *p) {
-    if (provisioning_client_connected()) {
-        esp_timer_start_once(s_done_reboot, DONE_REBOOT_DELAY_US);
-        return;
-    }
-    ESP_LOGI(TAG, "provisioning complete — rebooting into operating mode");
-    esp_restart();
-}
-
-static void on_provision_done(void) {
-    if (!s_done_reboot) {
-        const esp_timer_create_args_t t = {.callback = done_reboot, .name = "prov_done"};
-        ESP_ERROR_CHECK(esp_timer_create(&t, &s_done_reboot));
-    }
-    esp_timer_stop(s_done_reboot);   /* no-op if not armed */
-    ESP_ERROR_CHECK(esp_timer_start_once(s_done_reboot, DONE_REBOOT_DELAY_US));
-}
-
-static void on_sync(void) {
-    ble_hs_util_ensure_addr(0);
-    provisioning_advertise(s_id);
-}
-
-static void host_task(void *p) {
-    nimble_port_run();
-    nimble_port_freertos_deinit();
-}
-
-static void provisioning_mode(void) {
-    ESP_LOGI(TAG, "provisioning mode — advertising %s", s_id);
-    led_set(true);
-    /* Always bounded: expiry reboots into operating mode, which retries the
-     * stored credentials or re-scans for a hub. A rover powered on before its
-     * hub alternates scan → window until the hub appears — no human needed. */
-    const esp_timer_create_args_t t = {.callback = window_expired, .name = "prov_window"};
-    ESP_ERROR_CHECK(esp_timer_create(&t, &s_window));
-    ESP_ERROR_CHECK(esp_timer_start_once(s_window, PROVISION_WINDOW_US));
-    nimble_port_init();
-    ble_svc_gap_init();
-    ble_svc_gap_device_name_set(s_id);
-    provisioning_register();
-    provisioning_set_done_cb(on_provision_done);
-    ble_hs_cfg.sync_cb = on_sync;
-    nimble_port_freertos_init(host_task);
-    /* FreeRTOS tasks now running; app_main returns and the idle task takes over */
-}
-
-/* ── app_main: dispatch to exactly one radio path ────────────────────────── */
+/* ── app_main: Wi-Fi STA + esp-mqtt, the one path ────────────────────────── */
 
 void app_main(void) {
     if (nvs_flash_init() != ESP_OK) {
@@ -616,18 +532,10 @@ void app_main(void) {
         ESP_LOGI(TAG, "identity from NVS: %s%s%s", s_user, s_name[0] ? " / " : "", s_name);
     }
 
-    bool provision_requested = (s_provision_request == PROVISION_MAGIC);
-    s_provision_request = 0;
-
-    led_set(false);   /* also pins the active-low pin high so it can't glow half-lit */
+    led_set(false);   /* start dark; MQTT CONNECTED lights it */
     xTaskCreate(button_task, "button", 2048, NULL, 5, NULL);
 
     char ssid[33], pass[65], loc[65];
     rover_config_load(ssid, pass, loc);
-
-    if (!provision_requested) {
-        s_operating = true;
-        operating_mode(ssid, pass, loc);   /* never returns */
-    }
-    provisioning_mode();
+    operating_mode(ssid, pass, loc);   /* never returns */
 }

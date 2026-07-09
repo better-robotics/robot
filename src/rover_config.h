@@ -3,8 +3,8 @@
 #include <stdbool.h>
 #include "esp_err.h"
 
-/* Board identity rides telemetry + Improv device-info as metadata — the
- * robot id stays role-named (rover-XXXX), hardware never enters the name. */
+/* Board identity rides telemetry as metadata — the robot id stays role-named
+ * (rover-XXXX), hardware never enters the name. */
 #ifndef HW_BOARD
 #define HW_BOARD "esp32"   /* each PlatformIO env passes its own */
 #endif
