@@ -24,16 +24,15 @@ static const char *TAG = "rover";
 static char s_id[16];
 
 /*
- * One mode, one radio: Wi-Fi STA + esp-mqtt. Boot is a pure function of NVS —
- * no stored state is ever a dead end. No ssid → scan-join the strongest open
- * hub-* network (the classroom AP convention IS the onboarding channel); no
- * locator → dial the network gateway (on its own AP the hub is the gateway);
- * no team → the compile-time demo credential until the dashboard assigns one.
+ * The DRIVE CLIENT of the unified image: esp-mqtt + L298N motors, with NO Wi-Fi
+ * setup of its own. board_run (hub_role.c) brings the radio up in APSTA and hands
+ * this a broker URI — the hub's gateway in a classroom, or mqtt://127.0.0.1:1883
+ * when the board is its own island. rover_client_run connects, drives, and
+ * returns on a dead session (never reboots — the caller re-evaluates).
  *
  * (BLE provisioning was removed 2026-07-09 — a rover auto-joins the open hub-*
- * AP and is named post-join from the dashboard, so the offline BLE path had no
- * job left. The one case it uniquely covered — pointing a rover at a *specific*
- * network — returns with hub self-election, its intended replacement.)
+ * AP and is named post-join from the dashboard; the specific-network case it
+ * uniquely covered now rides the #17 per-board Wi-Fi config panel.)
  */
 
 /* ── BOOT button: hold ~1 s to reboot (recover a wedged rover / force a rescan) ── */
@@ -77,77 +76,13 @@ static void button_task(void *p) {
     }
 }
 
-/* ── operating mode: Wi-Fi STA + esp-mqtt client ─────────────────────────── */
-
-static volatile bool s_got_ip = false;
-static volatile bool s_want_connect = false;   /* gates auto-reconnect during scans */
-static esp_ip4_addr_t s_gw;                    /* DHCP gateway — on the hub's AP, the hub */
-
-static void on_evt(void *a, esp_event_base_t base, int32_t id, void *d) {
-    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        if (s_want_connect) esp_wifi_connect();
-    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
-        s_got_ip = false;
-        if (s_want_connect) esp_wifi_connect();
-    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
-        s_gw = ((ip_event_got_ip_t *)d)->ip_info.gw;
-        s_got_ip = true;
-    }
+/* Start the recover button (hold to reboot). Called by board_run (hub_role.c),
+ * which owns the Wi-Fi bring-up; this file is just the drive client now. */
+void rover_button_start(void) {
+    xTaskCreate(button_task, "button", 2048, NULL, 5, NULL);
 }
 
-static void wifi_up(void) {
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_evt, NULL, NULL);
-    esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_evt, NULL, NULL);
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-    ESP_ERROR_CHECK(esp_wifi_start());
-}
-
-static bool wifi_join(const char *ssid, const char *pass) {
-    wifi_config_t wc = {0};
-    strncpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid) - 1);
-    strncpy((char *)wc.sta.password, pass, sizeof(wc.sta.password) - 1);
-    wc.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
-    s_want_connect = true;
-    esp_wifi_connect();
-    /* Wait up to 30 s; the event handler keeps reconnecting, so a brief AP
-     * outage inside this window resolves without dropping to provisioning. */
-    for (int i = 0; i < 120 && !s_got_ip; i++) vTaskDelay(pdMS_TO_TICKS(250));
-    if (!s_got_ip) { s_want_connect = false; esp_wifi_disconnect(); }
-    return s_got_ip;
-}
-
-/* Zero-touch onboarding: an OPEN network named hub-* is the classroom
- * convention, so its existence is all the configuration a rover needs.
- * Strongest wins when several are in range. */
-static bool discover_hub(char out[33]) {
-    ESP_LOGI(TAG, "scanning for an open hub-* network");
-    if (esp_wifi_scan_start(NULL, true) != ESP_OK) return false;
-    uint16_t n = 0;
-    esp_wifi_scan_get_ap_num(&n);
-    if (n == 0) return false;
-    wifi_ap_record_t *ap = malloc(n * sizeof *ap);
-    if (!ap) return false;
-    esp_wifi_scan_get_ap_records(&n, ap);
-    int best = -1;
-    for (int i = 0; i < n; i++)
-        if (ap[i].authmode == WIFI_AUTH_OPEN &&
-            strncmp((const char *)ap[i].ssid, "hub-", 4) == 0 &&
-            (best < 0 || ap[i].rssi > ap[best].rssi))
-            best = i;
-    if (best >= 0) {
-        snprintf(out, 33, "%s", (const char *)ap[best].ssid);
-        ESP_LOGI(TAG, "found %s (%d dBm)", out, ap[best].rssi);
-    }
-    free(ap);
-    return best >= 0;
-}
+/* ── the esp-mqtt drive client ───────────────────────────────────────────── */
 
 /* MQTT identity. robot-id == the team credential (CONTRACT.md § Discovery &
  * isolation): the rover authenticates as its team and publishes under its own
@@ -393,13 +328,11 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
 
 /* ── rover_client_run: the MQTT client + motor-drive loop, network-agnostic ───
  * Assumes Wi-Fi/networking is already up and `broker_uri` reaches a broker; sets
- * up identity + motors, connects, then blocks in the publish loop. Two callers
- * (roles.h) share this one drive path:
- *   - operating_mode (rover): after joining a hub-* AP, broker = the DHCP gateway.
- *   - hub_role_run tier 3 (home mode): the hub already raised APSTA + a local
- *     broker, so a lone board drives ITSELF via mqtt://127.0.0.1:1883.
- * Returns (never reboots) when the session is dead — the caller decides: a rover
- * reboots to re-discover a hub; the hub keeps hubbing and drops this task. */
+ * up identity + motors, connects, then blocks in the publish loop. Its sole
+ * caller is board_run (hub_role.c), which brings the radio up in APSTA and passes
+ * the right broker: the DHCP gateway when joined to a hub (classroom), or
+ * mqtt://127.0.0.1:1883 when the board is its own island (home). Returns (never
+ * reboots) when the session is dead — board_run re-evaluates in its loop. */
 void rover_client_run(const char *broker_uri) {
     /* Identity is board-local, no network needed: robot-id from the MAC, team
      * credential from NVS (a post-join assignment) or the compile-time demo. */
@@ -484,76 +417,3 @@ void rover_client_run(const char *broker_uri) {
     }
 }
 
-static void operating_mode(char *ssid, const char *pass, const char *locator) {
-    wifi_up();
-
-    /* Reach a hub by any means, in priority order:
-     *   1. an explicit stored network (a deliberate choice wins), if any;
-     *   2. discovery of the strongest open hub-* (the classroom convention).
-     * A stored network can go stale (hub swapped, AP renamed) — a live hub-*
-     * beats a dead config, so discovery is retried after a stored-join failure.
-     * Discovery is never persisted: NVS keeps explicit choices only. */
-    char discovered[33] = "";
-    bool on_discovered = false;
-    bool joined = false;
-
-    if (ssid[0]) {
-        ESP_LOGI(TAG, "operating mode — trying stored network '%s'", ssid);
-        joined = wifi_join(ssid, pass);
-        if (!joined) ESP_LOGW(TAG, "stored network '%s' unreachable", ssid);
-    }
-    if (!joined && discover_hub(discovered) && wifi_join(discovered, "")) {
-        ssid = discovered; pass = ""; on_discovered = true; joined = true;
-    }
-
-    /* No hub reachable at all — the terminal fallback. An AUTO board becomes its
-     * own hub+rover (home mode, tier 3): it claims by reboot and never returns,
-     * so a lone board with a stale stored SSID still ends up useful (the gating
-     * is reachability, NOT whether creds happen to be stored). A ROVER-pinned
-     * board must never self-hub: it reboots and keeps waiting for a hub. */
-    if (!joined) {
-        if (rover_config_load_role_pref() == ROLE_AUTO) {
-            ESP_LOGW(TAG, "no hub reachable — self-hubbing (home mode, tier 3)");
-            role_boot_as_hub();   /* never returns — reboots into hub+rover (roles.h) */
-        }
-        ESP_LOGW(TAG, "no hub reachable and role is ROVER — rebooting to retry");
-        goto fail;
-    }
-
-    /* Broker URI. Gateway-first (CONTRACT.md): on the hub's own AP the DHCP
-     * gateway IS the hub, so <gateway>:1883 reaches the broker with no name
-     * lookup and no hardcoded IP — the one address the two hub hosts (Pi,
-     * ESP32) don't share. A stored mqtt:// locator overrides, but only when we
-     * joined the stored network (discovery always means the gateway is the hub;
-     * a stale zenoh-era tcp/<ip>:7447 locator is ignored, not translated). */
-    char uri[80];
-    if (locator[0] && !on_discovered && strncmp(locator, "mqtt://", 7) == 0) {
-        snprintf(uri, sizeof uri, "%s", locator);
-    } else {
-        snprintf(uri, sizeof uri, "mqtt://" IPSTR ":1883", IP2STR(&s_gw));
-    }
-
-    rover_client_run(uri);   /* blocks driving the board; returns only when dead */
-
-fail:
-    /* No offline provisioning to fall back to any more (BLE removed) — reboot
-     * and retry the whole discovery/connect path. A ROVER-pinned board powered
-     * on before its hub just loops here, rescanning, until the AP appears. */
-    ESP_LOGW(TAG, "connect failed — rebooting to retry");
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    esp_restart();
-}
-
-/* ── rover_role_run: Wi-Fi STA + esp-mqtt, the rover boot path ───────────────
- * Dispatched from main.c (never returns). NVS is already initialized there. */
-
-void rover_role_run(void) {
-    /* Identity + motor setup is deferred to rover_client_run (shared with the
-     * tier-3 hub); here we only start the recover button and drive the STA
-     * discovery/join path, which ends in rover_client_run against the hub. */
-    xTaskCreate(button_task, "button", 2048, NULL, 5, NULL);
-
-    char ssid[33], pass[65], loc[65];
-    rover_config_load(ssid, pass, loc);
-    operating_mode(ssid, pass, loc);   /* never returns */
-}

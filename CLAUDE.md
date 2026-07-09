@@ -2,19 +2,24 @@
 
 ESP32 firmware for the classroom Robotics Hub
 ([`better-robotics/hub`](https://github.com/better-robotics/hub)). **One unified
-image, two boot roles** (hub self-election, folded in 2026-07-09 — see below):
+image, always-APSTA** (self-election collapsed into an always-on AP+STA board
+2026-07-09 — see below):
 
-- **rover role** (the norm): an `esp-mqtt` client — publishes telemetry, drives
-  an L298N from `robots/<id>/pwm`, takes its team + pins post-join. The device
-  end against the broker (Mosquitto on the Pi, or on-chip on the ESP32 hub; one
-  image reaches either — both are raw-TCP brokers on :1883, CONTRACT.md §
+- **`board_run`** (`hub_role.c`, the norm): every board comes up **APSTA** — its
+  own open `rover-<id>` AP *and* an STA uplink — and stays that way. It's an
+  `esp-mqtt` client that drives an L298N from `robots/<id>/pwm` and takes its team
+  + pins post-join, dialing whichever broker is reachable: a discovered `hub-*`'s
+  (classroom) or its **own on-chip broker** at `127.0.0.1` (home/island). One
+  image reaches either — both are raw-TCP brokers on :1883 (CONTRACT.md §
   Discovery & isolation).
-- **hub role**: the *whole* on-chip hub — AP+STA+NAPT + Mosquitto broker + WS
-  bridge + the served dashboard. Folded in from `better-robotics/hub/esp32`
-  (now superseded) so a rover that finds no `hub-*` can become one.
+- **`hub_role_run`** (`hub_role.c`): the *whole* on-chip hub — AP+STA+NAPT +
+  Mosquitto broker + WS bridge + served dashboard — as a **dedicated** tier-2 hub
+  (`role_pref=HUB`, `hub-*` AP, no drive). Folded in from `better-robotics/hub/esp32`.
+  The island path reuses these same services against a `rover-<id>` AP.
 
-`src/main.c` is the boot dispatcher; `rover_role.c` / `hub_role.c` are the roles.
-Which runs is `role_pref` in NVS (§ Boot flow). **The ESP hub role's contract
+`src/main.c` dispatches on `role_pref`; `hub_role.c` owns the Wi-Fi + broker
+(`board_run` + `hub_role_run`), `rover_role.c` is the **drive client**
+(`rover_client_run` + motors, no Wi-Fi of its own). **The ESP hub's contract
 sources — `dashboard.html`, CONTRACT — stay canonical in the `hub` monorepo**;
 this repo vendors `web/dashboard.html` (drift-checked, `tools/sync-dashboard.sh`).
 
@@ -67,31 +72,35 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
 ## Boot flow
 
 **Dispatcher first (`src/main.c`).** Shared init (NVS) runs once, then
-`role_pref` (NVS key `role`, § Identity) picks the boot role and calls it
-(neither returns):
+`role_pref` (NVS key `role`, § Identity) picks the path and calls it (neither
+returns):
 ```
-app_main ─► elected-hub RTC flag → hub+rover (tier 3)   (self-hubbed last boot)
-            role_pref == HUB      → hub only  (tier 2)   (AP+broker+dashboard+NAT; no drive)
-            role_pref == ROVER    → rover                (join a hub-*, drive)
-            role_pref == AUTO     → rover; self-hubs (tier 3) if no hub-* found
+app_main ─► role_pref == HUB → hub_role_run()   (tier 2: dedicated hub-* + broker + NAT; no drive)
+            else             → board_run(self_broker_ok = role==AUTO)
+                                 always-APSTA board: own OPEN rover-<id> AP + STA,
+                                 loops (NO reboot): join hub-* → drive its broker;
+                                 else AUTO → local broker, drive 127.0.0.1 (island);
+                                 else ROVER-pinned → rescan, never island.
 ```
-`AUTO` **self-hubs when alone** — the post-election model (DESIGN-unified.md §
-Direction change, 2026-07-09). It scans for a `hub-*`: **found → join as a
-rover**; **none → self-hub**: set a transient RTC flag (`role_boot_as_hub`,
-`RTC_NOINIT` — survives esp_restart) and reboot into a combined **HUB+ROVER**
-(tier 3 = home mode — own **open `rover-<id>` AP** + local broker + dashboard +
-drives itself via `mqtt://127.0.0.1:1883`). No distributed election, and no
-attraction: the self-hub AP is `rover-<id>`, *not* `hub-*`, so nothing joins it —
-**each self-hub board is its own island**. A shared broker (central control) is
-opt-in via an explicit hub (a Pi, or a board pinned to tier-2 `HUB` raising an
-open `hub-*` that rovers join). A tier-3 board keeps watching and yields **only**
-to a Pi (`hub-pi-*`); it does not fight peer ESP hubs (islands are intended). All
-hub/rover APs are **open** by default. The RTC flag keeps every role switch a
-clean reboot, never a STA→APSTA switch mid-boot.
+**Always-APSTA, no mode-switch reboot** (DESIGN-unified.md § Direction change,
+2026-07-09). The board is APSTA from line one and never switches radio mode, so
+home↔classroom is a **runtime re-point** of the broker URI, not a boot role — the
+old `role_boot_as_hub`/`RTC_NOINIT` claim-by-reboot is **deleted** (it only ever
+existed to dodge a live STA→APSTA switch; it also caused two HW bugs — the
+`RTC_DATA` wipe loop and the pi-watch stack panic). **Islands, not attraction:** a
+self-broker board's AP is `rover-<id>`, *not* `hub-*`, so nothing joins it. A
+shared broker (central control) is opt-in via an explicit hub (a Pi, or a board
+pinned to `role_pref=HUB`). An island board yields **only** to a Pi (`hub-pi-*`)
+via a **clean restart** (board_run re-runs, discovers the Pi, joins it); it does
+not fight peer islands. All APs **open** by default. mDNS: a board is
+**`rover.local`**, a hub is `hub.local` (a board never claims `hub.local` — it
+would collide with the Pi). The always-on AP keeps `http://rover.local/`
+reachable for the #17 config panel ("set your home Wi-Fi" = the home switch);
+cost is per-board beacons in a classroom (`hub#3`, measure-then-mitigate).
 
-> **Status (2026-07-09):** election deleted; tier-3 built and **hardware-validated
-> on the C3 + a classic ESP32** (`42a73b4` — self-hub→reboot→hub+rover, loopback
-> broker connects, motors init). Remaining: motor contention under drive load,
+> **Status (2026-07-09):** always-APSTA board built and **hardware-validated on
+> the C3** — APSTA from boot, `rover.local`, island broker, drive, **no reboot**,
+> stable past the pi-watch scan. Remaining: motor contention under drive load,
 > the #17 Wi-Fi panel, tier-2 designate-as-hub. Tracker: robot#2. Owed: the Pi
 > advertises `hub-pi-<suffix>` (`hub` repo).
 

@@ -3,38 +3,33 @@
 
 #include <stdbool.h>
 
-/* The role tiers of the unified image (DESIGN-unified.md § Direction change).
- * app_main (main.c) reads role_pref from NVS, picks one, and calls it. Each role
- * owns its own radio setup — rover = Wi-Fi STA client, hub = AP+STA+NAPT — and
- * never returns (both block forever), so only one runs per boot and the two
- * radio configs never coexist at runtime. Shared init (NVS) runs in main.c. */
-void rover_role_run(void);       /* tier 1: STA client → hub, L298N drive (rover_role.c) */
-void hub_role_run(bool self_hub);/* on-chip broker + WS bridge + NAT (hub_role.c). `self_hub`
-                                  * = this board self-hubbed with no Pi/hub present (tier 3,
-                                  * home mode): it ALSO drives (a local rover client) and
-                                  * watches for a Pi to yield to. false = a forced role_pref=
-                                  * HUB (tier 2, professor hub): hub-only, no drive, no yield
-                                  * — a forced hub rebooting would just be re-forced (a loop). */
+/* Entry points of the unified image (DESIGN-unified.md § Always-APSTA). app_main
+ * (main.c) reads role_pref from NVS and calls one; each brings up its own radio
+ * and never returns. */
+
+/* The normal board (tiers 1 + 3), always APSTA — own open rover-<id> AP + STA
+ * uplink, no mode switch ever. Joins a hub-* → drives off it (classroom); no hub
+ * → runs a local broker and drives itself (home/island). self_broker_ok = AUTO
+ * (may island); false = ROVER-pinned (keeps looking, never self-brokers).
+ * Defined in hub_role.c (which owns the Wi-Fi + broker services). */
+void board_run(bool self_broker_ok);
+
+/* Tier 2: a dedicated professor hub — hub-* AP + broker + NAT, no drive
+ * (hub_role.c). Chosen via role_pref=HUB. */
+void hub_role_run(void);
 
 /* rover_client_run — the MQTT client + motor-drive loop with NO Wi-Fi setup of
- * its own (rover_role.c). Shared by tier 1 (rover, after joining a hub, broker =
- * gateway) and tier 3 (the self-hub board driving itself, broker = localhost).
- * Assumes networking is already up; returns on a dead session, never reboots. */
+ * its own (rover_role.c). board_run passes the broker: the DHCP gateway when
+ * joined to a hub, or mqtt://127.0.0.1:1883 when the board is its own island.
+ * Assumes networking is already up; returns on a dead session, never reboots.
+ * rover_button_start arms the recover button (hold to reboot). */
 void rover_client_run(const char *broker_uri);
+void rover_button_start(void);
 
-/* Self-hub claim-by-reboot (DESIGN-unified.md § boot state machine). Transient:
- * an AUTO board that finds no hub-* sets an RTC-memory flag and reboots — the
- * dispatcher then runs the hub role (tier 3) with a clean radio init, not a
- * STA→APSTA re-init in one boot. RTC memory survives esp_restart but resets on
- * power-on, so a power cycle re-evaluates — a tier-3 board yields to a Pi that
- * appears later. hub_role's Pi-watch reboots WITHOUT the flag to step down. */
-void role_boot_as_hub(void);       /* set the flag + esp_restart into the hub role (never returns) */
-bool role_pending_hub_boot(void);  /* dispatcher: true once, if this boot was a self-hub claim */
-
-/* SSID classification shared by discovery (rover) and Pi-watch (hub). Any open
- * "hub-*" is a hub to join; "hub-pi-*" additionally marks the Pi, which a tier-3
- * self-hub board ALWAYS yields to (DESIGN-unified.md § Pi-preference — the Pi is
- * the preferred hub; peer ESP hubs are left alone). */
+/* SSID classification shared by discovery and Pi-watch (hub_role.c). Any open
+ * "hub-*" is a hub to join; "hub-pi-*" additionally marks the Pi, which a self-
+ * hub (island) board ALWAYS yields to (DESIGN-unified.md § Pi-preference — the Pi
+ * is the preferred hub; peer ESP islands are left alone). */
 #define HUB_SSID_PREFIX     "hub-"
 #define HUB_PI_SSID_PREFIX  "hub-pi-"
 

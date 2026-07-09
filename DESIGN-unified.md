@@ -3,56 +3,67 @@
 **Status:** in progress (2026-07-09). This design now lives with the firmware in
 `better-robotics/robot` — the two ESP32 codebases have been collapsed into this
 repo (the standalone `hub/esp32` project was removed once its source folded in).
-Done: BLE removed (#11); **step 1** feasibility (combined image links, ~48% of
-3 MB); **step 2** the boot-role dispatcher (`role_pref` NVS → `rover_role_run` /
-`hub_role_run`). Next: **tier 3 — home mode** (self-hub+rover, below), then the
-per-board **Wi-Fi config panel** (#17) it needs.
+Done: BLE removed (#11); **step 1** feasibility (combined image links, ~51% of
+3 MB); **step 2** the boot dispatcher; **step 3** the **always-APSTA board**
+(`board_run` in `hub_role.c`) — one path, no mode-switch reboot, home/classroom
+at runtime — hardware-validated on the C3 (`rover.local`, island broker, no
+reboot). Next: the per-board **Wi-Fi config panel** (#17) that fills the
+`rover.local` "set your home Wi-Fi" seam, and motor contention under drive load.
 
-## Direction change — election → role tiers (2026-07-09)
+## Direction change — election → role tiers → always-APSTA (2026-07-09)
 
 The distributed **election** (grace window + MAC jitter + lowest-MAC tiebreak +
-abdication) was built and committed (`5b5b49d`), then **replaced** by a simpler
-model after a design pass. The election existed to auto-pick *one shared ESP hub*
-among several student boards — but that is imitating the Pi in software, on
-worse hardware, at the design's highest complexity (the split-brain "make-or-
-break"). The replacement drops the distributed part entirely:
+abdication) was built and committed (`5b5b49d`), then **replaced** by role tiers,
+which were then **simplified again** into the always-APSTA model below. The
+election existed to auto-pick *one shared ESP hub* among several student boards —
+imitating the Pi in software, on worse hardware, at the design's highest
+complexity. Both later passes drop the distributed part entirely.
 
-- **Three role tiers, one firmware, `role_pref` selects:**
-  - **rover** — STA client, joins a hub, drives. (needs a hub present)
-  - **hub** *(tier 2 — professor / designated ESP hub)* — AP + broker + dashboard
-    + NAT; **does not drive**. An ESP32 optionally *replaces the Pi* this way.
-  - **auto** *(default)* — finds a `hub-*` → become its **rover**; finds none →
-    **self-hub+rover** *(tier 3 = home mode)*: raise an own **open `rover-<id>`
-    AP** + local broker + dashboard, and **drive itself**.
-- **Islands by default, not attraction.** A self-hub board's AP is named after
+- **One always-APSTA board path, `role_pref` selects a rare override:**
+  - **auto** *(default)* — the normal board. Always **APSTA**: raises its own
+    **open `rover-<id>` AP** *and* an STA uplink from boot, and **never switches
+    radio mode**. Finds a `hub-*` → drives off that shared broker (classroom);
+    finds none → runs a **local broker** and **drives itself** (home/island).
+  - **rover** — the same board path, but **pinned not to self-broker**: no hub in
+    range → it keeps looking (never becomes an island).
+  - **hub** *(tier 2 — professor / designated ESP hub)* — a **dedicated** hub:
+    `hub-*` AP + broker + dashboard + NAT, **does not drive**. An ESP32 optionally
+    *replaces the Pi* this way.
+- **No mode-switch reboot.** Because the board is APSTA from line one, home↔
+  classroom is **runtime state**, not a boot role — the drive client just re-points
+  its broker URI (`mqtt://<pi>:1883` vs `mqtt://127.0.0.1:1883`), no reboot. The
+  old self-hub **claim-by-reboot** (`role_boot_as_hub` / `role_pending_hub_boot` /
+  the `RTC_NOINIT` flag) is **deleted** — it existed only to avoid a live STA→
+  APSTA switch, which no longer happens. (That machinery was also the source of
+  two hardware bugs: the `RTC_DATA` wipe reboot-loop, 2026-07-09.)
+- **The board's AP is always reachable.** Even in a classroom the board keeps its
+  `rover-<id>` AP up, so its config surface (`http://rover.local/`) is always
+  reachable — the seam the `#17` Wi-Fi panel fills ("go to rover.local, set your
+  home Wi-Fi" = the home switch). Cost: every board beacons its own AP → classroom
+  co-channel congestion (this is `hub#3`, measured-not-assumed; if it bites, drop
+  the beacon when cleanly joined to a Pi).
+- **Islands by default, not attraction.** A self-broker board's AP is named after
   its **rover-id** (`rover-<id>`), *not* `hub-*` — so no other rover's `hub-*`
-  discovery ever latches onto it. Each self-hub board is its own **island**: one
-  board, one AP, one broker, one dashboard, one rover; the student joins *their*
-  `rover-<id>` and drives it directly. There is no accidental election and no
-  shared broker by default. A **shared** broker (central control — one dashboard
-  drives the room, per-team ACL on the Pi) is opt-in: it requires an explicit
-  hub — a **Pi**, or a board **pinned to tier-2** (`role_pref=HUB`, raising an
-  open `hub-*` that rovers join). (This narrows `hub#3`: per-board APs are now
-  the *default* whenever no hub is designated; the open question is only whether
-  to prefer them even when a hub *is* available, for the client-cap reason.)
-- **Pi-preference, minimal.** A self-hub board keeps watching *only* for a Pi
-  (`hub-pi-*`) and steps down to it (the slow-Pi race). It does **not** fight
-  peer ESP hubs — peer islands are the intended steady state, not a split-brain.
-  This is the one deterministic yield kept from the election's abdication;
-  grace/jitter/lowest-MAC are deleted. (Owed with it: the Pi advertises
-  `hub-pi-<suffix>`, a `hub`-repo change.)
-- **APs are open by default.** No password to join a hub or a rover island — a
-  rover only auto-joins an *open* `hub-*`, and a student joins with nothing to
-  type. An optional per-board WPA2 password can be set later (rides with the
-  `#17` config panel).
+  discovery ever latches onto it. Each is its own **island**: one board, one AP,
+  one broker, one dashboard, one rover; the student joins *their* `rover-<id>`.
+  A **shared** broker (central control — one dashboard, per-team ACL on the Pi) is
+  opt-in: an explicit hub — a **Pi**, or a board **pinned to `role_pref=HUB`**.
+- **Pi-preference, minimal.** An island board keeps watching *only* for a Pi
+  (`hub-pi-*`) and steps down to it via a **clean restart** (not a mode switch,
+  no RTC flag — `board_run` re-runs, discovers the Pi, joins it). It does **not**
+  fight peer ESP islands — they're the intended steady state. (Owed: the Pi
+  advertises `hub-pi-<suffix>`, a `hub`-repo change.)
+- **APs are open by default.** No password to join a hub or a rover island. An
+  optional per-board WPA2 password can be set later (rides with the `#17` panel).
+- **mDNS: `rover.local` for a board, `hub.local` for a hub.** A board never claims
+  `hub.local` (it would collide with the Pi). On a board's own AP it is the sole
+  responder, so `rover.local` is unambiguous; a shared LAN with several boards
+  would collide there — the classroom uses the dashboard's per-id list, not
+  `rover.local`.
 
-**Why tier 3 is mandatory, not optional:** *home mode* = one kid, one board, no
-Pi, no professor — the board must be its own hub *and* drive itself, or a single
-board does nothing. So tier 3 is the home deployment context, first-class.
-
-**Kept from the election:** the reboot-based role switch — a transient RTC flag
-(`role_boot_as_hub`/`role_pending_hub_boot`, `main.c`) so a role change is a
-clean reboot into a fresh radio init, never a STA→APSTA switch mid-boot.
+**Why home mode is mandatory, not optional:** one kid, one board, no Pi, no
+professor — the board must be its own hub *and* drive itself, or a single board
+does nothing. So it's the home deployment context, first-class.
 
 **Deferred to hub#3:** "*every* classroom board runs its own AP" (each student
 joins their own rover, STA uplinks to the hub). Solves the ESP hub's ~8–10
@@ -82,45 +93,47 @@ self-election is a *fallback*, not the default.
 ```
 boot → load NVS (role_pref, uplink wifi, team creds, motor pins)
      → dispatcher:
-        ├─ elected-hub RTC flag ─► HUB+ROVER (tier 3, this boot only)
-        ├─ role_pref = hub ──────► HUB (tier 2: AP+broker+dashboard+NAT; no drive)
-        ├─ role_pref = rover ────► ROVER (join a hub-*, drive)
-        └─ role_pref = auto ─────► scan for open hub-*
-              ├─ found ──────────► ROVER: join it, drive
-              └─ none ───────────► self-hub: set RTC flag, reboot → HUB+ROVER (tier 3)
-                                   (raises an OPEN `rover-<id>` AP — an island,
-                                    not a hub-*, so no other rover joins it)
+        ├─ role_pref = hub ──────► HUB (tier 2: hub-* AP + broker + NAT; no drive)
+        └─ else ─────────────────► board_run: come up APSTA (own OPEN rover-<id>
+                                   AP + STA), then LOOP (no reboot):
+              ├─ stored uplink joins ──────► drive off its broker (locator) 
+              ├─ open hub-* discovered ────► join it, drive off the gateway (classroom)
+              └─ neither, and AUTO ────────► start local broker, drive 127.0.0.1 (island)
+                                             │  (rover-pinned instead: rescan, no island)
+                                             └─ watch for a Pi (hub-pi-*) → clean restart
+                                                → re-run board_run → join the Pi
+              (on a dead drive session: re-evaluate the same loop — no reboot)
 ```
 
-HUB+ROVER (tier 3) keeps watching for a Pi (`hub-pi-*`) and steps down to it.
-A tier-2 hub (`role_pref=HUB`) instead raises an open `hub-*` that rovers join.
-Only **one role runs per boot** — the binary is bigger but runtime RAM stays
-per-role.
+The board is **APSTA from line one and never switches radio mode**, so there is
+no claim-by-reboot: home↔classroom is a runtime re-point of the broker URI. Only
+a `role_pref=HUB` board takes the separate dedicated-hub path (`hub-*`, no drive).
 
-## Islands & Pi-preference (post-election model)
+## Islands & Pi-preference (always-APSTA model)
 
 No distributed election (see § Direction change). The topology is explicit, not
-emergent:
+emergent, and decided at runtime — the board never reboots to change it:
 
-- **Islands by default** — a self-hub board raises an **open `rover-<id>` AP**,
+- **Islands by default** — a self-broker board raises an **open `rover-<id>` AP**,
   *not* a `hub-*`. Rovers only ever join `hub-*` (discovery), so nothing joins a
-  self-hub board: each is a self-contained island (own AP + broker + dashboard +
-  rover). Two home boards side by side simply coexist as two islands — no
-  election, no split-brain, no "self-heal" needed because there was never a
-  shared thing to converge. A student drives *their* board by joining its
-  `rover-<id>` AP directly.
+  self-broker board: each is a self-contained island (own AP + broker + dashboard
+  + rover). Two home boards side by side simply coexist as two islands — no
+  election, no split-brain, no "self-heal" because there was never a shared thing
+  to converge. A student drives *their* board by joining its `rover-<id>` AP.
 - **Shared broker is opt-in** — central control (one dashboard for the room, the
   Pi's per-team ACL) requires an explicit hub: a **Pi**, or a board **pinned to
-  tier-2** (`role_pref=HUB`) raising an open `hub-*`. Auto boards then find that
-  `hub-*` and join as rovers instead of self-hubbing. So the room is central when
-  a hub is provided, per-board islands when it isn't.
-- **Pi-preference** — a self-hub (tier 3) board keeps scanning and yields **only**
-  to a Pi (`hub-pi-*`), whatever its MAC. It does *not* step down for peer ESP
-  hubs (islands are intended). This is the single deterministic rule kept from
-  the old abdication; the slow-Pi race (Pi's AP appears ~30–60 s after an ESP's
-  ~1 s boot) is handled by the tier-3 board seeing `hub-pi-*` and rebooting into
-  rover mode. **Owed (`hub` repo):** the Pi advertises `hub-pi-<suffix>` — until
-  then an already-self-hubbed ESP has no marker to yield to.
+  tier-2** (`role_pref=HUB`) raising an open `hub-*`. Auto boards then discover
+  that `hub-*` and drive off its broker instead of self-brokering. So the room is
+  central when a hub is provided, per-board islands when it isn't — and a board
+  **degrades gracefully without a reboot**: lose the hub mid-session and an AUTO
+  board's next loop pass islands itself; the hub returns and Pi-watch rejoins it.
+- **Pi-preference** — an island board keeps scanning and yields **only** to a Pi
+  (`hub-pi-*`), whatever its MAC; it does *not* step down for peer ESP islands.
+  The slow-Pi race (Pi's AP appears ~30–60 s after an ESP's ~1 s boot) is handled
+  by the island board seeing `hub-pi-*` and doing a **clean restart** (not a mode
+  switch, no RTC flag) — `board_run` re-runs, now discovers the Pi, and joins it.
+  **Owed (`hub` repo):** the Pi advertises `hub-pi-<suffix>` — until then an
+  already-islanded ESP has no marker to yield to.
 
 ## Onboarding: post-join config, not a captive portal (cold-pass revision)
 
@@ -177,19 +190,24 @@ Compile-time defaults stay as fallbacks; NVS overrides them.
 
 ## Costs / risks (honest)
 
-- **Election correctness** is a real distributed-systems task — must be tested
-  with two boards + no hub, confirming exactly one yields. This is the make-or-
-  break.
-- **Binary size:** hub role (broker + AP+NAT + httpd + WS bridge) *plus* rover
-  role in one image — validate it fits the partition, ESP32-CAM being the tight
-  case. (RAM is fine: per-role at runtime.)
+- **Classroom co-channel congestion** is the live make-or-break of always-APSTA:
+  every board beacons its own `rover-<id>` AP, forced onto the Pi's channel
+  (single radio). Measure whether the beacons/client-cap actually bite a real
+  room; if they do, drop a board's AP beacon when it's cleanly joined to a Pi
+  (`hub#3`). This replaced the old election-correctness risk (election deleted).
+- **Binary size:** broker + AP+NAT + httpd + WS bridge *plus* the drive client in
+  one image — ~51% of the 3 MB factory partition (built on both xtensa + riscv,
+  ESP32-CAM included). RAM is fine (~150 KB free on the C3 with the full stack).
 - **ESP-hub has no per-topic ACL** (connect-auth only) — an all-ESP fleet loses
   the Pi's per-team isolation (convention-only). Accepted for the no-Pi
   fallback; the Pi keeps full ACL.
-- **Motor contention:** a HUB-mode board should **not** drive (broker/AP vs
-  real-time motors share one radio+CPU — `hub#2`). Only ROVER mode drives.
-- **Open config AP:** anyone nearby can configure a board in CONFIG mode.
-  Acceptable for a classroom; add a short PIN if not.
+- **Motor contention:** an **island** board drives *while* running its own broker+
+  AP (broker/AP vs real-time motors on one radio+CPU — `hub#2`, still unmeasured
+  under load). A dedicated tier-2 `role_pref=HUB` board deliberately does **not**
+  drive, sidestepping it. This is the last untested tier-3 aspect.
+- **Open AP:** anyone nearby can join a board's open AP (and, once #17 lands,
+  configure it). Acceptable for a classroom; an optional per-board WPA2 password
+  rides with #17 if not.
 
 ## Migration
 
