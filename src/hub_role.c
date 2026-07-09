@@ -8,9 +8,12 @@
  * ESP32-as-hub — the full local-hub slice on one plain ESP32:
  * AP+STA+NAPT + Mosquitto broker + per-team connect-auth. (Feasibility
  * validated on hardware 2026-07-09; the exploration issue is closed.)
- *   - AP  (hub-<suffix>)    : students/rovers/laptop join here. `hub-` prefix
- *                             matches the Pi's SSID convention so a rover's
- *                             `hub-*` scan finds either hub (CONTRACT.md).
+ *   - AP  (open)            : students/rovers/laptop join here, no password.
+ *                             SSID depends on role — a tier-2 hub raises
+ *                             `hub-<suffix>` (the `hub-*` SSID a rover's scan
+ *                             joins, so it gathers a fleet); a tier-3 self-hub
+ *                             raises `rover-<id>` (deliberately NOT hub-*, so no
+ *                             other rover joins a home board — each is an island).
  *   - STA (venue Wi-Fi)     : uplink for internet.
  *   - NAPT                  : forwards AP-side traffic out the STA leg, so
  *                             joining the AP does NOT cut internet (the thing
@@ -33,16 +36,20 @@
 #include "mosq_broker.h"
 #include "mdns.h"
 #include "roles.h"
+#include "provisioning_util.h"   /* rover_format_robot_id — tier-3 AP SSID = the rover-id */
 
 /* STA_SSID / STA_PASS — the venue uplink. Kept in a gitignored header so real
  * Wi-Fi credentials never land in committed source; copy wifi_creds.example.h
  * to wifi_creds.h and fill it in. */
 #include "wifi_creds.h"
 
-/* --- AP: what students/rovers/laptop join (demo creds, safe to commit) --- */
-#define AP_SSID_PREFIX "hub-"          /* + last 2 MAC bytes → hub-a3f2; the
-                                        * `hub-*` convention a rover scans for */
-#define AP_PASS     "brobotics"        /* 8-63 chars → WPA2; "" → open */
+/* --- AP: what students/rovers/laptop join --- */
+#define AP_SSID_PREFIX "hub-"          /* tier-2 hub only (+ last 2 SoftAP MAC bytes
+                                        * → hub-a3f2); tier-3 self-hub uses the rover-id */
+#define AP_PASS     ""                 /* open by default: rovers only auto-join OPEN
+                                        * hub-*, and students join with no password. ""
+                                        * → open; 8-63 chars → WPA2 (an optional per-board
+                                        * password can ride with the #17 config panel). */
 #define AP_CHANNEL  1                  /* overridden to match STA channel in APSTA (single radio) */
 #define AP_MAX_CONN 8                  /* esp32_nat_router's documented ceiling */
 
@@ -211,13 +218,24 @@ void hub_role_run(bool self_hub)  /* dispatched from main.c; never returns (bloc
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    /* SSID = hub-<last 2 MAC bytes>, e.g. hub-a3f2 — unique per hub, shared
-     * `hub-` prefix so a rover's `hub-*` scan finds either hub (CONTRACT.md). */
-    uint8_t apmac[6];
-    esp_read_mac(apmac, ESP_MAC_WIFI_SOFTAP);
+    /* Tier-2 hub → hub-<last 2 SoftAP MAC bytes> (e.g. hub-a3f2): the shared
+     * `hub-*` SSID a rover's scan joins (CONTRACT.md). Tier-3 self-hub → the
+     * rover-id (from the STA MAC, e.g. rover-a044): matches the board id the
+     * dashboard shows, and is deliberately NOT a hub-* SSID, so no other rover's
+     * discovery latches onto a home board — each self-hub board is its own island. */
     char ap_ssid[16];
-    int ap_ssid_len = snprintf(ap_ssid, sizeof ap_ssid,
+    int ap_ssid_len;
+    if (self_hub) {
+        uint8_t stamac[6];
+        esp_read_mac(stamac, ESP_MAC_WIFI_STA);
+        rover_format_robot_id(stamac, ap_ssid);     /* "rover-<suffix>" */
+        ap_ssid_len = strlen(ap_ssid);
+    } else {
+        uint8_t apmac[6];
+        esp_read_mac(apmac, ESP_MAC_WIFI_SOFTAP);
+        ap_ssid_len = snprintf(ap_ssid, sizeof ap_ssid,
                                AP_SSID_PREFIX "%02x%02x", apmac[4], apmac[5]);
+    }
 
     wifi_config_t ap = {
         .ap = {

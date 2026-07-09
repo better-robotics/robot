@@ -22,19 +22,29 @@ break"). The replacement drops the distributed part entirely:
   - **hub** *(tier 2 — professor / designated ESP hub)* — AP + broker + dashboard
     + NAT; **does not drive**. An ESP32 optionally *replaces the Pi* this way.
   - **auto** *(default)* — finds a `hub-*` → become its **rover**; finds none →
-    **self-hub+rover** *(tier 3 = home mode)*: raise own AP + local broker +
-    dashboard, and **drive itself**.
-- **Convergence by *attraction*, not election.** A self-hub board raises a
-  `hub-*`; boards that boot later discover it and join as rovers — a fleet forms
-  with the first-booted as the hub, no protocol. The only unhandled case is
-  *simultaneous* boot (two boards self-hub before seeing each other → transient
-  islands); it self-heals on reboot and is acceptable (the firmware's existing
-  "reboot to converge" DNA).
+    **self-hub+rover** *(tier 3 = home mode)*: raise an own **open `rover-<id>`
+    AP** + local broker + dashboard, and **drive itself**.
+- **Islands by default, not attraction.** A self-hub board's AP is named after
+  its **rover-id** (`rover-<id>`), *not* `hub-*` — so no other rover's `hub-*`
+  discovery ever latches onto it. Each self-hub board is its own **island**: one
+  board, one AP, one broker, one dashboard, one rover; the student joins *their*
+  `rover-<id>` and drives it directly. There is no accidental election and no
+  shared broker by default. A **shared** broker (central control — one dashboard
+  drives the room, per-team ACL on the Pi) is opt-in: it requires an explicit
+  hub — a **Pi**, or a board **pinned to tier-2** (`role_pref=HUB`, raising an
+  open `hub-*` that rovers join). (This narrows `hub#3`: per-board APs are now
+  the *default* whenever no hub is designated; the open question is only whether
+  to prefer them even when a hub *is* available, for the client-cap reason.)
 - **Pi-preference, minimal.** A self-hub board keeps watching *only* for a Pi
   (`hub-pi-*`) and steps down to it (the slow-Pi race). It does **not** fight
-  peer ESP hubs — peer islands are fine. This is the one deterministic yield
-  kept from the election's abdication; grace/jitter/lowest-MAC are deleted.
-  (Owed with it: the Pi advertises `hub-pi-<suffix>`, a `hub`-repo change.)
+  peer ESP hubs — peer islands are the intended steady state, not a split-brain.
+  This is the one deterministic yield kept from the election's abdication;
+  grace/jitter/lowest-MAC are deleted. (Owed with it: the Pi advertises
+  `hub-pi-<suffix>`, a `hub`-repo change.)
+- **APs are open by default.** No password to join a hub or a rover island — a
+  rover only auto-joins an *open* `hub-*`, and a student joins with nothing to
+  type. An optional per-board WPA2 password can be set later (rides with the
+  `#17` config panel).
 
 **Why tier 3 is mandatory, not optional:** *home mode* = one kid, one board, no
 Pi, no professor — the board must be its own hub *and* drive itself, or a single
@@ -76,30 +86,41 @@ boot → load NVS (role_pref, uplink wifi, team creds, motor pins)
         ├─ role_pref = hub ──────► HUB (tier 2: AP+broker+dashboard+NAT; no drive)
         ├─ role_pref = rover ────► ROVER (join a hub-*, drive)
         └─ role_pref = auto ─────► scan for open hub-*
-              ├─ found ──────────► ROVER: join it, drive           (attraction)
+              ├─ found ──────────► ROVER: join it, drive
               └─ none ───────────► self-hub: set RTC flag, reboot → HUB+ROVER (tier 3)
+                                   (raises an OPEN `rover-<id>` AP — an island,
+                                    not a hub-*, so no other rover joins it)
 ```
 
 HUB+ROVER (tier 3) keeps watching for a Pi (`hub-pi-*`) and steps down to it.
+A tier-2 hub (`role_pref=HUB`) instead raises an open `hub-*` that rovers join.
 Only **one role runs per boot** — the binary is bigger but runtime RAM stays
 per-role.
 
-## Convergence & Pi-preference (post-election model)
+## Islands & Pi-preference (post-election model)
 
-No distributed election (see § Direction change). Convergence is *emergent*:
+No distributed election (see § Direction change). The topology is explicit, not
+emergent:
 
-- **Attraction** — rovers already join any `hub-*` they find, so the first board
-  to self-hub becomes the de-facto hub and later boards join it. A fleet forms
-  with no protocol; only *simultaneous* self-hub → transient islands, self-healed
-  by a reboot. Acceptable — not a split-brain we must prevent, a rare case we let
-  the existing reboot-loop resolve.
+- **Islands by default** — a self-hub board raises an **open `rover-<id>` AP**,
+  *not* a `hub-*`. Rovers only ever join `hub-*` (discovery), so nothing joins a
+  self-hub board: each is a self-contained island (own AP + broker + dashboard +
+  rover). Two home boards side by side simply coexist as two islands — no
+  election, no split-brain, no "self-heal" needed because there was never a
+  shared thing to converge. A student drives *their* board by joining its
+  `rover-<id>` AP directly.
+- **Shared broker is opt-in** — central control (one dashboard for the room, the
+  Pi's per-team ACL) requires an explicit hub: a **Pi**, or a board **pinned to
+  tier-2** (`role_pref=HUB`) raising an open `hub-*`. Auto boards then find that
+  `hub-*` and join as rovers instead of self-hubbing. So the room is central when
+  a hub is provided, per-board islands when it isn't.
 - **Pi-preference** — a self-hub (tier 3) board keeps scanning and yields **only**
   to a Pi (`hub-pi-*`), whatever its MAC. It does *not* step down for peer ESP
-  hubs. This is the single deterministic rule kept from the old abdication; the
-  slow-Pi race (Pi's AP appears ~30–60 s after an ESP's ~1 s boot) is handled by
-  the tier-3 board seeing `hub-pi-*` and rebooting into rover mode.
-  **Owed (`hub` repo):** the Pi advertises `hub-pi-<suffix>` — until then an
-  already-self-hubbed ESP has no marker to yield to.
+  hubs (islands are intended). This is the single deterministic rule kept from
+  the old abdication; the slow-Pi race (Pi's AP appears ~30–60 s after an ESP's
+  ~1 s boot) is handled by the tier-3 board seeing `hub-pi-*` and rebooting into
+  rover mode. **Owed (`hub` repo):** the Pi advertises `hub-pi-<suffix>` — until
+  then an already-self-hubbed ESP has no marker to yield to.
 
 ## Onboarding: post-join config, not a captive portal (cold-pass revision)
 
