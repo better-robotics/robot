@@ -70,16 +70,24 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
 `role_pref` (NVS key `role`, § Identity) picks the boot role and calls it
 (neither returns):
 ```
-app_main ─► role_pref == HUB   → hub_role_run()    (AP + broker + WS bridge + NAT)
-            role_pref == ROVER → rover_role_run()
-            role_pref == AUTO  → rover_role_run()   ← default TODAY
+app_main ─► elected-hub RTC flag → hub_role_run(elected)  (won a prior election)
+            role_pref == HUB      → hub_role_run(forced)   (AP + broker + WS + NAT)
+            role_pref == ROVER    → rover_role_run()
+            role_pref == AUTO     → rover_role_run() → self-elects if no hub-* found
 ```
-`AUTO` resolves to the rover role **for now**: the scan-elect *"no `hub-*` in
-range → become the hub"* is the **election protocol (self-election step 3)**,
-not yet built — it shares the Wi-Fi lifecycle + convergence logic and is being
-done as its own piece. Until then a device is made a hub *explicitly*
-(`role_pref = HUB`, set from the dashboard / config page). So the dispatcher is
-the mechanical role switch; the election is the next step.
+`AUTO` **self-elects** (step 3, code-complete 2026-07-09, build-green both
+arches; **hardware convergence not yet tested**). It boots the rover path; if no
+`hub-*` is in range, `run_election` (`rover_role.c`) watches a MAC-jittered grace
+window (~60–80 s — a booting Pi must win), rescanning. Any `hub-*` that appears →
+yield, stay a rover. Window elapses with none → **claim**: set a transient RTC
+flag (`role_boot_as_hub`) and `esp_restart` — the dispatcher reads the flag next
+boot and runs `hub_role_run(elected=true)` with a clean AP+STA init (no
+STA→APSTA switch mid-boot; a power cycle re-elects). An elected hub runs an
+**abdication** watch (~3 min): it steps down (reboot → re-elect → rover) if a
+`hub-pi-*` marker or a lower-BSSID `hub-*` appears. A **forced** `role_pref=HUB`
+never abdicates (it would just be re-forced — a loop). **Owed:** the Pi must
+advertise `hub-pi-<suffix>` for guaranteed Pi-preference (else it rests on the
+grace window). See `DESIGN-unified.md` § Hub election.
 
 ### Rover role
 One radio: Wi-Fi STA + esp-mqtt (BLE removed 2026-07-09 — see below).
@@ -194,13 +202,14 @@ esp-mqtt client) and the 408 KB embedded dashboard coexist in one image.
   **not yet boot-run from this repo's image** (next after election lands).
 - BLE gone since v5 (#11), freeing ~175 KB flash + ~44 KB heap.
 
-**Next: hub self-election, step 3 (the election protocol)** — `AUTO` currently
-resolves to the rover role; the "no `hub-*` in range → become one, converge to
-exactly one hub" logic (jitter/backoff, lowest-MAC tiebreak, Pi preference) is
-the correctness-critical piece, best done fresh. Then step 4: the config page
-(Wi-Fi picker — restores the specific-network setup BLE used to do) +
-LED-per-role + force-rover button. See `DESIGN-unified.md` (moved here with the
-firmware).
+**Step 3 (the election protocol) — code-complete 2026-07-09, build-green both
+arches.** `AUTO` now self-elects: MAC-jittered grace-scan → claim-by-reboot (RTC
+flag) → abdication on `hub-pi-*` / lower-BSSID (§ Boot flow, `DESIGN-unified.md`
+§ Hub election). **Not yet hardware-convergence-tested** — the make-or-break is
+two boards + no hub confirming exactly one claims (watch it live over the
+site's serial monitor). **Owed with it:** the Pi advertises `hub-pi-<suffix>`
+(guaranteed Pi-preference). **Next: step 4** — the config page (uplink Wi-Fi
+picker for the ESP-hub fallback) + LED-per-role + force-rover BOOT-hold.
 
 History (git): v2 zenoh firmware (three-rover fleet, BLE provisioning); v3/v4 the
 MQTT port + motor drive; v5 BLE removed; v6 the unified rover+hub image.

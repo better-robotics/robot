@@ -149,6 +149,36 @@ static bool discover_hub(char out[33]) {
     return best >= 0;
 }
 
+/* Hub self-election (DESIGN-unified.md § Hub election). Reached only in AUTO
+ * role with nothing stored and no hub-* in the first scan. The Pi is the
+ * preferred hub but boots ~30-60 s slower than an ESP, so watch a grace window
+ * before claiming: any hub-* that appears (the Pi's, or another ESP that claimed
+ * first) means yield and become its rover. A MAC-derived jitter staggers the
+ * claim instant so two lone ESPs don't both raise an AP at once — an exact tie
+ * is still caught afterward by the hub role's lowest-MAC abdication. Fills `out`
+ * and returns when a hub appears; never returns when it claims (reboots into the
+ * hub role via the RTC flag, roles.h). */
+#define ELECTION_GRACE_MS   60000   /* the Pi-wins window (DESIGN-unified.md mitigation b) */
+#define ELECTION_JITTER_MS  20000   /* MAC-spread stagger on top of the grace window */
+#define ELECTION_SCAN_MS     4000   /* rescan cadence inside the window */
+
+static void run_election(char out[33]) {
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    uint32_t window = ELECTION_GRACE_MS + (uint32_t)mac[5] * ELECTION_JITTER_MS / 255;
+    ESP_LOGW(TAG, "hub election: no hub-* in range — watching %us for one before claiming",
+             (unsigned)(window / 1000));
+    for (uint32_t waited = 0; waited < window; waited += ELECTION_SCAN_MS) {
+        vTaskDelay(pdMS_TO_TICKS(ELECTION_SCAN_MS));
+        if (discover_hub(out)) {
+            ESP_LOGI(TAG, "election: %s appeared — yielding, becoming its rover", out);
+            return;
+        }
+    }
+    ESP_LOGW(TAG, "election: grace elapsed, still no hub — claiming, rebooting into hub role");
+    role_boot_as_hub();   /* never returns */
+}
+
 /* MQTT identity. robot-id == the team credential (CONTRACT.md § Discovery &
  * isolation): the rover authenticates as its team and publishes under its own
  * robots/<team> subtree, so the Pi's `pattern robots/%u/#` ACL admits it and a
@@ -398,8 +428,14 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
     bool on_discovered = false;
     if (!ssid[0]) {
         if (!discover_hub(discovered)) {
-            ESP_LOGW(TAG, "nothing stored and no open hub-* in range");
-            goto fail;
+            /* AUTO self-elects (DESIGN-unified.md): watch for a hub, else claim
+             * — run_election reboots into the hub role and never returns. A
+             * ROVER-pinned board never elects: it reboots and keeps waiting. */
+            if (rover_config_load_role_pref() != ROLE_AUTO) {
+                ESP_LOGW(TAG, "nothing stored and no open hub-* in range");
+                goto fail;
+            }
+            run_election(discovered);   /* returns only if a hub appeared (else reboots to claim) */
         }
         ssid = discovered; pass = ""; on_discovered = true;
     }

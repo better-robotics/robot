@@ -5,8 +5,22 @@
 repo (the standalone `hub/esp32` project was removed once its source folded in).
 Done: BLE removed (#11); **step 1** feasibility (combined image links, ~48% of
 3 MB); **step 2** the boot-role dispatcher (`role_pref` NVS → `rover_role_run` /
-`hub_role_run`), build-green on both arches. Next: **step 3** the election
-protocol (below), then **step 4** the config page. See `CLAUDE.md` › Boot flow.
+`hub_role_run`); **step 3** the election protocol (below) — **code-complete,
+build-green both arches (2026-07-09); NOT yet hardware-convergence-tested** (the
+make-or-break two-board / slow-Pi test, § Costs/risks). Next: **step 4** the
+config page (uplink `setup-*` AP + LED-per-role + force-rover button). See
+`CLAUDE.md` › Boot flow.
+
+**Step 3 as built:** AUTO rover, no `hub-*` in range → `run_election`
+(`rover_role.c`): MAC-jittered grace window (`ELECTION_GRACE_MS` 60 s +
+≤20 s/MAC), rescanning; any `hub-*` appears → yield/rover; window elapses →
+claim via a transient RTC flag (`role_boot_as_hub`, `main.c`) + reboot into the
+hub role (avoids a STA→APSTA re-init in one boot; a power cycle re-elects).
+Abdication (`hub_role.c`, elected hubs only, ~3-min window): step down (reboot →
+re-elect → rover) on a `hub-pi-*` marker or a lower-BSSID `hub-*`. **Companion
+change still owed (mitigation c): the Pi must advertise `hub-pi-<suffix>`** so an
+already-claimed ESP always yields to it — until then Pi-preference rests on the
+grace window (b) alone.
 
 Collapse the two ESP32 firmwares — the on-chip hub and the rover — into **one
 image** whose role is decided at boot, and replace **BLE onboarding** with an

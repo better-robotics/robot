@@ -132,7 +132,59 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
     }
 }
 
-void hub_role_run(void)   /* dispatched from main.c; never returns (blocks in the broker) */
+/* ── Abdication (DESIGN-unified.md § Hub election, lowest-MAC tiebreak + Pi
+ * preference) ───────────────────────────────────────────────────────────────
+ * An ESP that ELECTED itself hub keeps watching, for a bounded window, for a hub
+ * it must yield to — the race is early: a Pi boots ~30-60 s after us, and a
+ * simultaneous second claimant appears within a scan. Yield to any hub-pi-* (the
+ * Pi is always preferred, whatever its MAC) or any hub-* with a lower BSSID (a
+ * deterministic tiebreak so exactly one of two claimants survives). Yielding =
+ * esp_restart: the election re-runs and we join the winner as a rover. Only an
+ * *elected* hub does this — a forced role_pref=HUB rebooting would be re-forced
+ * into the hub role, an infinite loop. Each active scan briefly blips the
+ * single-radio AP, so the cadence is slow and the window closes once the race
+ * is past. */
+#define ABDICATE_WINDOW_MS  180000   /* watch the first ~3 min, then commit as the hub */
+#define ABDICATE_SCAN_MS     20000   /* slow — an active scan interrupts AP+STA briefly */
+
+static bool sees_hub_to_yield_to(const uint8_t self_bssid[6]) {
+    wifi_scan_config_t sc = { .show_hidden = false };
+    if (esp_wifi_scan_start(&sc, true) != ESP_OK) return false;
+    wifi_ap_record_t ap[32];
+    uint16_t n = sizeof ap / sizeof ap[0];
+    if (esp_wifi_scan_get_ap_records(&n, ap) != ESP_OK) return false;
+    for (int i = 0; i < n; i++) {
+        const char *ss = (const char *)ap[i].ssid;
+        if (strncmp(ss, HUB_SSID_PREFIX, sizeof HUB_SSID_PREFIX - 1) != 0) continue;
+        if (memcmp(ap[i].bssid, self_bssid, 6) == 0) continue;   /* our own AP beacon */
+        if (strncmp(ss, HUB_PI_SSID_PREFIX, sizeof HUB_PI_SSID_PREFIX - 1) == 0) {
+            ESP_LOGW(TAG, "abdicate: Pi hub '%s' present — stepping down (Pi is preferred)", ss);
+            return true;
+        }
+        if (memcmp(ap[i].bssid, self_bssid, 6) < 0) {   /* MACs compare MSB-first = numeric */
+            ESP_LOGW(TAG, "abdicate: lower-MAC hub '%s' present — stepping down (tiebreak)", ss);
+            return true;
+        }
+    }
+    return false;
+}
+
+static void abdication_task(void *arg) {
+    (void)arg;
+    uint8_t self_bssid[6];
+    esp_read_mac(self_bssid, ESP_MAC_WIFI_SOFTAP);
+    for (uint32_t waited = 0; waited < ABDICATE_WINDOW_MS; waited += ABDICATE_SCAN_MS) {
+        vTaskDelay(pdMS_TO_TICKS(ABDICATE_SCAN_MS));
+        if (sees_hub_to_yield_to(self_bssid)) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            esp_restart();   /* → dispatcher → election → join the winner as a rover */
+        }
+    }
+    ESP_LOGI(TAG, "hub election settled — committed as the hub (abdication window closed)");
+    vTaskDelete(NULL);
+}
+
+void hub_role_run(bool elected)   /* dispatched from main.c; never returns (blocks in the broker) */
 {
     /* NVS is already initialized by the dispatcher (main.c). */
     ESP_ERROR_CHECK(esp_netif_init());
@@ -195,6 +247,13 @@ void hub_role_run(void)   /* dispatched from main.c; never returns (blocks in th
     /* Bridge (httpd on :9001) starts first and returns; it dials the broker
      * lazily per browser, by which time the broker below is up. */
     start_ws_mqtt_bridge();
+
+    /* An elected hub watches briefly for a hub it should yield to (a slow Pi, or
+     * a simultaneous second claimant) and steps down if one appears — DESIGN-
+     * unified.md § Hub election. A forced hub (role_pref=HUB) never does: it was
+     * chosen deliberately, and rebooting would only re-force it (a loop). */
+    if (elected)
+        xTaskCreate(abdication_task, "abdicate", 3072, NULL, 4, NULL);
 
     /* Broker starts now, uplink or not — the classroom works offline. */
     struct mosq_broker_config bcfg = {
