@@ -26,6 +26,7 @@
  * mosquitto_pub speak raw TCP directly.
  */
 #include <string.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_wifi.h"
@@ -152,21 +153,31 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
 #define PI_WATCH_WINDOW_MS  180000   /* watch the first ~3 min, then commit as the hub */
 #define PI_WATCH_SCAN_MS     20000   /* slow — an active scan interrupts AP+STA briefly */
 
+#define PI_SCAN_MAX_AP 20            /* heap-sized cap; a classroom sees far fewer hubs */
+
 static bool sees_pi_to_yield_to(const uint8_t self_bssid[6]) {
     wifi_scan_config_t sc = { .show_hidden = false };
     if (esp_wifi_scan_start(&sc, true) != ESP_OK) return false;
-    wifi_ap_record_t ap[32];
-    uint16_t n = sizeof ap / sizeof ap[0];
-    if (esp_wifi_scan_get_ap_records(&n, ap) != ESP_OK) return false;
-    for (int i = 0; i < n; i++) {
-        const char *ss = (const char *)ap[i].ssid;
-        if (memcmp(ap[i].bssid, self_bssid, 6) == 0) continue;   /* our own AP beacon */
-        if (strncmp(ss, HUB_PI_SSID_PREFIX, sizeof HUB_PI_SSID_PREFIX - 1) == 0) {
-            ESP_LOGW(TAG, "yield: Pi hub '%s' present — stepping down (Pi is preferred)", ss);
-            return true;
+    /* Heap, NOT stack: wifi_ap_record_t is ~80 B on IDF 5.5, so [20] is ~1.6 KB —
+     * a stack array here overran pi-watch's task stack and panicked the board into
+     * a reboot loop (Stack protection fault, observed on the C3 2026-07-09). */
+    wifi_ap_record_t *ap = malloc(PI_SCAN_MAX_AP * sizeof *ap);
+    if (!ap) return false;
+    uint16_t n = PI_SCAN_MAX_AP;
+    bool yield = false;
+    if (esp_wifi_scan_get_ap_records(&n, ap) == ESP_OK) {
+        for (int i = 0; i < n; i++) {
+            const char *ss = (const char *)ap[i].ssid;
+            if (memcmp(ap[i].bssid, self_bssid, 6) == 0) continue;   /* our own AP beacon */
+            if (strncmp(ss, HUB_PI_SSID_PREFIX, sizeof HUB_PI_SSID_PREFIX - 1) == 0) {
+                ESP_LOGW(TAG, "yield: Pi hub '%s' present — stepping down (Pi is preferred)", ss);
+                yield = true;
+                break;
+            }
         }
     }
-    return false;
+    free(ap);
+    return yield;
 }
 
 static void pi_watch_task(void *arg) {
@@ -285,7 +296,7 @@ void hub_role_run(bool self_hub)  /* dispatched from main.c; never returns (bloc
      * and it must not drive (broker/AP vs real-time motors on one radio — hub#2).
      * Both tasks start before the broker call below blocks. */
     if (self_hub) {
-        xTaskCreate(pi_watch_task, "pi-watch", 3072, NULL, 4, NULL);
+        xTaskCreate(pi_watch_task, "pi-watch", 4096, NULL, 4, NULL);
         xTaskCreate(local_rover_task, "rover", 4096, NULL, 4, NULL);
     }
 
