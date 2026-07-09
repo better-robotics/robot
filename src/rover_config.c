@@ -47,3 +47,25 @@ bool rover_config_is_complete(void) {
     rover_config_load(s, p, l);
     return s[0] != 0;
 }
+
+void rover_config_load_identity(char user[33], char pass[65], char name[33]) {
+    user[0] = pass[0] = name[0] = 0;
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return;
+    get_str(h, "user", user, 33);
+    get_str(h, "mpass", pass, 65);
+    get_str(h, "name", name, 33);
+    nvs_close(h);
+}
+
+esp_err_t rover_config_set_identity(const char *user, const char *pass, const char *name) {
+    if (!user || !user[0]) return ESP_ERR_INVALID_ARG;   // a team is required
+    nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+    e = nvs_set_str(h, "user", user);
+    if (e == ESP_OK) e = nvs_set_str(h, "mpass", pass ? pass : "");
+    if (e == ESP_OK) e = nvs_set_str(h, "name", name ? name : "");
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+    return e;
+}

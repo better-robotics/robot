@@ -180,7 +180,13 @@ static bool discover_hub(char out[33]) {
 #ifndef MQTT_PASS
 #define MQTT_PASS "change-me-team1"
 #endif
-static const char *s_topic_id = MQTT_USER;
+/* Identity is NVS-backed: a team assigned post-join (robots/<id>/cmd/config)
+ * overrides these compile-time defaults. s_topic_id tracks s_user so the
+ * publish/subscribe topics follow a reassignment after the next boot. */
+static char s_user[33] = MQTT_USER;
+static char s_pass[65] = MQTT_PASS;
+static char s_name[33] = "";
+static const char *s_topic_id = s_user;
 
 static volatile bool s_mqtt_up = false;   /* live session; drives dead-session self-heal */
 
@@ -287,21 +293,52 @@ static void motor_apply(const char *json, int len) {
     ESP_LOGI(TAG, "pwm L=%d R=%d for %d ms", left, right, ms);
 }
 
-/* Two subscriptions: robots/<id>/pwm (drive) and robots/<id>/cmd/reprovision
- * (the BOOT button's remote twin — the only re-entry an ESP32-CAM has). Routed
- * by topic suffix; topic/data arrive without null terminators. */
+/* Post-join assignment: {"team":"team2","pass":"…","name":"Rover A"} on
+ * robots/<id>/cmd/config. Persist and reboot to reconnect under the new identity
+ * (the team changes both the topic and the credential). This is the reshaped
+ * onboarding — the hub dashboard assigns a rover instead of BLE/compile flags. */
+static void config_apply(const char *json, int len) {
+    cJSON *root = cJSON_ParseWithLength(json, len);
+    if (!root) { ESP_LOGW(TAG, "config: unparseable payload"); return; }
+    /* Optional "target" board-id: rovers sharing a team all see this topic, so a
+     * target lets the dashboard assign ONE of them; absent = applies to all. */
+    const cJSON *target = cJSON_GetObjectItemCaseSensitive(root, "target");
+    if (cJSON_IsString(target) && strcmp(target->valuestring, s_id) != 0) {
+        cJSON_Delete(root); return;   /* not addressed to this board */
+    }
+    const cJSON *team = cJSON_GetObjectItemCaseSensitive(root, "team");
+    const cJSON *pass = cJSON_GetObjectItemCaseSensitive(root, "pass");
+    const cJSON *name = cJSON_GetObjectItemCaseSensitive(root, "name");
+    if (cJSON_IsString(team) && team->valuestring[0]) {
+        rover_config_set_identity(team->valuestring,
+                                  cJSON_IsString(pass) ? pass->valuestring : "",
+                                  cJSON_IsString(name) ? name->valuestring : "");
+        ESP_LOGW(TAG, "assigned team '%s' — rebooting to reconnect", team->valuestring);
+        cJSON_Delete(root);
+        vTaskDelay(pdMS_TO_TICKS(300));   /* flush log + let the broker ack */
+        esp_restart();
+    }
+    ESP_LOGW(TAG, "config: no 'team' field, ignored");
+    cJSON_Delete(root);
+}
+
+/* Three subscriptions: robots/<id>/pwm (drive), /cmd/config (post-join team
+ * assignment), /cmd/reprovision (the BOOT button's remote twin). Routed by topic
+ * suffix; topic/data arrive without null terminators. */
 static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg; (void)base;
     esp_mqtt_event_handle_t e = data;
     switch ((esp_mqtt_event_id_t)id) {
     case MQTT_EVENT_CONNECTED: {
         s_mqtt_up = true;
-        char t[48];
+        char t[64];
         snprintf(t, sizeof t, "robots/%s/pwm", s_topic_id);
+        esp_mqtt_client_subscribe(e->client, t, 0);
+        snprintf(t, sizeof t, "robots/%s/cmd/config", s_topic_id);
         esp_mqtt_client_subscribe(e->client, t, 0);
         snprintf(t, sizeof t, "robots/%s/cmd/reprovision", s_topic_id);
         esp_mqtt_client_subscribe(e->client, t, 0);
-        ESP_LOGI(TAG, "mqtt connected; subscribed pwm + cmd/reprovision for %s", s_topic_id);
+        ESP_LOGI(TAG, "mqtt connected; subscribed pwm + cmd/{config,reprovision} for %s", s_topic_id);
         break;
     }
     case MQTT_EVENT_DISCONNECTED:
@@ -312,7 +349,9 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     case MQTT_EVENT_DATA:
         if (e->topic_len >= 4 && memcmp(e->topic + e->topic_len - 4, "/pwm", 4) == 0) {
             motor_apply(e->data, e->data_len);
-        } else {                                       /* the only other sub: reprovision */
+        } else if (e->topic_len >= 7 && memcmp(e->topic + e->topic_len - 7, "/config", 7) == 0) {
+            config_apply(e->data, e->data_len);
+        } else {                                       /* remaining sub: reprovision */
             ESP_LOGW(TAG, "reprovision command — opening a provisioning window");
             s_provision_request = PROVISION_MAGIC;
             esp_restart();
@@ -366,7 +405,8 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
          * translatable MQTT URI, so ignore it rather than build a garbage host. */
         snprintf(uri, sizeof uri, "mqtt://" IPSTR ":1883", IP2STR(&s_gw));
     }
-    ESP_LOGI(TAG, "broker %s as '%s'", uri, MQTT_USER);
+    ESP_LOGI(TAG, "broker %s as '%s'%s%s", uri, s_user,
+             s_name[0] ? " — " : "", s_name);
 
     /* esp-mqtt authenticates with username/password — the capability
      * zenoh-pico lacked (usrpwd unimplemented), and the reason the rover ships
@@ -376,8 +416,8 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
     esp_mqtt_client_config_t mcfg = {
         .broker.address.uri = uri,
         .credentials = {
-            .username = MQTT_USER,
-            .authentication.password = MQTT_PASS,
+            .username = s_user,
+            .authentication.password = s_pass,
         },
         .session.keepalive = 15,
     };
@@ -511,6 +551,16 @@ void app_main(void) {
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     rover_format_robot_id(mac, s_id);
     ESP_LOGI(TAG, "robot id: %s", s_id);
+
+    /* A team assigned post-join (NVS) overrides the compile-time MQTT identity. */
+    char cu[33], cp[65], cn[33];
+    rover_config_load_identity(cu, cp, cn);
+    if (cu[0]) {
+        strncpy(s_user, cu, sizeof s_user - 1);
+        strncpy(s_pass, cp, sizeof s_pass - 1);
+        strncpy(s_name, cn, sizeof s_name - 1);
+        ESP_LOGI(TAG, "identity from NVS: %s%s%s", s_user, s_name[0] ? " / " : "", s_name);
+    }
 
     bool provision_requested = (s_provision_request == PROVISION_MAGIC);
     s_provision_request = 0;
