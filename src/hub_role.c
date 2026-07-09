@@ -132,22 +132,20 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
     }
 }
 
-/* ── Abdication (DESIGN-unified.md § Hub election, lowest-MAC tiebreak + Pi
- * preference) ───────────────────────────────────────────────────────────────
- * An ESP that ELECTED itself hub keeps watching, for a bounded window, for a hub
- * it must yield to — the race is early: a Pi boots ~30-60 s after us, and a
- * simultaneous second claimant appears within a scan. Yield to any hub-pi-* (the
- * Pi is always preferred, whatever its MAC) or any hub-* with a lower BSSID (a
- * deterministic tiebreak so exactly one of two claimants survives). Yielding =
- * esp_restart: the election re-runs and we join the winner as a rover. Only an
- * *elected* hub does this — a forced role_pref=HUB rebooting would be re-forced
- * into the hub role, an infinite loop. Each active scan briefly blips the
- * single-radio AP, so the cadence is slow and the window closes once the race
- * is past. */
-#define ABDICATE_WINDOW_MS  180000   /* watch the first ~3 min, then commit as the hub */
-#define ABDICATE_SCAN_MS     20000   /* slow — an active scan interrupts AP+STA briefly */
+/* ── Pi-preference (DESIGN-unified.md § Pi-preference) ────────────────────────
+ * A tier-3 board self-hubbed because it saw no hub — but a Pi boots ~30-60 s
+ * slower than an ESP, so it may appear just after. For a bounded window, watch
+ * for the Pi (`hub-pi-*`) ONLY and step down to it — peer ESP hubs are left
+ * alone (islands are acceptable and self-heal on reboot; the old lowest-MAC
+ * election tiebreak is deleted). Yielding = esp_restart WITHOUT the RTC flag: the
+ * dispatcher re-runs discovery and we join the Pi as a rover. Each active scan
+ * briefly blips the single-radio AP, so the cadence is slow and the window
+ * closes once the slow-Pi race is past — a home board (no Pi ever) then just
+ * commits and stops scanning. */
+#define PI_WATCH_WINDOW_MS  180000   /* watch the first ~3 min, then commit as the hub */
+#define PI_WATCH_SCAN_MS     20000   /* slow — an active scan interrupts AP+STA briefly */
 
-static bool sees_hub_to_yield_to(const uint8_t self_bssid[6]) {
+static bool sees_pi_to_yield_to(const uint8_t self_bssid[6]) {
     wifi_scan_config_t sc = { .show_hidden = false };
     if (esp_wifi_scan_start(&sc, true) != ESP_OK) return false;
     wifi_ap_record_t ap[32];
@@ -155,36 +153,49 @@ static bool sees_hub_to_yield_to(const uint8_t self_bssid[6]) {
     if (esp_wifi_scan_get_ap_records(&n, ap) != ESP_OK) return false;
     for (int i = 0; i < n; i++) {
         const char *ss = (const char *)ap[i].ssid;
-        if (strncmp(ss, HUB_SSID_PREFIX, sizeof HUB_SSID_PREFIX - 1) != 0) continue;
         if (memcmp(ap[i].bssid, self_bssid, 6) == 0) continue;   /* our own AP beacon */
         if (strncmp(ss, HUB_PI_SSID_PREFIX, sizeof HUB_PI_SSID_PREFIX - 1) == 0) {
-            ESP_LOGW(TAG, "abdicate: Pi hub '%s' present — stepping down (Pi is preferred)", ss);
-            return true;
-        }
-        if (memcmp(ap[i].bssid, self_bssid, 6) < 0) {   /* MACs compare MSB-first = numeric */
-            ESP_LOGW(TAG, "abdicate: lower-MAC hub '%s' present — stepping down (tiebreak)", ss);
+            ESP_LOGW(TAG, "yield: Pi hub '%s' present — stepping down (Pi is preferred)", ss);
             return true;
         }
     }
     return false;
 }
 
-static void abdication_task(void *arg) {
+static void pi_watch_task(void *arg) {
     (void)arg;
     uint8_t self_bssid[6];
     esp_read_mac(self_bssid, ESP_MAC_WIFI_SOFTAP);
-    for (uint32_t waited = 0; waited < ABDICATE_WINDOW_MS; waited += ABDICATE_SCAN_MS) {
-        vTaskDelay(pdMS_TO_TICKS(ABDICATE_SCAN_MS));
-        if (sees_hub_to_yield_to(self_bssid)) {
+    for (uint32_t waited = 0; waited < PI_WATCH_WINDOW_MS; waited += PI_WATCH_SCAN_MS) {
+        vTaskDelay(pdMS_TO_TICKS(PI_WATCH_SCAN_MS));
+        if (sees_pi_to_yield_to(self_bssid)) {
             vTaskDelay(pdMS_TO_TICKS(500));
-            esp_restart();   /* → dispatcher → election → join the winner as a rover */
+            esp_restart();   /* → dispatcher → discovery → join the Pi as a rover */
         }
     }
-    ESP_LOGI(TAG, "hub election settled — committed as the hub (abdication window closed)");
+    ESP_LOGI(TAG, "no Pi appeared — committed as the hub (Pi-watch window closed)");
     vTaskDelete(NULL);
 }
 
-void hub_role_run(bool elected)   /* dispatched from main.c; never returns (blocks in the broker) */
+/* Tier 3 (home mode): the self-hub board ALSO drives itself. Once the local
+ * broker is up (below), a rover client dials it over the loopback — the same
+ * MQTT drive path a classroom rover runs, so the home dashboard drives exactly
+ * like the classroom one. One-shot: a dead loopback session is a real bug, not
+ * something to mask by rebooting the hub out from under its own broker. */
+static void local_rover_task(void *arg) {
+    (void)arg;
+    /* Yield first: this task (prio 4) preempts app_main (prio 1) the instant it's
+     * created, which is BEFORE app_main reaches mosq_broker_run below and binds
+     * :1883. Delaying hands the CPU back so the broker is listening before we
+     * dial the loopback — otherwise the first connect hits esp-mqtt's ~10 s
+     * reconnect backoff and overruns rover_client_run's connect window. */
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    rover_client_run("mqtt://127.0.0.1:1883");   /* blocks driving; returns only if the session dies */
+    ESP_LOGE(TAG, "local rover client exited — home-mode drive is down (hub stays up)");
+    vTaskDelete(NULL);
+}
+
+void hub_role_run(bool self_hub)  /* dispatched from main.c; never returns (blocks in the broker) */
 {
     /* NVS is already initialized by the dispatcher (main.c). */
     ESP_ERROR_CHECK(esp_netif_init());
@@ -248,12 +259,17 @@ void hub_role_run(bool elected)   /* dispatched from main.c; never returns (bloc
      * lazily per browser, by which time the broker below is up. */
     start_ws_mqtt_bridge();
 
-    /* An elected hub watches briefly for a hub it should yield to (a slow Pi, or
-     * a simultaneous second claimant) and steps down if one appears — DESIGN-
-     * unified.md § Hub election. A forced hub (role_pref=HUB) never does: it was
-     * chosen deliberately, and rebooting would only re-force it (a loop). */
-    if (elected)
-        xTaskCreate(abdication_task, "abdicate", 3072, NULL, 4, NULL);
+    /* Tier 3 (home mode, self_hub): this board self-hubbed with no hub present,
+     * so it (a) watches briefly for a slow Pi to yield to, and (b) drives itself
+     * via a local rover client against the broker below — a lone board is its own
+     * hub AND rover. A forced hub (role_pref=HUB, tier 2 professor hub) does
+     * neither: it was chosen deliberately (rebooting would re-force it, a loop),
+     * and it must not drive (broker/AP vs real-time motors on one radio — hub#2).
+     * Both tasks start before the broker call below blocks. */
+    if (self_hub) {
+        xTaskCreate(pi_watch_task, "pi-watch", 3072, NULL, 4, NULL);
+        xTaskCreate(local_rover_task, "rover", 4096, NULL, 4, NULL);
+    }
 
     /* Broker starts now, uplink or not — the classroom works offline. */
     struct mosq_broker_config bcfg = {

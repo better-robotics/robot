@@ -149,36 +149,6 @@ static bool discover_hub(char out[33]) {
     return best >= 0;
 }
 
-/* Hub self-election (DESIGN-unified.md § Hub election). Reached only in AUTO
- * role with nothing stored and no hub-* in the first scan. The Pi is the
- * preferred hub but boots ~30-60 s slower than an ESP, so watch a grace window
- * before claiming: any hub-* that appears (the Pi's, or another ESP that claimed
- * first) means yield and become its rover. A MAC-derived jitter staggers the
- * claim instant so two lone ESPs don't both raise an AP at once — an exact tie
- * is still caught afterward by the hub role's lowest-MAC abdication. Fills `out`
- * and returns when a hub appears; never returns when it claims (reboots into the
- * hub role via the RTC flag, roles.h). */
-#define ELECTION_GRACE_MS   60000   /* the Pi-wins window (DESIGN-unified.md mitigation b) */
-#define ELECTION_JITTER_MS  20000   /* MAC-spread stagger on top of the grace window */
-#define ELECTION_SCAN_MS     4000   /* rescan cadence inside the window */
-
-static void run_election(char out[33]) {
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    uint32_t window = ELECTION_GRACE_MS + (uint32_t)mac[5] * ELECTION_JITTER_MS / 255;
-    ESP_LOGW(TAG, "hub election: no hub-* in range — watching %us for one before claiming",
-             (unsigned)(window / 1000));
-    for (uint32_t waited = 0; waited < window; waited += ELECTION_SCAN_MS) {
-        vTaskDelay(pdMS_TO_TICKS(ELECTION_SCAN_MS));
-        if (discover_hub(out)) {
-            ESP_LOGI(TAG, "election: %s appeared — yielding, becoming its rover", out);
-            return;
-        }
-    }
-    ESP_LOGW(TAG, "election: grace elapsed, still no hub — claiming, rebooting into hub role");
-    role_boot_as_hub();   /* never returns */
-}
-
 /* MQTT identity. robot-id == the team credential (CONTRACT.md § Discovery &
  * isolation): the rover authenticates as its team and publishes under its own
  * robots/<team> subtree, so the Pi's `pattern robots/%u/#` ACL admits it and a
@@ -421,6 +391,99 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     }
 }
 
+/* ── rover_client_run: the MQTT client + motor-drive loop, network-agnostic ───
+ * Assumes Wi-Fi/networking is already up and `broker_uri` reaches a broker; sets
+ * up identity + motors, connects, then blocks in the publish loop. Two callers
+ * (roles.h) share this one drive path:
+ *   - operating_mode (rover): after joining a hub-* AP, broker = the DHCP gateway.
+ *   - hub_role_run tier 3 (home mode): the hub already raised APSTA + a local
+ *     broker, so a lone board drives ITSELF via mqtt://127.0.0.1:1883.
+ * Returns (never reboots) when the session is dead — the caller decides: a rover
+ * reboots to re-discover a hub; the hub keeps hubbing and drops this task. */
+void rover_client_run(const char *broker_uri) {
+    /* Identity is board-local, no network needed: robot-id from the MAC, team
+     * credential from NVS (a post-join assignment) or the compile-time demo. */
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    rover_format_robot_id(mac, s_id);
+    char cu[33], cp[65], cn[33];
+    rover_config_load_identity(cu, cp, cn);
+    if (cu[0]) {
+        strncpy(s_user, cu, sizeof s_user - 1);
+        strncpy(s_pass, cp, sizeof s_pass - 1);
+        strncpy(s_name, cn, sizeof s_name - 1);
+    }
+    led_set(false);   /* start dark; MQTT CONNECTED lights it */
+    ESP_LOGI(TAG, "rover client: id %s as '%s'%s%s → %s", s_id, s_user,
+             s_name[0] ? " / " : "", s_name, broker_uri);
+
+    /* esp-mqtt authenticates with username/password — the capability
+     * zenoh-pico lacked (usrpwd unimplemented), and the reason the rover ships
+     * on MQTT. Same firmware reaches either hub: both are raw-TCP brokers on
+     * :1883, and a rover never needs the WebSocket transport (that's the
+     * browser's constraint). */
+    esp_mqtt_client_config_t mcfg = {
+        .broker.address.uri = broker_uri,
+        .credentials = {
+            .username = s_user,
+            .authentication.password = s_pass,
+        },
+        .session.keepalive = 15,
+    };
+    {   /* pins default to the macros; NVS overrides when a chassis was configured */
+        int pins[6] = { s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4 };
+        if (rover_config_load_motor_pins(pins)) {
+            s_pin_ena = pins[0]; s_pin_in1 = pins[1]; s_pin_in2 = pins[2];
+            s_pin_enb = pins[3]; s_pin_in3 = pins[4]; s_pin_in4 = pins[5];
+            ESP_LOGI(TAG, "motor pins from NVS");
+        }
+    }
+    motor_init();   /* ready before CONNECTED can deliver a pwm command */
+    esp_mqtt_client_handle_t cli = esp_mqtt_client_init(&mcfg);
+    if (!cli) { ESP_LOGE(TAG, "mqtt init failed"); return; }
+    esp_mqtt_client_register_event(cli, ESP_EVENT_ANY_ID, mqtt_evt, NULL);
+    esp_mqtt_client_start(cli);
+
+    /* First connect gates everything: it proves both reachability AND that the
+     * team credential was accepted (a bad password disconnects here, never
+     * reaching s_mqtt_up). No connect in 10 s → dead → caller retries. */
+    for (int i = 0; i < 40 && !s_mqtt_up; i++) vTaskDelay(pdMS_TO_TICKS(250));
+    if (!s_mqtt_up) { ESP_LOGE(TAG, "broker unreachable or credential rejected"); return; }
+
+    char key[48];
+    snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);
+    ESP_LOGI(TAG, "publishing %s every 2 s", key);
+
+    char buf[192];
+    int down = 0;   /* consecutive 2 s ticks with no live session — dead → return */
+    for (;;) {
+        if (s_mqtt_up) {
+            down = 0;
+            int64_t up_ms = esp_timer_get_time() / 1000;
+            uint32_t heap = esp_get_free_heap_size();
+            /* board id is metadata in the payload, not the topic (id == team). */
+            snprintf(buf, sizeof buf,
+                     "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
+                     "\",\"board\":\"%s\",\"synthetic\":false}",
+                     (long long)up_ms, (unsigned)heap, s_id);
+            if (esp_mqtt_client_publish(cli, key, buf, 0, 0, 0) >= 0)
+                ESP_LOGI(TAG, "pub %s", buf);
+            else
+                ESP_LOGW(TAG, "publish enqueue failed");
+        } else if (++down >= 10) {
+            /* esp-mqtt auto-reconnects, so a brief outage self-heals; only a
+             * sustained dead session (~20 s) returns to the caller. */
+            ESP_LOGE(TAG, "20 s with no broker — session dead");
+            esp_mqtt_client_stop(cli);
+            esp_mqtt_client_destroy(cli);
+            return;
+        } else {
+            ESP_LOGW(TAG, "waiting for reconnect (%d/10)", down);
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
 static void operating_mode(char *ssid, const char *pass, const char *locator) {
     wifi_up();
 
@@ -428,14 +491,16 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
     bool on_discovered = false;
     if (!ssid[0]) {
         if (!discover_hub(discovered)) {
-            /* AUTO self-elects (DESIGN-unified.md): watch for a hub, else claim
-             * — run_election reboots into the hub role and never returns. A
-             * ROVER-pinned board never elects: it reboots and keeps waiting. */
+            /* No hub-* in range. AUTO self-hubs (home mode, DESIGN-unified.md):
+             * claim by reboot into the tier-3 hub+rover path, and never return.
+             * A ROVER-pinned board never self-hubs: it reboots and keeps
+             * waiting for a hub to appear. */
             if (rover_config_load_role_pref() != ROLE_AUTO) {
                 ESP_LOGW(TAG, "nothing stored and no open hub-* in range");
                 goto fail;
             }
-            run_election(discovered);   /* returns only if a hub appeared (else reboots to claim) */
+            ESP_LOGW(TAG, "no hub-* in range — self-hubbing (home mode, tier 3)");
+            role_boot_as_hub();   /* never returns — reboots into hub+rover (roles.h) */
         }
         ssid = discovered; pass = ""; on_discovered = true;
     }
@@ -470,72 +535,8 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
          * translatable MQTT URI, so ignore it rather than build a garbage host. */
         snprintf(uri, sizeof uri, "mqtt://" IPSTR ":1883", IP2STR(&s_gw));
     }
-    ESP_LOGI(TAG, "broker %s as '%s'%s%s", uri, s_user,
-             s_name[0] ? " — " : "", s_name);
 
-    /* esp-mqtt authenticates with username/password — the capability
-     * zenoh-pico lacked (usrpwd unimplemented), and the reason the rover ships
-     * on MQTT. Same firmware reaches either hub: both are raw-TCP brokers on
-     * :1883, and a rover never needs the WebSocket transport (that's the
-     * browser's constraint). */
-    esp_mqtt_client_config_t mcfg = {
-        .broker.address.uri = uri,
-        .credentials = {
-            .username = s_user,
-            .authentication.password = s_pass,
-        },
-        .session.keepalive = 15,
-    };
-    {   /* pins default to the macros; NVS overrides when a chassis was configured */
-        int pins[6] = { s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4 };
-        if (rover_config_load_motor_pins(pins)) {
-            s_pin_ena = pins[0]; s_pin_in1 = pins[1]; s_pin_in2 = pins[2];
-            s_pin_enb = pins[3]; s_pin_in3 = pins[4]; s_pin_in4 = pins[5];
-            ESP_LOGI(TAG, "motor pins from NVS");
-        }
-    }
-    motor_init();   /* ready before CONNECTED can deliver a pwm command */
-    esp_mqtt_client_handle_t cli = esp_mqtt_client_init(&mcfg);
-    if (!cli) { ESP_LOGE(TAG, "mqtt init failed"); goto fail; }
-    esp_mqtt_client_register_event(cli, ESP_EVENT_ANY_ID, mqtt_evt, NULL);
-    esp_mqtt_client_start(cli);
-
-    /* First connect gates everything: it proves both reachability AND that the
-     * team credential was accepted (a bad password disconnects here, never
-     * reaching s_mqtt_up). No connect in 10 s → dead → provisioning window. */
-    for (int i = 0; i < 40 && !s_mqtt_up; i++) vTaskDelay(pdMS_TO_TICKS(250));
-    if (!s_mqtt_up) { ESP_LOGE(TAG, "broker unreachable or credential rejected"); goto fail; }
-
-    char key[48];
-    snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);
-    ESP_LOGI(TAG, "publishing %s every 2 s", key);
-
-    char buf[192];
-    int down = 0;   /* consecutive 2 s ticks with no live session — dead → reprovision */
-    for (;;) {
-        if (s_mqtt_up) {
-            down = 0;
-            int64_t up_ms = esp_timer_get_time() / 1000;
-            uint32_t heap = esp_get_free_heap_size();
-            /* board id is metadata in the payload, not the topic (id == team). */
-            snprintf(buf, sizeof buf,
-                     "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
-                     "\",\"board\":\"%s\",\"synthetic\":false}",
-                     (long long)up_ms, (unsigned)heap, s_id);
-            if (esp_mqtt_client_publish(cli, key, buf, 0, 0, 0) >= 0)
-                ESP_LOGI(TAG, "pub %s", buf);
-            else
-                ESP_LOGW(TAG, "publish enqueue failed");
-        } else if (++down >= 10) {
-            /* esp-mqtt auto-reconnects, so a brief hub outage self-heals; only
-             * a sustained dead session (~20 s) drops to a provisioning window. */
-            ESP_LOGE(TAG, "20 s with no broker — session dead");
-            goto fail;
-        } else {
-            ESP_LOGW(TAG, "waiting for reconnect (%d/10)", down);
-        }
-        vTaskDelay(pdMS_TO_TICKS(2000));
-    }
+    rover_client_run(uri);   /* blocks driving the board; returns only when dead */
 
 fail:
     /* No offline provisioning to fall back to any more (BLE removed) — reboot
@@ -550,22 +551,9 @@ fail:
  * Dispatched from main.c (never returns). NVS is already initialized there. */
 
 void rover_role_run(void) {
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    rover_format_robot_id(mac, s_id);
-    ESP_LOGI(TAG, "robot id: %s", s_id);
-
-    /* A team assigned post-join (NVS) overrides the compile-time MQTT identity. */
-    char cu[33], cp[65], cn[33];
-    rover_config_load_identity(cu, cp, cn);
-    if (cu[0]) {
-        strncpy(s_user, cu, sizeof s_user - 1);
-        strncpy(s_pass, cp, sizeof s_pass - 1);
-        strncpy(s_name, cn, sizeof s_name - 1);
-        ESP_LOGI(TAG, "identity from NVS: %s%s%s", s_user, s_name[0] ? " / " : "", s_name);
-    }
-
-    led_set(false);   /* start dark; MQTT CONNECTED lights it */
+    /* Identity + motor setup is deferred to rover_client_run (shared with the
+     * tier-3 hub); here we only start the recover button and drive the STA
+     * discovery/join path, which ends in rover_client_run against the hub. */
     xTaskCreate(button_task, "button", 2048, NULL, 5, NULL);
 
     char ssid[33], pass[65], loc[65];
