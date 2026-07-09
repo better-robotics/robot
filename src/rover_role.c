@@ -487,52 +487,49 @@ void rover_client_run(const char *broker_uri) {
 static void operating_mode(char *ssid, const char *pass, const char *locator) {
     wifi_up();
 
+    /* Reach a hub by any means, in priority order:
+     *   1. an explicit stored network (a deliberate choice wins), if any;
+     *   2. discovery of the strongest open hub-* (the classroom convention).
+     * A stored network can go stale (hub swapped, AP renamed) — a live hub-*
+     * beats a dead config, so discovery is retried after a stored-join failure.
+     * Discovery is never persisted: NVS keeps explicit choices only. */
     char discovered[33] = "";
     bool on_discovered = false;
-    if (!ssid[0]) {
-        if (!discover_hub(discovered)) {
-            /* No hub-* in range. AUTO self-hubs (home mode, DESIGN-unified.md):
-             * claim by reboot into the tier-3 hub+rover path, and never return.
-             * A ROVER-pinned board never self-hubs: it reboots and keeps
-             * waiting for a hub to appear. */
-            if (rover_config_load_role_pref() != ROLE_AUTO) {
-                ESP_LOGW(TAG, "nothing stored and no open hub-* in range");
-                goto fail;
-            }
-            ESP_LOGW(TAG, "no hub-* in range — self-hubbing (home mode, tier 3)");
-            role_boot_as_hub();   /* never returns — reboots into hub+rover (roles.h) */
-        }
-        ssid = discovered; pass = ""; on_discovered = true;
+    bool joined = false;
+
+    if (ssid[0]) {
+        ESP_LOGI(TAG, "operating mode — trying stored network '%s'", ssid);
+        joined = wifi_join(ssid, pass);
+        if (!joined) ESP_LOGW(TAG, "stored network '%s' unreachable", ssid);
+    }
+    if (!joined && discover_hub(discovered) && wifi_join(discovered, "")) {
+        ssid = discovered; pass = ""; on_discovered = true; joined = true;
     }
 
-    ESP_LOGI(TAG, "operating mode — joining '%s'", ssid);
-    if (!wifi_join(ssid, pass)) {
-        ESP_LOGE(TAG, "wifi join failed");
-        /* Stored credentials can go stale (hub swapped, AP renamed) — a live
-         * open hub-* beats a dead config. Discovery is never persisted: NVS
-         * keeps explicit choices only, so the stored pair is retried first
-         * on every boot. */
-        if (!on_discovered && discover_hub(discovered)
-            && strcmp(ssid, discovered) != 0 && wifi_join(discovered, "")) {
-            ssid = discovered; on_discovered = true;
-        } else {
-            goto fail;
+    /* No hub reachable at all — the terminal fallback. An AUTO board becomes its
+     * own hub+rover (home mode, tier 3): it claims by reboot and never returns,
+     * so a lone board with a stale stored SSID still ends up useful (the gating
+     * is reachability, NOT whether creds happen to be stored). A ROVER-pinned
+     * board must never self-hub: it reboots and keeps waiting for a hub. */
+    if (!joined) {
+        if (rover_config_load_role_pref() == ROLE_AUTO) {
+            ESP_LOGW(TAG, "no hub reachable — self-hubbing (home mode, tier 3)");
+            role_boot_as_hub();   /* never returns — reboots into hub+rover (roles.h) */
         }
+        ESP_LOGW(TAG, "no hub reachable and role is ROVER — rebooting to retry");
+        goto fail;
     }
 
     /* Broker URI. Gateway-first (CONTRACT.md): on the hub's own AP the DHCP
      * gateway IS the hub, so <gateway>:1883 reaches the broker with no name
      * lookup and no hardcoded IP — the one address the two hub hosts (Pi,
-     * ESP32) don't share. A stored locator overrides: a full mqtt:// URI is
-     * used as-is, a bare host becomes mqtt://<host>:1883. */
+     * ESP32) don't share. A stored mqtt:// locator overrides, but only when we
+     * joined the stored network (discovery always means the gateway is the hub;
+     * a stale zenoh-era tcp/<ip>:7447 locator is ignored, not translated). */
     char uri[80];
     if (locator[0] && !on_discovered && strncmp(locator, "mqtt://", 7) == 0) {
-        /* a valid stored MQTT locator (full URI) overrides discovery */
         snprintf(uri, sizeof uri, "%s", locator);
     } else {
-        /* gateway IS the hub on its own AP (CONTRACT.md). Also the fallback when
-         * the stored locator is a stale zenoh-era value (tcp/<ip>:7447) — not a
-         * translatable MQTT URI, so ignore it rather than build a garbage host. */
         snprintf(uri, sizeof uri, "mqtt://" IPSTR ":1883", IP2STR(&s_gw));
     }
 
@@ -540,8 +537,8 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
 
 fail:
     /* No offline provisioning to fall back to any more (BLE removed) — reboot
-     * and retry the whole discovery/connect path. A rover powered on before its
-     * hub just loops here, rescanning, until the hub's AP appears. */
+     * and retry the whole discovery/connect path. A ROVER-pinned board powered
+     * on before its hub just loops here, rescanning, until the AP appears. */
     ESP_LOGW(TAG, "connect failed — rebooting to retry");
     vTaskDelay(pdMS_TO_TICKS(1000));
     esp_restart();
