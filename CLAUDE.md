@@ -70,24 +70,28 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
 `role_pref` (NVS key `role`, § Identity) picks the boot role and calls it
 (neither returns):
 ```
-app_main ─► elected-hub RTC flag → hub_role_run(elected)  (won a prior election)
-            role_pref == HUB      → hub_role_run(forced)   (AP + broker + WS + NAT)
-            role_pref == ROVER    → rover_role_run()
-            role_pref == AUTO     → rover_role_run() → self-elects if no hub-* found
+app_main ─► elected-hub RTC flag → hub+rover (tier 3)   (self-hubbed last boot)
+            role_pref == HUB      → hub only  (tier 2)   (AP+broker+dashboard+NAT; no drive)
+            role_pref == ROVER    → rover                (join a hub-*, drive)
+            role_pref == AUTO     → rover; self-hubs (tier 3) if no hub-* found
 ```
-`AUTO` **self-elects** (step 3, code-complete 2026-07-09, build-green both
-arches; **hardware convergence not yet tested**). It boots the rover path; if no
-`hub-*` is in range, `run_election` (`rover_role.c`) watches a MAC-jittered grace
-window (~60–80 s — a booting Pi must win), rescanning. Any `hub-*` that appears →
-yield, stay a rover. Window elapses with none → **claim**: set a transient RTC
-flag (`role_boot_as_hub`) and `esp_restart` — the dispatcher reads the flag next
-boot and runs `hub_role_run(elected=true)` with a clean AP+STA init (no
-STA→APSTA switch mid-boot; a power cycle re-elects). An elected hub runs an
-**abdication** watch (~3 min): it steps down (reboot → re-elect → rover) if a
-`hub-pi-*` marker or a lower-BSSID `hub-*` appears. A **forced** `role_pref=HUB`
-never abdicates (it would just be re-forced — a loop). **Owed:** the Pi must
-advertise `hub-pi-<suffix>` for guaranteed Pi-preference (else it rests on the
-grace window). See `DESIGN-unified.md` § Hub election.
+`AUTO` **self-hubs when alone** — the post-election model (DESIGN-unified.md §
+Direction change, 2026-07-09). It scans for a `hub-*`: **found → join as a
+rover** (attraction); **none → self-hub**: set a transient RTC flag
+(`role_boot_as_hub`) and reboot into a combined **HUB+ROVER** (tier 3 = home
+mode — own AP + local broker + dashboard + drives itself). No distributed
+election: convergence is emergent (later boards are attracted to the first
+self-hub; only simultaneous boot → transient islands, self-healed by reboot). A
+tier-3 board keeps watching and yields **only** to a Pi (`hub-pi-*`); it does not
+fight peer ESP hubs. A **forced** `role_pref=HUB` is a hub-*only* board (tier 2 —
+professor/designated, does not drive). The RTC flag keeps every role switch a
+clean reboot, never a STA→APSTA switch mid-boot.
+
+> **Transitional (2026-07-09):** the distributed election (grace/jitter/
+> lowest-MAC/abdication) shipped at `5b5b49d`, then this tier model superseded
+> it. **Being replaced now:** delete the election, build the tier-3 combined
+> run-path (+ motor-contention check) and the #17 Wi-Fi panel. Tracker:
+> robot#2. Owed: the Pi advertises `hub-pi-<suffix>` (`hub` repo).
 
 ### Rover role
 One radio: Wi-Fi STA + esp-mqtt (BLE removed 2026-07-09 — see below).
@@ -202,14 +206,19 @@ esp-mqtt client) and the 408 KB embedded dashboard coexist in one image.
   **not yet boot-run from this repo's image** (next after election lands).
 - BLE gone since v5 (#11), freeing ~175 KB flash + ~44 KB heap.
 
-**Step 3 (the election protocol) — code-complete 2026-07-09, build-green both
-arches.** `AUTO` now self-elects: MAC-jittered grace-scan → claim-by-reboot (RTC
-flag) → abdication on `hub-pi-*` / lower-BSSID (§ Boot flow, `DESIGN-unified.md`
-§ Hub election). **Not yet hardware-convergence-tested** — the make-or-break is
-two boards + no hub confirming exactly one claims (watch it live over the
-site's serial monitor). **Owed with it:** the Pi advertises `hub-pi-<suffix>`
-(guaranteed Pi-preference). **Next: step 4** — the config page (uplink Wi-Fi
-picker for the ESP-hub fallback) + LED-per-role + force-rover BOOT-hold.
+**Direction changed 2026-07-09: election → role tiers** (§ Boot flow;
+`DESIGN-unified.md` § Direction change; **robot#2**). The distributed election
+shipped (`5b5b49d`) then was superseded by the tier model (rover / hub-only /
+auto-self-hub), converging by attraction with a single `hub-pi-*` Pi-yield — no
+grace/jitter/lowest-MAC. **Active build:** delete the election; build **tier 3 =
+home mode** (the combined HUB+ROVER run-path — factor the rover MQTT-client +
+motor loop against a local broker, validate motor contention `hub#2`) and its
+per-board **Wi-Fi config panel** (#17, the same device-served UI as the Pi).
+**Then tier 2** (professor ESP hub = hub role with drive off; needs the AP opened
+— rovers only auto-join *open* `hub-*`, but the hub AP is WPA2 today). **Owed:**
+the Pi advertises `hub-pi-<suffix>` (`hub` repo). **Deferred (hub#3):** per-board
+AP for the whole classroom (central→local control tradeoff; measure the client
+cap first).
 
 History (git): v2 zenoh firmware (three-rover fleet, BLE provisioning); v3/v4 the
 MQTT port + motor drive; v5 BLE removed; v6 the unified rover+hub image.

@@ -5,22 +5,51 @@
 repo (the standalone `hub/esp32` project was removed once its source folded in).
 Done: BLE removed (#11); **step 1** feasibility (combined image links, ~48% of
 3 MB); **step 2** the boot-role dispatcher (`role_pref` NVS → `rover_role_run` /
-`hub_role_run`); **step 3** the election protocol (below) — **code-complete,
-build-green both arches (2026-07-09); NOT yet hardware-convergence-tested** (the
-make-or-break two-board / slow-Pi test, § Costs/risks). Next: **step 4** the
-config page (uplink `setup-*` AP + LED-per-role + force-rover button). See
-`CLAUDE.md` › Boot flow.
+`hub_role_run`). Next: **tier 3 — home mode** (self-hub+rover, below), then the
+per-board **Wi-Fi config panel** (#17) it needs.
 
-**Step 3 as built:** AUTO rover, no `hub-*` in range → `run_election`
-(`rover_role.c`): MAC-jittered grace window (`ELECTION_GRACE_MS` 60 s +
-≤20 s/MAC), rescanning; any `hub-*` appears → yield/rover; window elapses →
-claim via a transient RTC flag (`role_boot_as_hub`, `main.c`) + reboot into the
-hub role (avoids a STA→APSTA re-init in one boot; a power cycle re-elects).
-Abdication (`hub_role.c`, elected hubs only, ~3-min window): step down (reboot →
-re-elect → rover) on a `hub-pi-*` marker or a lower-BSSID `hub-*`. **Companion
-change still owed (mitigation c): the Pi must advertise `hub-pi-<suffix>`** so an
-already-claimed ESP always yields to it — until then Pi-preference rests on the
-grace window (b) alone.
+## Direction change — election → role tiers (2026-07-09)
+
+The distributed **election** (grace window + MAC jitter + lowest-MAC tiebreak +
+abdication) was built and committed (`5b5b49d`), then **replaced** by a simpler
+model after a design pass. The election existed to auto-pick *one shared ESP hub*
+among several student boards — but that is imitating the Pi in software, on
+worse hardware, at the design's highest complexity (the split-brain "make-or-
+break"). The replacement drops the distributed part entirely:
+
+- **Three role tiers, one firmware, `role_pref` selects:**
+  - **rover** — STA client, joins a hub, drives. (needs a hub present)
+  - **hub** *(tier 2 — professor / designated ESP hub)* — AP + broker + dashboard
+    + NAT; **does not drive**. An ESP32 optionally *replaces the Pi* this way.
+  - **auto** *(default)* — finds a `hub-*` → become its **rover**; finds none →
+    **self-hub+rover** *(tier 3 = home mode)*: raise own AP + local broker +
+    dashboard, and **drive itself**.
+- **Convergence by *attraction*, not election.** A self-hub board raises a
+  `hub-*`; boards that boot later discover it and join as rovers — a fleet forms
+  with the first-booted as the hub, no protocol. The only unhandled case is
+  *simultaneous* boot (two boards self-hub before seeing each other → transient
+  islands); it self-heals on reboot and is acceptable (the firmware's existing
+  "reboot to converge" DNA).
+- **Pi-preference, minimal.** A self-hub board keeps watching *only* for a Pi
+  (`hub-pi-*`) and steps down to it (the slow-Pi race). It does **not** fight
+  peer ESP hubs — peer islands are fine. This is the one deterministic yield
+  kept from the election's abdication; grace/jitter/lowest-MAC are deleted.
+  (Owed with it: the Pi advertises `hub-pi-<suffix>`, a `hub`-repo change.)
+
+**Why tier 3 is mandatory, not optional:** *home mode* = one kid, one board, no
+Pi, no professor — the board must be its own hub *and* drive itself, or a single
+board does nothing. So tier 3 is the home deployment context, first-class.
+
+**Kept from the election:** the reboot-based role switch — a transient RTC flag
+(`role_boot_as_hub`/`role_pending_hub_boot`, `main.c`) so a role change is a
+clean reboot into a fresh radio init, never a STA→APSTA switch mid-boot.
+
+**Deferred to hub#3:** "*every* classroom board runs its own AP" (each student
+joins their own rover, STA uplinks to the hub). Solves the ESP hub's ~8–10
+client cap, but flips classroom control from **central** (one shared broker, ACL
+team isolation, teacher drives any robot) to **local**, and adds RF co-channel
+cost. Decision gated on measuring whether the client cap actually binds — see
+hub#3 and § "Costs / risks".
 
 Collapse the two ESP32 firmwares — the on-chip hub and the rover — into **one
 image** whose role is decided at boot, and replace **BLE onboarding** with an
@@ -41,48 +70,36 @@ self-election is a *fallback*, not the default.
 ## Boot state machine
 
 ```
-boot → load NVS config (role_pref, uplink wifi, team creds, motor pins)
-     → scan for open hub-* APs
-        │
-        ├─ hub-* found, role_pref ≠ hub ─────────────► ROVER MODE   (today's path, unchanged)
-        │      join → gateway:1883 → MQTT client → telemetry + drive
-        │
-        ├─ no hub-*, have config, role_pref ∈ {auto,hub} ─► HUB ELECTION
-        │      won  → HUB MODE: AP hub-<mac> + STA(uplink) + NAPT + mosquitto
-        │             + WS bridge + serve dashboard + captive config page
-        │      lost → ROVER MODE, join the winner
-        │
-        └─ no hub-*, no usable config ───────────────► CONFIG MODE
-               start AP setup-<mac> + captive portal; user picks a path; save; reboot
+boot → load NVS (role_pref, uplink wifi, team creds, motor pins)
+     → dispatcher:
+        ├─ elected-hub RTC flag ─► HUB+ROVER (tier 3, this boot only)
+        ├─ role_pref = hub ──────► HUB (tier 2: AP+broker+dashboard+NAT; no drive)
+        ├─ role_pref = rover ────► ROVER (join a hub-*, drive)
+        └─ role_pref = auto ─────► scan for open hub-*
+              ├─ found ──────────► ROVER: join it, drive           (attraction)
+              └─ none ───────────► self-hub: set RTC flag, reboot → HUB+ROVER (tier 3)
 ```
 
-Only **one role runs per boot** — so the binary is bigger but runtime RAM stays
-per-role (hub OR rover, never both live at once).
+HUB+ROVER (tier 3) keeps watching for a Pi (`hub-pi-*`) and steps down to it.
+Only **one role runs per boot** — the binary is bigger but runtime RAM stays
+per-role.
 
-## Hub election — the part that bit us
+## Convergence & Pi-preference (post-election model)
 
-The split-brain we just debugged (two hubs, fleet divided) **is** naive
-self-election's failure mode. Election must converge to exactly one hub:
+No distributed election (see § Direction change). Convergence is *emergent*:
 
-1. **Re-scan** right before claiming — a hub may have appeared during boot.
-2. **Randomized backoff** (0–`T` s, spread by MAC) while continuing to scan;
-   any `hub-*` that appears → **yield**, become a rover.
-3. Backoff expires with no hub → **claim**: raise the AP + broker.
-4. **Lowest-MAC-wins tiebreak:** after claiming, keep scanning; if a `hub-*`
-   with a *lower* MAC is seen, **step down** and join it. Guarantees eventual
-   convergence even if two claim in the same instant.
-
-**Prefer the Pi — and mind the slow-Pi race.** The Pi's AP is also `hub-*`, so
-once it's up, ESP boards find it → rover mode → never elect. But the Pi boots in
-**30–60 s** while ESP32s boot in **~1 s**: rovers powered *with* the Pi (one
-power strip — the classroom norm) will elect an ESP hub *before* the Pi's AP
-exists, then must **abdicate** when it appears, disconnecting the class
-mid-lesson. Mitigations: (a) the elected ESP hub keeps scanning and steps down
-to the Pi (abdication is unavoidable if you allow early election); (b) better —
-**gate election behind a longer grace period** (e.g. 60–90 s of scanning) so a
-booting Pi wins before any ESP claims; (c) hard guarantee — the Pi advertises a
-reserved marker SSID (`hub-pi-*`) that ESP boards *always* yield to. Given the
-correlated-power-on reality, lean on (b)+(c), not "always-up-first."
+- **Attraction** — rovers already join any `hub-*` they find, so the first board
+  to self-hub becomes the de-facto hub and later boards join it. A fleet forms
+  with no protocol; only *simultaneous* self-hub → transient islands, self-healed
+  by a reboot. Acceptable — not a split-brain we must prevent, a rare case we let
+  the existing reboot-loop resolve.
+- **Pi-preference** — a self-hub (tier 3) board keeps scanning and yields **only**
+  to a Pi (`hub-pi-*`), whatever its MAC. It does *not* step down for peer ESP
+  hubs. This is the single deterministic rule kept from the old abdication; the
+  slow-Pi race (Pi's AP appears ~30–60 s after an ESP's ~1 s boot) is handled by
+  the tier-3 board seeing `hub-pi-*` and rebooting into rover mode.
+  **Owed (`hub` repo):** the Pi advertises `hub-pi-<suffix>` — until then an
+  already-self-hubbed ESP has no marker to yield to.
 
 ## Onboarding: post-join config, not a captive portal (cold-pass revision)
 
