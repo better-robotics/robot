@@ -184,67 +184,85 @@ static const char *s_topic_id = MQTT_USER;
 
 static volatile bool s_mqtt_up = false;   /* live session; drives dead-session self-heal */
 
-/* ── motor drive: L298N, PWM on the direction pins (ENA/ENB jumpered high) ────
- * The kit wires 4 GPIOs, two per motor; PWM one side to drive, hold the other
- * LOW — sign-magnitude from robots/<id>/pwm's signed ±255 per wheel. Pins
- * default to the ESP32-CAM + L298N kit (workbench/HARDWARE.md camera-survivor
- * GPIOs); override per board via build_flags. A watchdog stops the motors
- * duration_ms after the last command, so a dropped session or controller
- * coasts to a halt instead of running away. */
-#ifndef MOTOR_LEFT_FWD
-#define MOTOR_LEFT_FWD  14
+/* ── motor drive: L298N, 6-wire (ENA/ENB = PWM speed, IN1-4 = direction) ──────
+ * The standard L298N control: each motor's IN pair picks direction (one HIGH,
+ * one LOW), its EN pin PWMs the speed. Signed ±255 per wheel from
+ * robots/<id>/pwm → sign sets the IN pair, magnitude the EN duty; 0 = coast.
+ * All six pins come from build_flags — set them to your wiring. A watchdog stops
+ * the motors duration_ms after the last command, so a dropped session or
+ * controller coasts to a halt instead of running away. */
+#ifndef MOTOR_ENA
+#define MOTOR_ENA 25   /* left  speed (PWM enable) — D25 */
 #endif
-#ifndef MOTOR_LEFT_BWD
-#define MOTOR_LEFT_BWD  15
+#ifndef MOTOR_IN1
+#define MOTOR_IN1 26   /* left  direction A — D26 */
 #endif
-#ifndef MOTOR_RIGHT_FWD
-#define MOTOR_RIGHT_FWD 13
+#ifndef MOTOR_IN2
+#define MOTOR_IN2 27   /* left  direction B — D27 */
 #endif
-#ifndef MOTOR_RIGHT_BWD
-#define MOTOR_RIGHT_BWD 4
+#ifndef MOTOR_ENB
+#define MOTOR_ENB 14   /* right speed (PWM enable) — D14 */
+#endif
+#ifndef MOTOR_IN3
+#define MOTOR_IN3 12   /* right direction A — D12 (also MTDI boot strap: must be
+                        * LOW at boot; the L298N input keeps it there) */
+#endif
+#ifndef MOTOR_IN4
+#define MOTOR_IN4 13   /* right direction B — D13 */
 #endif
 
-/* One LEDC channel per direction pin, all on a single 1 kHz / 8-bit timer, so a
- * duty of 0..255 maps straight from the envelope's PWM magnitude. */
-enum { CH_LF, CH_LB, CH_RF, CH_RB };
-static const int s_motor_pins[4] = {
-    [CH_LF] = MOTOR_LEFT_FWD,  [CH_LB] = MOTOR_LEFT_BWD,
-    [CH_RF] = MOTOR_RIGHT_FWD, [CH_RB] = MOTOR_RIGHT_BWD,
-};
+/* Wheel encoders — wired D32 / D34, single-channel (direction inferred from the
+ * motor sign). Not yet read: odometry + PID is the next feature (duke#18).
+ * D34 is input-only with no internal pull, so it needs a push-pull encoder or
+ * an external pull-up when that lands. */
+#define ENCODER_LEFT  32
+#define ENCODER_RIGHT 34
+
+enum { CH_ENA, CH_ENB };   /* two LEDC channels, one per enable/speed pin */
 static esp_timer_handle_t s_motor_watchdog;
 
-static void motor_duty(int ch, int duty) {
+static void motor_speed(int ch, int duty) {
     ledc_set_duty(LEDC_LOW_SPEED_MODE, ch, duty < 0 ? 0 : duty > 255 ? 255 : duty);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, ch);
 }
 
-/* signed ±255 per wheel: sign = direction, magnitude = duty. 0 = coast. */
+/* signed ±255 per wheel: sign → the IN direction pair, magnitude → EN duty. */
 static void motor_drive(int left, int right) {
-    motor_duty(CH_LF, left  > 0 ?  left  : 0);
-    motor_duty(CH_LB, left  < 0 ? -left  : 0);
-    motor_duty(CH_RF, right > 0 ?  right : 0);
-    motor_duty(CH_RB, right < 0 ? -right : 0);
+    gpio_set_level(MOTOR_IN1, left > 0);
+    gpio_set_level(MOTOR_IN2, left < 0);
+    motor_speed(CH_ENA, left  < 0 ? -left  : left);
+    gpio_set_level(MOTOR_IN3, right > 0);
+    gpio_set_level(MOTOR_IN4, right < 0);
+    motor_speed(CH_ENB, right < 0 ? -right : right);
 }
 
 static void motor_stop(void *unused) { (void)unused; motor_drive(0, 0); }
 
 static void motor_init(void) {
+    gpio_config_t dirs = {
+        .pin_bit_mask = (1ULL << MOTOR_IN1) | (1ULL << MOTOR_IN2) |
+                        (1ULL << MOTOR_IN3) | (1ULL << MOTOR_IN4),
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    ESP_ERROR_CHECK(gpio_config(&dirs));
     ledc_timer_config_t timer = {
         .speed_mode = LEDC_LOW_SPEED_MODE, .timer_num = LEDC_TIMER_0,
         .duty_resolution = LEDC_TIMER_8_BIT, .freq_hz = 1000, .clk_cfg = LEDC_AUTO_CLK,
     };
     ESP_ERROR_CHECK(ledc_timer_config(&timer));
-    for (int ch = 0; ch < 4; ch++) {
+    const int en[2] = { MOTOR_ENA, MOTOR_ENB };
+    for (int ch = 0; ch < 2; ch++) {
         ledc_channel_config_t c = {
-            .gpio_num = s_motor_pins[ch], .speed_mode = LEDC_LOW_SPEED_MODE,
+            .gpio_num = en[ch], .speed_mode = LEDC_LOW_SPEED_MODE,
             .channel = ch, .timer_sel = LEDC_TIMER_0, .duty = 0, .hpoint = 0,
         };
         ESP_ERROR_CHECK(ledc_channel_config(&c));
     }
+    motor_drive(0, 0);   /* enables low, direction defined */
     const esp_timer_create_args_t wd = { .callback = motor_stop, .name = "motor_wd" };
     ESP_ERROR_CHECK(esp_timer_create(&wd, &s_motor_watchdog));
-    ESP_LOGI(TAG, "motors: L=%d/%d R=%d/%d (fwd/bwd)",
-             MOTOR_LEFT_FWD, MOTOR_LEFT_BWD, MOTOR_RIGHT_FWD, MOTOR_RIGHT_BWD);
+    ESP_LOGI(TAG, "motors: L ena=%d in=%d/%d  R enb=%d in=%d/%d",
+             MOTOR_ENA, MOTOR_IN1, MOTOR_IN2, MOTOR_ENB, MOTOR_IN3, MOTOR_IN4);
 }
 
 static int json_int(const cJSON *root, const char *key, int dflt) {
