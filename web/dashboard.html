@@ -198,9 +198,8 @@
   </div>
   <div id="banner" class="notice">Hub unreachable — retrying…</div>
   <div id="uplink" class="notice"></div>
-  <p id="empty">No robots yet — power one on and it appears here within seconds.
-    <span id="join" style="display:none">New rover? Point it at <code id="loc"></code>
-    on the <a href="https://better-robotics.github.io/provision/rover.html">rover setup page</a>.</span></p>
+  <p id="empty">No robots yet — power one on near the hub and it appears here within seconds.
+    <span class="hint">New board with no firmware? <a href="https://better-robotics.github.io/provision/flash/">Flash it over USB</a>.</span></p>
   <div id="robots"></div>
 
   <div id="controls">
@@ -363,10 +362,6 @@ safe-buffer/index.js:
       const msg = UPLINK_MSG[data.uplink];
       uplinkEl.textContent = msg || "";
       uplinkEl.style.display = msg ? "block" : "none";
-      if (data.locator && !data.locator.includes("<")) {
-        document.getElementById("loc").textContent = data.locator;
-        document.getElementById("join").style.display = "inline";
-      }
     }
 
     function renderRobots() {
