@@ -13,7 +13,9 @@
 #include "esp_wifi.h"
 #include "esp_attr.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "mqtt_client.h"
+#include "cJSON.h"
 #include "rover_config.h"
 #include "provisioning_util.h"
 #include "provisioning.h"
@@ -182,30 +184,121 @@ static const char *s_topic_id = MQTT_USER;
 
 static volatile bool s_mqtt_up = false;   /* live session; drives dead-session self-heal */
 
-/* Fabric-triggered re-entry: publish anything to robots/<id>/cmd/reprovision
- * (cmd/<verb> is the command plane) and the rover reboots into a provisioning
- * window. The BOOT button's remote twin — the only re-entry an ESP32-CAM has.
- * We subscribe only that one topic, so any MQTT_EVENT_DATA is the reprovision. */
+/* ── motor drive: L298N, PWM on the direction pins (ENA/ENB jumpered high) ────
+ * The kit wires 4 GPIOs, two per motor; PWM one side to drive, hold the other
+ * LOW — sign-magnitude from robots/<id>/pwm's signed ±255 per wheel. Pins
+ * default to the ESP32-CAM + L298N kit (workbench/HARDWARE.md camera-survivor
+ * GPIOs); override per board via build_flags. A watchdog stops the motors
+ * duration_ms after the last command, so a dropped session or controller
+ * coasts to a halt instead of running away. */
+#ifndef MOTOR_LEFT_FWD
+#define MOTOR_LEFT_FWD  14
+#endif
+#ifndef MOTOR_LEFT_BWD
+#define MOTOR_LEFT_BWD  15
+#endif
+#ifndef MOTOR_RIGHT_FWD
+#define MOTOR_RIGHT_FWD 13
+#endif
+#ifndef MOTOR_RIGHT_BWD
+#define MOTOR_RIGHT_BWD 4
+#endif
+
+/* One LEDC channel per direction pin, all on a single 1 kHz / 8-bit timer, so a
+ * duty of 0..255 maps straight from the envelope's PWM magnitude. */
+enum { CH_LF, CH_LB, CH_RF, CH_RB };
+static const int s_motor_pins[4] = {
+    [CH_LF] = MOTOR_LEFT_FWD,  [CH_LB] = MOTOR_LEFT_BWD,
+    [CH_RF] = MOTOR_RIGHT_FWD, [CH_RB] = MOTOR_RIGHT_BWD,
+};
+static esp_timer_handle_t s_motor_watchdog;
+
+static void motor_duty(int ch, int duty) {
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, ch, duty < 0 ? 0 : duty > 255 ? 255 : duty);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, ch);
+}
+
+/* signed ±255 per wheel: sign = direction, magnitude = duty. 0 = coast. */
+static void motor_drive(int left, int right) {
+    motor_duty(CH_LF, left  > 0 ?  left  : 0);
+    motor_duty(CH_LB, left  < 0 ? -left  : 0);
+    motor_duty(CH_RF, right > 0 ?  right : 0);
+    motor_duty(CH_RB, right < 0 ? -right : 0);
+}
+
+static void motor_stop(void *unused) { (void)unused; motor_drive(0, 0); }
+
+static void motor_init(void) {
+    ledc_timer_config_t timer = {
+        .speed_mode = LEDC_LOW_SPEED_MODE, .timer_num = LEDC_TIMER_0,
+        .duty_resolution = LEDC_TIMER_8_BIT, .freq_hz = 1000, .clk_cfg = LEDC_AUTO_CLK,
+    };
+    ESP_ERROR_CHECK(ledc_timer_config(&timer));
+    for (int ch = 0; ch < 4; ch++) {
+        ledc_channel_config_t c = {
+            .gpio_num = s_motor_pins[ch], .speed_mode = LEDC_LOW_SPEED_MODE,
+            .channel = ch, .timer_sel = LEDC_TIMER_0, .duty = 0, .hpoint = 0,
+        };
+        ESP_ERROR_CHECK(ledc_channel_config(&c));
+    }
+    const esp_timer_create_args_t wd = { .callback = motor_stop, .name = "motor_wd" };
+    ESP_ERROR_CHECK(esp_timer_create(&wd, &s_motor_watchdog));
+    ESP_LOGI(TAG, "motors: L=%d/%d R=%d/%d (fwd/bwd)",
+             MOTOR_LEFT_FWD, MOTOR_LEFT_BWD, MOTOR_RIGHT_FWD, MOTOR_RIGHT_BWD);
+}
+
+static int json_int(const cJSON *root, const char *key, int dflt) {
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(root, key);
+    return cJSON_IsNumber(v) ? v->valueint : dflt;
+}
+
+/* One robots/<id>/pwm command: {left_motor,right_motor,duration_ms}. Re-arms the
+ * watchdog each message, so the drive self-expires duration_ms after the last
+ * command — the safety floor if commands stop arriving mid-motion. */
+static void motor_apply(const char *json, int len) {
+    cJSON *root = cJSON_ParseWithLength(json, len);
+    if (!root) { ESP_LOGW(TAG, "pwm: unparseable payload"); return; }
+    int left  = json_int(root, "left_motor",  0);
+    int right = json_int(root, "right_motor", 0);
+    int ms    = json_int(root, "duration_ms", 400);
+    cJSON_Delete(root);
+
+    motor_drive(left, right);
+    esp_timer_stop(s_motor_watchdog);                 /* no-op if not armed */
+    if (ms > 0) esp_timer_start_once(s_motor_watchdog, (int64_t)ms * 1000);
+    ESP_LOGI(TAG, "pwm L=%d R=%d for %d ms", left, right, ms);
+}
+
+/* Two subscriptions: robots/<id>/pwm (drive) and robots/<id>/cmd/reprovision
+ * (the BOOT button's remote twin — the only re-entry an ESP32-CAM has). Routed
+ * by topic suffix; topic/data arrive without null terminators. */
 static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg; (void)base;
     esp_mqtt_event_handle_t e = data;
     switch ((esp_mqtt_event_id_t)id) {
     case MQTT_EVENT_CONNECTED: {
         s_mqtt_up = true;
-        char rkey[48];
-        snprintf(rkey, sizeof rkey, "robots/%s/cmd/reprovision", s_topic_id);
-        esp_mqtt_client_subscribe(e->client, rkey, 0);
-        ESP_LOGI(TAG, "mqtt connected; subscribed %s", rkey);
+        char t[48];
+        snprintf(t, sizeof t, "robots/%s/pwm", s_topic_id);
+        esp_mqtt_client_subscribe(e->client, t, 0);
+        snprintf(t, sizeof t, "robots/%s/cmd/reprovision", s_topic_id);
+        esp_mqtt_client_subscribe(e->client, t, 0);
+        ESP_LOGI(TAG, "mqtt connected; subscribed pwm + cmd/reprovision for %s", s_topic_id);
         break;
     }
     case MQTT_EVENT_DISCONNECTED:
         s_mqtt_up = false;
+        motor_stop(NULL);                              /* lose the broker → stop moving */
         ESP_LOGW(TAG, "mqtt disconnected");
         break;
     case MQTT_EVENT_DATA:
-        ESP_LOGW(TAG, "reprovision command — opening a provisioning window");
-        s_provision_request = PROVISION_MAGIC;
-        esp_restart();
+        if (e->topic_len >= 4 && memcmp(e->topic + e->topic_len - 4, "/pwm", 4) == 0) {
+            motor_apply(e->data, e->data_len);
+        } else {                                       /* the only other sub: reprovision */
+            ESP_LOGW(TAG, "reprovision command — opening a provisioning window");
+            s_provision_request = PROVISION_MAGIC;
+            esp_restart();
+        }
         break;
     default:
         break;
@@ -270,6 +363,7 @@ static void operating_mode(char *ssid, const char *pass, const char *locator) {
         },
         .session.keepalive = 15,
     };
+    motor_init();   /* ready before CONNECTED can deliver a pwm command */
     esp_mqtt_client_handle_t cli = esp_mqtt_client_init(&mcfg);
     if (!cli) { ESP_LOGE(TAG, "mqtt init failed"); goto fail; }
     esp_mqtt_client_register_event(cli, ESP_EVENT_ANY_ID, mqtt_evt, NULL);
