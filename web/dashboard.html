@@ -22,7 +22,7 @@
       --inset: #1f242b;          /* inset list / control inside a card */
       --ink: #f2f3f5;
       --ink-muted: #aeb4bd;
-      --ink-faint: #838a93;
+      --ink-faint: #8b929b;   /* ≥4.5:1 on --inset (placeholders live there) */
       --border-default: rgba(255,255,255,0.10);
       --border-strong: rgba(255,255,255,0.18);
       /* Duke-blue accent — contrast pairs verified AA (kept from the prior
@@ -51,7 +51,7 @@
     html { -webkit-text-size-adjust: 100%; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Helvetica Neue", Arial, sans-serif;
-      font-size: 16px; background: var(--bg); color: var(--ink);
+      font-size: 1rem; background: var(--bg); color: var(--ink);
       line-height: 1.47; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
       /* Respect the notch/home-indicator on phones. */
       padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
@@ -88,18 +88,26 @@
       border-radius: var(--radius); padding: 0.7rem 1rem; margin-bottom: 1.25rem;
       color: var(--ink); font-size: 0.9rem;
     }
+    /* A healthy uplink is plumbing, not news — drop the warn tint so the
+       banner stops being the loudest element on the page. */
+    .notice.ok { background: var(--surface); border-color: var(--border-default); }
 
     /* Fleet grid — auto-fill so cards reflow from a phone's single column up to
        the desktop's multi-column without a media query per breakpoint. */
     #robots {
       display: grid; gap: 0.9rem; align-items: start;
-      grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+      /* auto-fit (not fill): with one or two cards the empty tracks collapse
+         and the cards grow toward 26rem, instead of hugging a phantom column
+         grid and leaving the right half of the canvas dead. */
+      grid-template-columns: repeat(auto-fit, minmax(16rem, 26rem));
     }
     .robot {
       background: var(--surface); border: 0.5px solid var(--border-default);
       border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; box-shadow: var(--shadow-card);
     }
-    .robot.offline { opacity: 0.55; box-shadow: none; }
+    /* 0.8, not lower: the offline card is the one a student squints at when
+       their rover dies — its text must stay AA-readable while clearly dimmed. */
+    .robot.offline { opacity: 0.8; box-shadow: none; }
     .robot h2 {
       font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em;
       display: flex; align-items: center; gap: 0.55rem;
@@ -111,7 +119,7 @@
       border-radius: var(--radius); margin: 0.7rem 0; background: #000; display: block;
     }
     .offline-label {
-      color: var(--warn-ink); font-size: 0.68rem; font-weight: 700;
+      color: var(--warn-ink); font-size: 0.75rem; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.05em; margin-left: auto;
     }
     .remedy { color: var(--ink-muted); font-size: 0.8rem; margin-top: 0.6rem; }
@@ -129,7 +137,9 @@
       70%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--success) 0%, transparent); }
       100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 0%, transparent); }
     }
-    @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+    @media (prefers-reduced-motion: reduce) {
+      .dot, #req-status.waiting::before, .claim-wait::before { animation: none; }
+    }
 
     .hw { color: var(--ink-muted); font-size: 0.82rem; margin-bottom: 0.7rem; }
     /* Telemetry as an iOS inset-grouped list: a filled panel with hairline row
@@ -181,34 +191,54 @@
     }
     #connect-btn:hover, #assign-btn:hover, #codes-add:hover, #req-send:hover { filter: brightness(1.08); }
     button:active { transform: scale(0.97); }
-    /* Tinted (secondary) button — accent text on a soft accent wash. */
-    .btn-drive, #wifi-open, #wifi-scan {
+    /* Tinted (secondary) button — accent text on a soft accent wash.
+       .btn-accent is the generic tint; .btn-drive is ONLY the drive-target
+       action (scripts and the delegated #robots handler match on it). */
+    .btn-drive, .btn-accent {
       cursor: pointer; font-weight: 600; font-size: 0.9rem; min-height: 2.2rem;
       padding: 0.4rem 0.9rem; border-radius: var(--radius); border: none; margin-top: 0.7rem;
       color: var(--link); background: var(--accent-soft); transition: transform 0.08s ease, filter 0.15s ease;
     }
-    .btn-drive:hover, #wifi-open:hover, #wifi-scan:hover { filter: brightness(1.15); }
+    .btn-drive:hover, .btn-accent:hover { filter: brightness(1.15); }
+    /* Link-styled button: disclosure toggles that were once <a href="#">. */
+    .link-btn { background: none; border: none; padding: 0; font: inherit;
+      color: var(--link); cursor: pointer; }
+    .link-btn:hover { text-decoration: underline; }
     #gate-error { display: none; color: var(--danger-text); font-size: 0.85rem; margin-top: 0.6rem; }
     /* Login chips: who-are-you comes from the live fleet, not typing. */
     /* Which host serves this page — one glanceable token matching the Wi-Fi
        name the user just joined (two hubs on the air look identical otherwise). */
-    #host-chip { font-size: 0.72rem; font-weight: 400; opacity: 0.6; margin-left: 0.8rem;
+    #host-chip { font-size: 0.75rem; font-weight: 400; opacity: 0.6; margin-left: 0.8rem;
                  letter-spacing: 0.02em; vertical-align: middle; }
+    /* Pending-request badge: the professor's attention hook lives in the sticky
+       bar, because the queue itself renders far below the fold. */
+    #req-badge { display: none; margin-left: auto; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+                 border: none; border-radius: var(--radius-pill); padding: 0.3rem 0.8rem;
+                 background: var(--accent); color: var(--accent-ink); }
     #team-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
-    .chip { padding: 0.45rem 0.9rem; border-radius: 999px; border: 1px solid var(--border, #444);
+    .chip { padding: 0.45rem 0.9rem; border-radius: 999px; border: 1px solid var(--border-strong);
             background: transparent; color: inherit; cursor: pointer; font-size: 0.9rem; }
-    .chip[aria-pressed="true"] { background: #2563eb; border-color: #2563eb; color: #fff; }
+    .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
     .gate-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
     .gate-row input { flex: 1 1 11rem; min-width: 0; }
     #identity-bar { display: none; font-size: 0.9rem; opacity: 0.9; }
     #identity-bar button { margin-left: 0.75rem; padding: 0.2rem 0.7rem; border-radius: 6px;
-            border: 1px solid var(--border, #444); background: transparent; color: inherit; cursor: pointer; }
+            border: 1px solid var(--border-strong); background: transparent; color: inherit; cursor: pointer; }
+    /* Connection pill — the one global "is my session alive" signal. */
+    #conn-pill { display: none; margin-left: 0.6rem; font-size: 0.8rem; border-radius: var(--radius-pill);
+            padding: 0.15rem 0.6rem; border: 0.5px solid var(--border-default); vertical-align: 0.05rem; }
+    #conn-pill.live { display: inline-block; color: var(--success); }
+    #conn-pill.reconnecting { display: inline-block; color: var(--warn-ink);
+            border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
     #codes-nag { display: none; color: var(--danger-text); font-size: 0.9rem; margin: 0.4rem 0 0.8rem; }
     .codes-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.65rem;
       font-size: 0.95rem; background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
     .codes-row .spacer { flex: 1; }
-    .codes-row button { padding: 0.25rem 0.7rem; border-radius: 6px; border: 1px solid var(--border, #444);
+    .codes-row button { padding: 0.35rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
             background: transparent; color: inherit; cursor: pointer; }
+    /* Approve is the professor's most consequential tap — it wears the filled style. */
+    .codes-row button[data-approve], #join-approve {
+            background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
     #codes-form { display: none; margin-top: 0.9rem; }
     #codes-add { flex: 1 0 auto; }
     /* Access requests: the knock (gate side) and the answer (teams panel). */
@@ -252,7 +282,7 @@
       font-size: 0.85rem; font-weight: 600; padding: 0.4rem 1rem; min-height: 2rem;
       border-radius: 10px; transition: background 0.15s ease, color 0.15s ease;
     }
-    .segmented button[aria-selected="true"] {
+    .segmented button[aria-pressed="true"] {
       background: var(--accent); color: var(--accent-ink);
       box-shadow: 0 1px 2px rgba(0,0,0,0.35);
     }
@@ -292,6 +322,13 @@
       margin-top: 0.85rem; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
       font-size: 0.78rem; color: var(--ink-faint);
     }
+    /* Wire log header: names the teaching surface and keys its arrows. */
+    .wire-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;
+      font-size: 0.8rem; color: var(--ink-muted); }
+    .wire-head .spacer { flex: 1; }
+    #wire-pause { cursor: pointer; font-size: 0.78rem; padding: 0.2rem 0.7rem; border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong); background: transparent; color: var(--ink-muted); }
+    #wire-pause[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
     #wire-log {
       height: 11rem; overflow-y: auto; background: var(--inset);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
@@ -396,20 +433,28 @@
       #controls { grid-template-columns: 1fr; }
       #code-gate { flex-direction: column; align-items: stretch; }
       .gate-row { flex-direction: column; align-items: stretch; }
+      /* The row's flex-basis (a WIDTH hint) must not survive the column flip,
+         where it becomes a 176px HEIGHT — the giant-empty-input bug. */
+      .gate-row input { flex-basis: auto; }
       #code-input, #connect-btn { width: 100%; }
       .segmented { display: flex; width: 100%; }
       .segmented button { flex: 1; }
-      .btn-drive { min-height: var(--tap); }  /* full tap target on touch */
+      /* Full 44px tap targets on touch — including the secondary controls the
+         professor taps most (tiles, Approve/Rotate/✕, Log out, modal close). */
+      .btn-drive, .btn-accent, .btn-tile, .codes-row button,
+      #identity-bar button, .segmented button { min-height: var(--tap); }
+      #modal-close { width: var(--tap); height: var(--tap); }
       .dpad { grid-template-columns: repeat(3, 4rem); grid-template-rows: repeat(3, 4rem); }
     }
   </style>
 </head>
 <body>
-  <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span><span id="host-chip"></span></h1></header>
+  <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span><span id="host-chip"></span></h1><button id="req-badge" aria-live="polite"></button></header>
   <main>
   <div id="hub-host-gate" class="notice" style="gap:0.5rem; align-items:center; flex-wrap:wrap">
     <span id="hub-host-label">Standalone copy — which hub?</span>
-    <input id="hub-host-input" type="text" placeholder="10.42.0.1 or hub.local">
+    <input id="hub-host-input" type="text" placeholder="10.42.0.1 or hub.local" aria-label="Hub address"
+           autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="url">
     <button id="hub-host-save">Connect</button>
   </div>
   <div id="banner" class="notice">Hub unreachable — retrying…</div>
@@ -421,29 +466,29 @@
   <div id="wifi-setup" class="notice" style="display:none; flex-direction:column; align-items:stretch; gap:0.5rem">
     <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap">
       <span id="wifi-status" style="flex:1; min-width:12rem"></span>
-      <button id="wifi-open" class="btn-drive" style="margin:0">Set up Wi-Fi</button>
+      <button id="wifi-open" class="btn-accent" style="margin:0">Set up Wi-Fi</button>
     </div>
     <div id="wifi-panel" style="display:none; flex-direction:column; gap:0.5rem">
       <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
-        <button id="wifi-scan" class="btn-drive" style="margin:0">Scan for networks</button>
+        <button id="wifi-scan" class="btn-accent" style="margin:0">Scan for networks</button>
       </div>
       <div id="wifi-list" style="display:flex; flex-direction:column; gap:0.25rem"></div>
       <div id="wifi-join" style="display:none; gap:0.5rem; align-items:center; flex-wrap:wrap">
         <strong id="wifi-join-ssid"></strong>
-        <input id="wifi-pass" type="password" placeholder="network password" autocomplete="off">
-        <button id="wifi-connect" class="btn-drive" style="margin:0">Connect</button>
+        <input id="wifi-pass" type="password" placeholder="network password" aria-label="Network password" autocomplete="off">
+        <button id="wifi-connect" class="btn-accent" style="margin:0">Connect</button>
       </div>
       <p id="wifi-msg" class="hint" role="status"></p>
     </div>
   </div>
-  <p id="empty">No robots yet — power one on near the hub and it appears here within seconds.
+  <p id="empty">No rovers yet — power one on near the hub and it appears here within seconds.
     <span class="hint">New board with no firmware? <a href="https://better-robotics.github.io/flash/">Flash it over USB</a>.</span></p>
   <div id="robots"></div>
 
   <div id="controls">
   <section id="drive">
     <h2 class="section-title">Drive</h2>
-    <p class="assign-help" id="gate-help">Pick who you are, enter your code. Professors can drive any robot and assign rovers to teams.</p>
+    <p class="assign-help" id="gate-help">Pick who you are and enter your team's code.</p>
     <div id="code-gate">
       <!-- Claim-first gate (Pi-served only): the lede replaces the manual
            chips+code block, which collapses behind one link — it's the
@@ -452,37 +497,41 @@
            block stays expanded and this lede never shows. -->
       <p id="gate-lede">New team? Tap <b>Claim</b> on your rover above — you'll be driving in a
         minute. Already have one? Scan your team's sign-in card, or
-        <a href="#" id="gate-toggle">sign in with a code</a>.</p>
+        <button type="button" class="link-btn" id="gate-toggle" aria-expanded="false">sign in with a code</button>.</p>
       <div id="manual-gate">
         <div id="team-chips"></div>
         <div class="gate-row">
-          <input id="code-input" type="password" placeholder="code" autocomplete="off">
-          <button id="connect-btn">Drive</button>
+          <input id="code-input" type="password" placeholder="code" aria-label="Sign-in code" autocomplete="off">
+          <button id="connect-btn">Sign in</button>
         </div>
-        <p id="req-access">No code yet? <a href="#" id="req-access-link">Request access</a></p>
+        <p id="req-access">No code yet? <button type="button" class="link-btn" id="req-access-link" aria-expanded="false">Request access</button></p>
       </div>
       <!-- The knock form + waiting status live OUTSIDE the collapsible block:
            Claim (the primary path) opens them while manual sign-in is hidden. -->
       <div id="req-form" class="gate-row">
-        <input id="req-name" placeholder="team name" autocomplete="off">
+        <input id="req-name" placeholder="team name" aria-label="Team name"
+               autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
         <button id="req-send">Request</button>
       </div>
-      <p id="req-status"></p>
+      <p id="req-status" role="status" aria-live="polite"></p>
     </div>
-    <p id="gate-error">Wrong code, or the hub isn't accepting drive connections.</p>
-    <p id="identity-bar">Signed in as <b id="identity-name"></b><button id="logout-btn">Log out</button></p>
+    <p id="gate-error" role="alert">Wrong code, or the hub isn't accepting drive connections.</p>
+    <p id="identity-bar">Signed in as <b id="identity-name"></b><span id="conn-pill" role="status"></span><button id="logout-btn">Log out</button></p>
     <div id="join-req" class="codes-row">
       <span id="join-req-text"></span>
       <span class="spacer"></span>
       <button id="join-approve">Approve</button>
-      <button id="join-deny" title="Dismiss this request">&#10005;</button>
+      <button id="join-deny" title="Dismiss this request" aria-label="Dismiss this request">&#10005;</button>
     </div>
 
     <div id="drive-panel">
       <p id="scope-label"></p>
-      <div class="segmented" role="tablist" id="drive-mode" aria-label="Drive input mode">
-        <button role="tab" data-mode="joystick" aria-selected="true">Joystick</button>
-        <button role="tab" data-mode="dpad" aria-selected="false">Buttons</button>
+      <!-- Plain toggle buttons (aria-pressed), not a tablist: the full tabs
+           contract (aria-controls, roving tabindex, arrow keys) isn't
+           implemented, and claiming the role without it misleads AT. -->
+      <div class="segmented" id="drive-mode" role="group" aria-label="Drive input mode">
+        <button data-mode="joystick" aria-pressed="true">Joystick</button>
+        <button data-mode="dpad" aria-pressed="false">Buttons</button>
       </div>
       <div class="drive-grid">
         <div class="drive-input">
@@ -507,7 +556,12 @@
             <div id="dpad-readout">hold a direction to drive</div>
           </div>
         </div>
-        <div id="wire-log" aria-label="Live command and telemetry log"></div>
+        <div class="wire-wrap">
+          <div class="wire-head"><span>Wire log — <span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></span>
+            <span class="spacer"></span>
+            <button id="wire-pause" aria-pressed="false">Pause</button></div>
+          <div id="wire-log" role="log" tabindex="0" aria-label="Live command and telemetry log"></div>
+        </div>
       </div>
     </div>
   </section>
@@ -519,10 +573,8 @@
        code is (re)set — that's the only moment the plaintext exists here. -->
   <section id="teams">
     <h2 class="section-title">Teams</h2>
-    <p class="assign-help">Rovers usually arrive via a team's claim — approve it below and the
-      code, sign-in card, and rover land in the same tap. Tap a rover to repair or move it:
-      motor pins, orientation, hub pin, or another team (moving needs that team's code typed —
-      the broker only stores hashes).</p>
+    <p class="assign-help">Approve a team's claim below and the code, sign-in card, and rover
+      land in the same tap. Tap a rover to repair or move it.</p>
     <div id="codes-nag">&#9888; This class is still running the placeholder codes it shipped with — rotate them before students arrive.</div>
     <!-- Access requests, professor side: Approve mints a code and delivers it
          to the requester's screen — nothing to read out or type. -->
@@ -532,18 +584,23 @@
     </div>
     <div id="team-roster"></div>
     <div class="gate-row" id="codes-form">
-      <input id="codes-user" placeholder="team name" autocomplete="off">
-      <input id="codes-pass" placeholder="code — blank to auto-generate" autocomplete="off">
+      <input id="codes-user" placeholder="team name" aria-label="Team name"
+             autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
+      <input id="codes-pass" placeholder="code — blank to auto-generate" aria-label="Code, blank to auto-generate"
+             autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
       <button id="codes-add">Set code</button>
     </div>
     <div id="assign-form">
       <p id="assign-selected"></p>
-      <input id="assign-team" placeholder="team (e.g. team3)" autocomplete="off">
-      <input id="assign-pass" type="password" placeholder="team password" autocomplete="off">
-      <input id="assign-name" placeholder="name — optional" autocomplete="off">
+      <input id="assign-team" placeholder="team (e.g. team3)" aria-label="Team"
+             autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
+      <input id="assign-pass" type="password" placeholder="team code" aria-label="Team code" autocomplete="off">
+      <input id="assign-name" placeholder="name — optional" aria-label="Display name, optional" autocomplete="off">
       <!-- Rogue-hub guard, TOFU at assignment time: lock the board to one exact
-           hub SSID so a student's own hub-XXXX can't absorb it. "-" clears. -->
-      <input id="assign-hub" placeholder='hub pin — optional (e.g. hub-a045; "-" clears)' autocomplete="off">
+           hub SSID so a student's own hub-XXXX can't absorb it. "-" clears.
+           ("Lock", not "pin" — "Motor pins" below already means GPIO.) -->
+      <input id="assign-hub" placeholder='lock to hub — optional (e.g. hub-a045; "-" clears)' aria-label="Lock to hub SSID, optional"
+             autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
       <details id="assign-pins-wrap">
         <summary>Motor pins — only for a custom-wired chassis</summary>
         <p class="pins-help">Leave blank to keep the rover's current wiring. GPIO numbers, 0–33.</p>
@@ -566,10 +623,14 @@
       </div>
       <button id="assign-btn">Assign</button>
     </div>
-    <p id="teams-status"></p>
+    <p id="teams-status" role="status" aria-live="polite"></p>
     <div id="codes-share" style="display:none">
+      <!-- Captioned: two mints in a row must not leave an anonymous QR — and the
+           card carries a plaintext credential, so it's dismissible on purpose. -->
+      <p id="codes-share-title" class="assign-help" style="margin-bottom:0.4rem"></p>
       <div id="codes-qr"></div>
       <button id="codes-copy" class="btn-tile">Copy sign-in link</button>
+      <button id="codes-share-close" class="btn-tile">Hide card</button>
     </div>
   </section>
   </div>
@@ -2930,13 +2991,19 @@ safe-buffer/index.js:
     const esc = s => String(s ?? "").replace(/[&<>"']/g,
       c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+    // Minute granularity past 90 s — not just taste: card HTML that only
+    // changes once a minute lets the diff-skip in the render functions hold
+    // repaints (and the keyboard focus they would steal) between real changes.
     const fmtUptime = ms => {
       const s = Math.floor(ms / 1000);
       if (s < 90) return `${s}s`;
       const m = Math.floor(s / 60);
-      if (m < 90) return `${m}m ${s % 60}s`;
+      if (m < 90) return `${m}m`;
       return `${Math.floor(m / 60)}h ${m % 60}m`;
     };
+
+    // Smooth scrolling is motion too — honor the user's reduced-motion setting.
+    const SCROLL = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
 
     // robot id -> {sys, seenAt} — fed by the public (anonymous) MQTT
     // subscription below, not /fleet: fleet telemetry is broker-native now
@@ -2959,8 +3026,21 @@ safe-buffer/index.js:
     // to fetch, and treating its absence as "hub unreachable" would be a
     // false alarm, not a real connectivity problem.
     const standalone = location.protocol === "file:" || !location.hostname;
-    let hubHost = standalone ? (localStorage.getItem("hubHost") || "") : location.hostname;
+    // A copy hosted elsewhere over http(s) (github.io, a laptop) is neither
+    // standalone nor hub-served: /fleet never answers and the origin has no
+    // broker. refreshUplink detects that and shows the gate; the address it
+    // saves lives under its own key so a genuinely hub-served page (where
+    // location.hostname IS the hub) never reads a stale override.
+    let hubHost = standalone
+      ? (localStorage.getItem("hubHost") || "")
+      : (localStorage.getItem("hubHostOverride") || location.hostname);
     const hostGate = document.getElementById("hub-host-gate");
+    document.getElementById("hub-host-save").addEventListener("click", () => {
+      const v = document.getElementById("hub-host-input").value.trim();
+      if (!v) return;
+      localStorage.setItem(standalone ? "hubHost" : "hubHostOverride", v);
+      location.reload(); // simplest correct way to reconnect everything on the new host
+    });
     if (standalone) {
       // Only prompt when there's genuinely no saved host yet — a saved value
       // that's actually wrong re-shows the gate itself, from publicClient's
@@ -2970,12 +3050,6 @@ safe-buffer/index.js:
       // no-op — nothing on screen changes if there's no robot telemetry yet).
       if (!hubHost) hostGate.style.display = "flex";
       document.getElementById("hub-host-input").value = hubHost;
-      document.getElementById("hub-host-save").addEventListener("click", () => {
-        const v = document.getElementById("hub-host-input").value.trim();
-        if (!v) return;
-        localStorage.setItem("hubHost", v);
-        location.reload(); // simplest correct way to reconnect everything on the new host
-      });
       setHostChip(""); // "→ <broker host>"; hub-served pages get theirs from /fleet
     }
 
@@ -2989,16 +3063,39 @@ safe-buffer/index.js:
         ssid ? `${ssid}${cls ? " · " + cls : ""}` : (standalone ? (hubHost ? `→ ${hubHost}` : "") : location.host);
     }
 
+    // Every poller: a short abort timeout (a silently-unreachable Pi otherwise
+    // leaves each fetch pending ~75 s while new ones enqueue behind it for
+    // hours) and an in-flight guard (skip the tick, don't stack).
+    let uplinkBusy = false, fleetFails = 0, fleetSeen = false;
     async function refreshUplink() {
+      if (uplinkBusy) return;
+      uplinkBusy = true;
       const banner = document.getElementById("banner");
       let data;
       try {
-        data = await (await fetch("/fleet")).json();
+        data = await (await fetch("/fleet", { signal: AbortSignal.timeout(1500) })).json();
         banner.style.display = "none";
+        fleetFails = 0; fleetSeen = true;
+        // /fleet answering means THIS origin is a hub — an override saved while
+        // the copy was hosted elsewhere would point mqtt at the wrong broker.
+        if (localStorage.getItem("hubHostOverride")) {
+          localStorage.removeItem("hubHostOverride"); location.reload(); return;
+        }
       } catch {
+        uplinkBusy = false;
         banner.style.display = "block";
+        // Hosted copy with no hubd behind it (github.io, a laptop server):
+        // /fleet will never answer. After a few misses with zero fleet signal,
+        // offer the hub-address gate instead of "retrying…" forever.
+        if (++fleetFails >= 5 && !fleetSeen && !robots.size) {
+          banner.style.display = "none"; // the gate below says it better
+          document.getElementById("hub-host-label").textContent =
+            "No hub behind this page — enter your hub's address:";
+          hostGate.style.display = "flex";
+        }
         return;
       }
+      uplinkBusy = false;
       setHostChip(data.ssid, data.host);
       const uplinkEl = document.getElementById("uplink");
       const msg = UPLINK_MSG[data.uplink];
@@ -3023,6 +3120,8 @@ safe-buffer/index.js:
       $("wifi-setup").style.display = "flex";
 
       const renderStatus = s => {
+        const healthy = !!(s && s.ssid && s.uplink === "full");
+        $("wifi-setup").classList.toggle("ok", healthy); // healthy = quiet chrome
         $("wifi-status").textContent = s && s.ssid
           ? `Uplink: ${s.ssid}${s.uplink === "full" ? " · online"
               : s.uplink === "portal" ? " · needs venue sign-in" : ""}`
@@ -3046,7 +3145,7 @@ safe-buffer/index.js:
         msg.textContent = nets.length ? "" : "No networks found.";
         // SSIDs come off the air — escape before they touch innerHTML.
         list.innerHTML = nets.map(n =>
-          `<button class="btn-drive wifi-net" style="margin:0; text-align:left"
+          `<button class="btn-accent wifi-net" style="margin:0; text-align:left"
              data-ssid="${esc(n.ssid)}" data-open="${n.security === "NO"}">
              ${esc(n.ssid)} <span class="hint">${n.security === "NO" ? "open" : esc(n.security)} · ${n.signal}%</span>
            </button>`).join("");
@@ -3118,7 +3217,8 @@ safe-buffer/index.js:
               data-robot="${esc(id)}" data-board="${esc(m.board)}">${target === id && targetBoard === m.board ? "Driving" : "Drive"}</button></div>`
           : !claimable ? ""
           : claimingBoard === m.board ? `<div class="pool-actions">
-            <input class="claim-name" placeholder="team name" value="${esc(claimDraft)}" autocomplete="off">
+            <input class="claim-name" placeholder="team name" aria-label="Team name" value="${esc(claimDraft)}"
+              autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
             <button class="btn-tile" data-claimsend="${esc(m.board)}">Request</button>
             ${claimErr ? `<span class="claim-err">${esc(claimErr)}</span>` : ""}</div>`
           : localStorage.getItem("hubReqBoard") === m.board && reqTimer ? `<div class="pool-actions">
@@ -3134,6 +3234,7 @@ safe-buffer/index.js:
       </div>`;
     }
 
+    let lastRobotsHtml = "";
     function renderRobots() {
       // Cards repaint every 2 s, which would wipe an inline claim input mid-
       // typing — hold the repaint while an input inside the cards has focus.
@@ -3148,7 +3249,7 @@ safe-buffer/index.js:
         if (!members.has(rec.team)) members.set(rec.team, []);
         members.get(rec.team).push({ board: b, sys: rec.sys });
       }
-      document.getElementById("robots").innerHTML = ids.map(id => {
+      const html = ids.map(id => {
         const { sys, seenAt } = robots.get(id);
         const ageMs = Date.now() - seenAt;
         const offline = ageMs > 10000;  /* robots publish every 2 s */
@@ -3171,13 +3272,19 @@ safe-buffer/index.js:
           <div class="hw">${sys.board ? `${esc(sys.board)} · ` : ""}${esc(sys.hw || "unknown board")}</div>
           <dl>
             <dt>uptime</dt><dd>${sys.uptime_ms != null ? fmtUptime(sys.uptime_ms) : "—"}</dd>
-            <dt>free heap</dt><dd>${sys.free_heap != null ? Math.round(sys.free_heap / 1024) + " KB" : "—"}</dd>
+            ${myScope && myScope.scope === "all" ? `<dt>free heap</dt><dd>${sys.free_heap != null ? Math.round(sys.free_heap / 1024) + " KB" : "—"}</dd>` : ""}
             <dt>last seen</dt><dd>${offline ? fmtUptime(ageMs) + " ago" : "now"}</dd>
           </dl>
           ${offline ? '<div class="remedy">power-cycle it or check the battery</div>' : ""}
           ${actions.length ? `<div class="card-actions">${actions.join("")}</div>` : ""}
         </div>`;
       }).join("");
+      // Skip identical repaints: innerHTML assignment resets scroll, CSS
+      // animations, and — for keyboard users — whichever button held focus.
+      if (html !== lastRobotsHtml) {
+        lastRobotsHtml = html;
+        document.getElementById("robots").innerHTML = html;
+      }
     }
 
     if (!standalone) {
@@ -3185,7 +3292,26 @@ safe-buffer/index.js:
       setInterval(refreshUplink, 2000);
       initWifiSetup();
     }
-    setInterval(() => { renderRobots(); renderRoster(); renderChips(); }, 2000); // re-render on a clock too, for offline aging
+    // The 2 s clock is the ONLY painter (message handlers just update the Maps):
+    // at N rovers publishing every 2 s, painting per message costs N²/2 full
+    // grid rebuilds a second; the clock caps it at 0.5 regardless of N.
+    const EVICT_MS = 10 * 60 * 1000;
+    setInterval(() => {
+      // Age out anything gone >10 min — a semester-long projector tab must not
+      // collect a card for every team that ever published.
+      const cutoff = Date.now() - EVICT_MS;
+      for (const [id, rec] of robots) if (rec.seenAt < cutoff) robots.delete(id);
+      for (const [b, rec] of boards) if (rec.seenAt < cutoff) boards.delete(b);
+      // Driving something that stopped answering deserves a flag, not silence.
+      if (target) {
+        const rec = targetBoard ? boards.get(targetBoard) : robots.get(target);
+        const stale = !rec || Date.now() - rec.seenAt > 10000;
+        const title = document.getElementById("joystick-title");
+        const base = title.textContent.replace(/ — offline\?$/, "");
+        title.textContent = stale ? `${base} — offline?` : base;
+      }
+      renderRobots(); renderRoster(); renderChips();
+    }, 2000);
 
     // Anonymous mqtt.js connection, scoped by Mosquitto's ACL to read-only
     // robots/+/sys — the same "public fleet view, no login needed" contract
@@ -3215,8 +3341,8 @@ safe-buffer/index.js:
           const sys = JSON.parse(payload.toString());
           robots.set(id, { sys, seenAt: Date.now() });
           if (sys.board) boards.set(sys.board, { team: id, sys, seenAt: Date.now() });
-          renderRobots();
-          renderRoster();
+          // No render here — the 2 s clock paints. Rendering per message is
+          // quadratic in fleet size and steals taps/focus mid-interaction.
         } catch { /* a non-JSON payload on this topic isn't a valid sys sample */ }
       });
     }
@@ -3235,15 +3361,24 @@ safe-buffer/index.js:
     let driveClient = null, myScope = null, target = null, targetBoard = null, dragging = false, lastSend = 0;
     const MAX_LOG = 60;
 
+    let wirePaused = false;
     function logLine(dir, text) {
+      if (wirePaused) return; // paused = freeze what's on screen for reading
       const log = document.getElementById("wire-log");
+      // Respect a reader who scrolled up: only auto-follow from the bottom.
+      const following = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
       const line = document.createElement("div");
       line.className = `log-line log-${dir}`;
       line.textContent = `${dir === "out" ? "→" : "←"} ${text}`;
       log.appendChild(line);
       while (log.children.length > MAX_LOG) log.removeChild(log.firstChild);
-      log.scrollTop = log.scrollHeight;
+      if (following) log.scrollTop = log.scrollHeight;
     }
+    document.getElementById("wire-pause").addEventListener("click", (e) => {
+      wirePaused = !wirePaused;
+      e.target.setAttribute("aria-pressed", String(wirePaused));
+      e.target.textContent = wirePaused ? "Resume" : "Pause";
+    });
 
     function onScope(username) {
       myScope = username === "professor" ? { scope: "all" } : { scope: "one", robot: username };
@@ -3254,7 +3389,7 @@ safe-buffer/index.js:
       document.getElementById("drive-panel").style.display = "block";
       applyDriveMode(); // panel just appeared: sync the mode switch to the no-target state
       document.getElementById("scope-label").textContent = myScope.scope === "all"
-        ? "Professor — pick a robot below to drive it."
+        ? "Professor — pick a rover below to drive it."
         : `Driving ${myScope.robot}.`;
       if (myScope.scope === "one") selectTarget(myScope.robot);
       if (myScope.scope === "all") {
@@ -3279,8 +3414,8 @@ safe-buffer/index.js:
         // bring it to the finger (the Assign flow's own pattern), and retire
         // the now-stale "pick a robot" instruction.
         document.getElementById("scope-label").textContent =
-          `Driving ${label} — tap Drive on another robot to switch.`;
-        document.getElementById("drive").scrollIntoView({ behavior: "smooth", block: "center" });
+          `Driving ${label} — tap Drive on another rover to switch.`;
+        document.getElementById("drive").scrollIntoView({ behavior: SCROLL, block: "center" });
         renderRobots(); // repaint cards so the chosen one shows its Driving state
       }
     }
@@ -3300,7 +3435,7 @@ safe-buffer/index.js:
       if (!seg) return;
       driveMode = seg.dataset.mode;
       for (const b of document.querySelectorAll("#drive-mode button"))
-        b.setAttribute("aria-selected", String(b === seg));
+        b.setAttribute("aria-pressed", String(b === seg));
       stopStick();        // releasing the old input must not leave motors latched
       applyDriveMode();
     });
@@ -3313,6 +3448,7 @@ safe-buffer/index.js:
     // a half-typed credential.
     let assignTarget = null; // { board, team } — the board's *current* team
 
+    let lastRosterHtml = "";
     function renderRoster() {
       if (!myScope || myScope.scope !== "all") return;
       const list = document.getElementById("team-roster");
@@ -3321,13 +3457,15 @@ safe-buffer/index.js:
         if (!byTeam.has(rec.team)) byTeam.set(rec.team, []);
         byTeam.get(rec.team).push(b);
       }
-      // Pool first (arrivals), teams alphabetical, professor last (no rovers).
+      // Teams alphabetical, professor last (no rovers). The pool is NOT
+      // repeated here — unassigned boards already have their own card (with
+      // Blink/Assign/Drive) up in the fleet grid; listing them twice gave the
+      // same rovers two different interaction models.
       const teams = [...new Set([...knownTeams, ...byTeam.keys()])]
         .filter(t => t !== "unassigned" && t !== "professor").sort();
-      if (byTeam.has("unassigned")) teams.unshift("unassigned");
       if (knownTeams.includes("professor")) teams.push("professor");
-      if (!teams.length) { list.innerHTML = '<p class="assign-empty">No teams or rovers yet.</p>'; return; }
-      list.innerHTML = teams.map(t => {
+      if (!teams.length) { list.innerHTML = '<p class="assign-empty">No teams or rovers yet.</p>'; lastRosterHtml = ""; return; }
+      const rosterHtml = teams.map(t => {
         const chips = (byTeam.get(t) || []).sort().map(b => {
           const offline = Date.now() - boards.get(b).seenAt > 10000;
           const sel = assignTarget && assignTarget.board === b ? " selected" : "";
@@ -3340,10 +3478,14 @@ safe-buffer/index.js:
         const managed = codesApi && t !== "unassigned"; // broker identity with a rotatable code
         return `<div class="team-row">
           <div class="codes-row"><b>${esc(t)}</b><span class="spacer"></span>
-            ${managed ? `<button data-rotate="${esc(t)}">Rotate…</button>` : ""}
-            ${managed && t !== "professor" ? `<button data-delcode="${esc(t)}">&#10005;</button>` : ""}</div>
+            ${managed ? `<button data-rotate="${esc(t)}" aria-label="Rotate ${esc(t)}'s code">Rotate…</button>` : ""}
+            ${managed && t !== "professor" ? `<button data-delcode="${esc(t)}" aria-label="Delete team ${esc(t)}">&#10005;</button>` : ""}</div>
           ${chips ? `<div class="team-boards">${chips}</div>` : ""}</div>`;
       }).join("");
+      if (rosterHtml !== lastRosterHtml) {
+        lastRosterHtml = rosterHtml;
+        list.innerHTML = rosterHtml;
+      }
     }
 
     // Select a board for repair/move — from a roster chip, or preselected by a
@@ -3356,7 +3498,7 @@ safe-buffer/index.js:
         `Assigning ${board} — currently ${team}.`;
       document.getElementById("teams-status").textContent = "";
       renderRoster();
-      if (scroll) document.getElementById("assign-form").scrollIntoView({ behavior: "smooth", block: "center" });
+      if (scroll) document.getElementById("assign-form").scrollIntoView({ behavior: SCROLL, block: "center" });
       document.getElementById("assign-team").focus({ preventScroll: scroll });
     }
 
@@ -3365,7 +3507,12 @@ safe-buffer/index.js:
     // physical board before assigning it. Fire-and-forget (a lamp, not a
     // mutation) — qos 0, nothing retained.
     function blinkBoard(board, team) {
-      if (!driveClient || !driveClient.connected) return;
+      if (!driveClient || !driveClient.connected) {
+        const status = document.getElementById("teams-status");
+        status.textContent = "Not connected — sign in as professor first.";
+        status.className = "assign-err";
+        return;
+      }
       const topic = `robots/${team}/cmd/identify`;
       const payload = JSON.stringify({ target: board });
       driveClient.publish(topic, payload, { qos: 0, retain: false });
@@ -3381,12 +3528,21 @@ safe-buffer/index.js:
       if (chip) {
         if (!chip.disabled) preselectAssign(chip.dataset.board, chip.dataset.team, false);
       } else if (rot) {
+        // The codes form may be off-screen — a tap that "does nothing" reads
+        // as broken. Bring it to the finger and say what's staged.
         document.getElementById("codes-user").value = rot.dataset.rotate;
-        document.getElementById("codes-pass").focus();
+        const status = document.getElementById("teams-status");
+        status.textContent = `Rotating ${rot.dataset.rotate} — enter a new code, or leave blank to auto-generate.`;
+        status.className = "";
+        document.getElementById("codes-form").scrollIntoView({ behavior: SCROLL, block: "center" });
+        document.getElementById("codes-pass").focus({ preventScroll: true });
       } else if (del && confirm(`Delete ${del.dataset.delcode}? Its rover and browsers lose access.`)) {
         const status = document.getElementById("teams-status");
-        const r = await (await fetch("/codes/del", { method: "POST",
-          body: JSON.stringify({ auth: myCred.pass, user: del.dataset.delcode }) })).json();
+        let r;
+        try {
+          r = await (await fetch("/codes/del", { method: "POST", signal: AbortSignal.timeout(4000),
+            body: JSON.stringify({ auth: myCred.pass, user: del.dataset.delcode }) })).json();
+        } catch { r = { error: "The hub didn't answer — try again." }; }
         status.textContent = r.ok ? `Deleted ${del.dataset.delcode}.` : r.error;
         status.className = r.ok ? "assign-ok" : "assign-err";
         loadCodes();
@@ -3484,14 +3640,16 @@ safe-buffer/index.js:
         renderChips();
       } catch { /* no /codes API here */ }
     }
+    let lastChipsHtml = "";
     function renderChips() {
       const box = document.getElementById("team-chips");
       if (!box || myCred) return;
       const teams = [...new Set([...robots.keys(), ...knownTeams])]
         .filter(t => t !== "unassigned").sort();
       if (!teams.includes("professor")) teams.push("professor");
-      box.innerHTML = teams.map(t =>
+      const html = teams.map(t =>
         `<button class="chip" data-user="${esc(t)}" aria-pressed="${String(t === chipUser)}">${esc(t)}</button>`).join("");
+      if (html !== lastChipsHtml) { lastChipsHtml = html; box.innerHTML = html; }
     }
     document.getElementById("team-chips").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
@@ -3502,38 +3660,66 @@ safe-buffer/index.js:
       document.getElementById("code-input").focus();
     });
 
+    // Session-alive pill next to the identity name (mqtt.js reconnects
+    // silently — without this, dragging a dead joystick looks identical to
+    // driving).
+    function setConnPill(state) {
+      const pill = document.getElementById("conn-pill");
+      pill.className = state;
+      pill.textContent = state === "live" ? "connected"
+        : state === "reconnecting" ? "reconnecting…" : "";
+    }
     function connect(username, password, { silent = false } = {}) {
       if (!hubHost) return gateMsg("No hub address set — enter one above first.");
       gateMsg("");
       const btn = document.getElementById("connect-btn");
       btn.disabled = true; btn.textContent = "Connecting…";
-      const restore = () => { btn.disabled = false; btn.textContent = "Drive"; };
+      const restore = () => { btn.disabled = false; btn.textContent = "Sign in"; };
+      // One live client, ever: a second connect() (double-Enter, QR link racing
+      // the silent auto-login) must not leave an orphan whose stall/error
+      // handlers later kill the session that DID succeed — so tear down the
+      // previous client, and every handler below closes over `client`, never
+      // the shared driveClient variable.
+      try { if (driveClient) driveClient.end(true); } catch {}
+      const client = mqtt.connect(`ws://${hubHost}:${wsPort}`, { username, password });
+      driveClient = client;
       // mqtt.js retries an unreachable host forever without ever emitting
       // "error" — surface that case ourselves instead of spinning silently.
       const stall = setTimeout(() => {
         if (!silent) gateMsg("No answer from the hub — are you on its Wi-Fi?");
-        try { driveClient.end(true); } catch {}
+        try { client.end(true); } catch {}
         restore();
       }, 8000);
-      driveClient = mqtt.connect(`ws://${hubHost}:${wsPort}`, { username, password });
-      driveClient.on("connect", () => {
+      client.on("connect", () => {
         clearTimeout(stall); restore();
+        if (driveClient !== client) return; // superseded while connecting
         myCred = { user: username, pass: password };
         // Remembered so a locked phone or reload lands back in, signed in.
         localStorage.setItem("hubCred", JSON.stringify(myCred));
+        setConnPill("live");
         onScope(username);
         const filter = myScope.scope === "all" ? "robots/+/#" : `robots/${username}/#`;
-        driveClient.subscribe(filter);
+        client.subscribe(filter);
       });
-      driveClient.on("error", () => {
+      client.on("error", () => {
         clearTimeout(stall); restore();
+        try { client.end(true); } catch {} // stop mqtt.js re-trying bad creds
+        if (driveClient !== client) return;
+        setConnPill("");
         if (!silent) gateMsg("The hub rejected that code — check it and try again.");
-        else localStorage.removeItem("hubCred"); // a rotated code must not retry forever
-        try { driveClient.end(true); } catch {} // stop mqtt.js re-trying bad creds
+        else {
+          // Explain the surprise logout instead of silently showing the gate.
+          localStorage.removeItem("hubCred");
+          gateMsg("Your saved code no longer works — it may have been rotated. Sign in again.");
+        }
       });
-      driveClient.on("message", (topic, payload) => logLine("in", `${topic} ${payload.toString()}`));
+      client.on("close", () => { if (driveClient === client && myCred) setConnPill("reconnecting"); });
+      client.on("message", (topic, payload) => {
+        if (driveClient === client) logLine("in", `${topic} ${payload.toString()}`);
+      });
     }
     function submitCode() {
+      if (document.getElementById("connect-btn").disabled) return; // already connecting (Enter bypasses a disabled button)
       const code = document.getElementById("code-input").value.trim();
       if (!code) return gateMsg("Enter your code first.");
       // Power-user escape hatch: a full name:code line works with no chip.
@@ -3550,6 +3736,8 @@ safe-buffer/index.js:
     document.getElementById("logout-btn").addEventListener("click", () => {
       try { driveClient.end(true); } catch {}
       driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
+      setConnPill("");
+      document.getElementById("req-badge").style.display = "none";
       localStorage.removeItem("hubCred");
       for (const id of ["drive-panel", "teams", "identity-bar", "join-req"])
         document.getElementById(id).style.display = "none";
@@ -3576,19 +3764,34 @@ safe-buffer/index.js:
       localStorage.removeItem("hubReqPair"); localStorage.removeItem("hubReqJoin");
       reqStatus(msg || "", cls);
     }
+    let pollBusy = false;
     async function pollRequest() {
       const token = localStorage.getItem("hubReqToken");
       if (!token || myCred) return stopRequestWait();
+      if (pollBusy) return;
+      pollBusy = true;
       let r;
-      try { r = await (await fetch("/codes/poll", { method: "POST", body: JSON.stringify({ token }) })).json(); }
-      catch { return; } // transient — keep waiting
+      try { r = await (await fetch("/codes/poll", { method: "POST", signal: AbortSignal.timeout(2500), body: JSON.stringify({ token }) })).json(); }
+      catch { pollBusy = false; return; } // transient — keep waiting
+      pollBusy = false;
+      // Inline claims watch their own pool row, not the gate — land the
+      // verdict where the student is looking (the waiting badge they watched
+      // would otherwise just vanish).
+      const claimBoard = localStorage.getItem("hubReqBoard");
+      const rowVerdict = msg => {
+        if (!claimBoard) return;
+        claimingBoard = claimBoard; claimDraft = localStorage.getItem("hubReqName") || ""; claimErr = msg;
+        renderRobots();
+      };
       if (r.status === "approved") {
         stopRequestWait();
         document.getElementById("req-form").style.display = "none";
         connect(r.user, r.pass); // one-shot delivery; connect() remembers it
       } else if (r.status === "denied") {
+        rowVerdict("The professor didn't approve this request.");
         stopRequestWait("The professor didn't approve this request.", "assign-err");
       } else if (r.status === "unknown") {
+        rowVerdict("Request expired — try again.");
         stopRequestWait("Request expired — send it again.", "assign-err");
       } // "waiting" → keep polling
     }
@@ -3605,10 +3808,11 @@ safe-buffer/index.js:
       pollRequest();
     }
     document.getElementById("req-access-link").addEventListener("click", (e) => {
-      e.preventDefault();
       const form = document.getElementById("req-form");
-      form.style.display = form.style.display === "flex" ? "none" : "flex";
-      if (form.style.display === "flex") reqStatus("");
+      const open = form.style.display !== "flex";
+      form.style.display = open ? "flex" : "none";
+      e.target.setAttribute("aria-expanded", String(open));
+      if (open) reqStatus("");
       document.getElementById("req-name").focus();
     });
     // One knock for both doors: the gate's name-only request and the pool
@@ -3646,14 +3850,18 @@ safe-buffer/index.js:
     // minted, the rover's credential is untouched. The pairing code shown must
     // match the requester's screen; that comparison is the whole check.
     let joinShown = null; // pair currently offered, or "hold" during the post-answer beat
+    let joinBusy = false;
     async function watchJoinRequests() {
       const box = document.getElementById("join-req");
-      if (joinShown === "hold") return;
+      if (joinShown === "hold" || joinBusy) return;
       if (!codesApi || !myCred || myCred.user === "professor") {
         box.style.display = "none"; joinShown = null; return;
       }
+      joinBusy = true;
       let r;
-      try { r = await (await fetch("/codes/requests")).json(); } catch { return; }
+      try { r = await (await fetch("/codes/requests", { signal: AbortSignal.timeout(2500) })).json(); }
+      catch { joinBusy = false; return; }
+      joinBusy = false;
       const mine = r.requests.find(q => q.join && q.name === myCred.user);
       if (!mine) { box.style.display = "none"; joinShown = null; return; }
       if (joinShown === mine.pair) return;
@@ -3711,8 +3919,8 @@ safe-buffer/index.js:
     // replaces the manual chips+code block (still one tap away — and always
     // expanded on hosts with no /codes API, where manual entry is the only door).
     document.getElementById("gate-toggle").addEventListener("click", (e) => {
-      e.preventDefault();
       document.getElementById("manual-gate").style.display = "contents";
+      e.target.setAttribute("aria-expanded", "true");
       document.getElementById("code-input").focus();
     });
 
@@ -3736,32 +3944,55 @@ safe-buffer/index.js:
       const share = document.getElementById("codes-share");
       const link = `http://${location.host}/#code=${encodeURIComponent(`${user}:${pass}`)}`;
       const qr = qrcode(0, "M"); qr.addData(link); qr.make();
+      document.getElementById("codes-share-title").textContent =
+        `${user}'s sign-in card — scan to sign in as ${user}.`;
       document.getElementById("codes-qr").innerHTML = qr.createSvgTag(4, 8);
       share.style.display = "block";
       const copyBtn = document.getElementById("codes-copy");
       copyBtn.onclick = () => { navigator.clipboard.writeText(link); copyBtn.textContent = "Copied"; };
       copyBtn.textContent = "Copy sign-in link";
     }
+    // The card carries a plaintext credential — on a projected dashboard it
+    // must not linger past its moment.
+    document.getElementById("codes-share-close").addEventListener("click", () => {
+      document.getElementById("codes-share").style.display = "none";
+    });
 
     // Pending access requests (professor side). Refreshed with loadCodes and
     // on a light clock while the panel is open, so a knock shows up unasked.
+    let requestsBusy = false, lastReqListHtml = "";
     async function loadRequests() {
       if (document.getElementById("teams").style.display !== "block") return;
+      if (requestsBusy) return;
+      requestsBusy = true;
       try {
-        const r = await (await fetch("/codes/requests")).json();
+        const r = await (await fetch("/codes/requests", { signal: AbortSignal.timeout(2500) })).json();
+        // The queue renders below the fold; the badge in the sticky bar is how
+        // a professor mid-scroll learns someone is waiting on them.
+        const pending = r.requests.filter(q => !q.join).length;
+        const badge = document.getElementById("req-badge");
+        badge.style.display = pending ? "inline-block" : "none";
+        badge.textContent = pending === 1 ? "1 request waiting" : `${pending} requests waiting`;
         document.getElementById("codes-requests").style.display = r.requests.length ? "block" : "none";
-        document.getElementById("codes-req-list").innerHTML = r.requests
+        const reqHtml = r.requests
           .map(q => `<div class="codes-row"><b>${esc(q.name)}</b>
              ${q.board ? `<span class="req-board">claims ${esc(q.board)}</span>` : ""}
              ${q.join ? `<span class="req-board">rejoin — the team grants it from its own signed-in screen</span>` : ""}
              ${q.pair ? `<span class="req-board">pair <span class="pair-code">${esc(q.pair)}</span></span>` : ""}
              <span class="spacer"></span>
-             ${q.board ? `<button data-blinkreq="${esc(q.board)}" title="Blink the claimed board">&#128161;</button>` : ""}
+             ${q.board ? `<button data-blinkreq="${esc(q.board)}" title="Blink the claimed board" aria-label="Blink ${esc(q.board)}">&#128161;</button>` : ""}
              ${q.join ? "" : `<button data-approve="${esc(q.name)}">Approve</button>`}
-             <button data-denyreq="${esc(q.name)}">&#10005;</button></div>`).join("");
+             <button data-denyreq="${esc(q.name)}" aria-label="Dismiss request from ${esc(q.name)}">&#10005;</button></div>`).join("");
+        if (reqHtml !== lastReqListHtml) {
+          lastReqListHtml = reqHtml;
+          document.getElementById("codes-req-list").innerHTML = reqHtml;
+        }
       } catch { /* not hub-served */ }
+      requestsBusy = false;
     }
     setInterval(loadRequests, 5000);
+    document.getElementById("req-badge").addEventListener("click", () =>
+      document.getElementById("codes-requests").scrollIntoView({ behavior: SCROLL, block: "center" }));
     document.getElementById("codes-req-list").addEventListener("click", async (e) => {
       const app = e.target.closest("[data-approve]");
       const den = e.target.closest("[data-denyreq]");
@@ -3772,21 +4003,31 @@ safe-buffer/index.js:
         const rec = boards.get(blq.dataset.blinkreq);
         blinkBoard(blq.dataset.blinkreq, rec ? rec.team : "unassigned");
       } else if (app) {
-        const r = await (await fetch("/codes/approve", { method: "POST",
-          body: JSON.stringify({ auth: myCred.pass, name: app.dataset.approve }) })).json();
+        let r;
+        try {
+          r = await (await fetch("/codes/approve", { method: "POST", signal: AbortSignal.timeout(4000),
+            body: JSON.stringify({ auth: myCred.pass, name: app.dataset.approve }) })).json();
+        } catch { r = { error: "The hub didn't answer — the request is still waiting." }; }
         if (r.ok && r.board) {
           // The claim's second half: push the freshly minted credential to the
           // claimed rover over this professor session — same cmd/config the
           // repair form publishes, targeted at the board on its current team
-          // topic. One tap = code delivered + rover renamed.
+          // topic. One tap = code delivered + rover renamed. Report what
+          // actually happened: "on its way" while the publish was skipped or
+          // the board is dark is a false confirmation on the flow's key step.
           const rec = boards.get(r.board);
-          const topic = `robots/${rec ? rec.team : "unassigned"}/cmd/config`;
-          const cfg = { target: r.board, team: r.user, pass: r.pass };
-          if (driveClient && driveClient.connected) {
+          const fresh = rec && Date.now() - rec.seenAt < 10000;
+          if (driveClient && driveClient.connected && fresh) {
+            const topic = `robots/${rec.team}/cmd/config`;
+            const cfg = { target: r.board, team: r.user, pass: r.pass };
             driveClient.publish(topic, JSON.stringify(cfg), { qos: 1, retain: false });
             logLine("out", `${topic} ${JSON.stringify(cfg)}`);
+            status.textContent = `${r.user} approved — code on its way; ${r.board} reboots under ${r.user} in a few seconds.`;
+          } else {
+            status.textContent = `${r.user} approved and their code is on their screen — but ${r.board} `
+              + (fresh ? "couldn't be reached from this session" : "looks offline")
+              + `; once it's back, assign it to ${r.user} below.`;
           }
-          status.textContent = `${r.user} approved — code on its way; ${r.board} reboots under ${r.user} in a few seconds.`;
         } else {
           status.textContent = r.ok
             ? `${r.user} approved — the code is on its way to their screen.` : r.error;
@@ -3795,8 +4036,12 @@ safe-buffer/index.js:
         if (r.ok) mintShareCard(r.user, r.pass); // backup card, e.g. for their rover's QR label
         loadCodes();
       } else if (den) {
-        const r = await (await fetch("/codes/deny", { method: "POST",
-          body: JSON.stringify({ auth: myCred.pass, name: den.dataset.denyreq }) })).json();
+        if (!confirm(`Dismiss the request from ${den.dataset.denyreq}?`)) return;
+        let r;
+        try {
+          r = await (await fetch("/codes/deny", { method: "POST", signal: AbortSignal.timeout(4000),
+            body: JSON.stringify({ auth: myCred.pass, name: den.dataset.denyreq }) })).json();
+        } catch { r = { error: "The hub didn't answer — try again." }; }
         status.textContent = r.ok ? `Request from ${den.dataset.denyreq} dismissed.` : r.error;
         status.className = r.ok ? "assign-ok" : "assign-err";
         loadRequests();
@@ -3807,9 +4052,16 @@ safe-buffer/index.js:
       const pass = document.getElementById("codes-pass").value;
       const status = document.getElementById("teams-status");
       const share = document.getElementById("codes-share");
+      // Same button, two severities: a new name creates, an existing name
+      // ROTATES — cutting off that team's rover and signed-in phones. Say so.
+      if (knownTeams.includes(user) &&
+          !confirm(`${user} already has a code — this rotates it, and their rover and signed-in phones lose access until you re-share. Continue?`)) return;
       share.style.display = "none";
-      const r = await (await fetch("/codes/set", { method: "POST",
-        body: JSON.stringify({ auth: myCred.pass, user, pass }) })).json();
+      let r;
+      try {
+        r = await (await fetch("/codes/set", { method: "POST", signal: AbortSignal.timeout(4000),
+          body: JSON.stringify({ auth: myCred.pass, user, pass }) })).json();
+      } catch { r = { error: "The hub didn't answer — try again." }; }
       status.textContent = r.ok ? `${user} is set.` : r.error;
       status.className = r.ok ? "assign-ok" : "assign-err";
       if (!r.ok) return;
@@ -3844,18 +4096,34 @@ safe-buffer/index.js:
     const modal = document.getElementById("modal");
     const modalTitle = document.getElementById("modal-title");
     const modalBody = document.getElementById("modal-body");
+    let modalInvoker = null; // where focus returns when the sheet closes
     function openModal(title, node) {
       modalTitle.textContent = title;
       modalBody.replaceChildren(node);
       modal.hidden = false;
+      modalInvoker = document.activeElement;
+      document.getElementById("modal-close").focus();
     }
     function closeModal() {
       modal.hidden = true;
       modalBody.replaceChildren(); // drop the <img>/<iframe> so its connection closes
+      modalInvoker?.focus?.();
+      modalInvoker = null;
     }
     document.getElementById("modal-close").addEventListener("click", closeModal);
     modal.querySelector(".modal-backdrop").addEventListener("click", closeModal);
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.hidden) closeModal(); });
+    document.addEventListener("keydown", (e) => {
+      if (modal.hidden) return;
+      if (e.key === "Escape") return closeModal();
+      // Minimal focus trap: Tab cycles within the sheet, never into the page behind.
+      if (e.key === "Tab") {
+        const focusables = modal.querySelectorAll("button, a[href], input, iframe, [tabindex]:not([tabindex='-1'])");
+        if (!focusables.length) return;
+        const first = focusables[0], last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
 
     // When this dashboard is served from a board's own AP (192.168.99.1, or
     // rover.local on it), the only board behind that hostname IS the serving
@@ -4005,17 +4273,25 @@ safe-buffer/index.js:
     ["pointerup", "pointercancel", "pointerleave"].forEach((evt) =>
       pad.addEventListener(evt, () => { if (dragging) { dragging = false; stopStick(); } })
     );
-    // Keyboard alternative — arrow keys nudge the stick, releasing resets it.
+    // Keyboard alternative — arrow keys nudge the stick; releasing them (or
+    // Space/Escape) stops. A drive control with no stop key is a safety bug,
+    // not a nicety: the only other outs were Tab-away or the firmware watchdog.
     const KEY_STEP = 0.25;
+    const KEY_MOVES = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
     let kx = 0, ky = 0;
     pad.addEventListener("keydown", (e) => {
-      const moves = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
-      if (!(e.key in moves)) return;
+      if (e.key === " " || e.key === "Escape") {
+        e.preventDefault(); kx = 0; ky = 0; stopStick(); return;
+      }
+      if (!(e.key in KEY_MOVES)) return;
       e.preventDefault();
-      const [dx, dy] = moves[e.key];
+      const [dx, dy] = KEY_MOVES[e.key];
       kx = Math.max(-1, Math.min(1, kx + dx * KEY_STEP));
       ky = Math.max(-1, Math.min(1, ky + dy * KEY_STEP));
       sendPwm(drawStick(kx, ky));
+    });
+    pad.addEventListener("keyup", (e) => {
+      if (e.key in KEY_MOVES) { kx = 0; ky = 0; stopStick(); }
     });
     pad.addEventListener("blur", () => { kx = 0; ky = 0; stopStick(); });
 
@@ -4046,22 +4322,38 @@ safe-buffer/index.js:
       dpadReadout.textContent = "hold a direction to drive";
       for (const b of dpad.querySelectorAll("button")) b.classList.remove("pressed");
     }
-    dpad.addEventListener("pointerdown", (e) => {
-      const btn = e.target.closest("button[data-drive]");
-      if (!btn) return;
-      e.preventDefault();
+    function dpadPress(btn) {
       const dir = btn.dataset.drive;
       if (dir === "stop") { dpadStop(); return; }
-      btn.setPointerCapture?.(e.pointerId);
       const motors = DPAD[dir];
       btn.classList.add("pressed");
       dpadReadout.textContent = `${dir} → left=${motors.left} right=${motors.right}`;
       sendPwm(motors);
       if (dpadTimer) clearInterval(dpadTimer);
       dpadTimer = setInterval(() => sendPwm(motors), 120);
+    }
+    dpad.addEventListener("pointerdown", (e) => {
+      const btn = e.target.closest("button[data-drive]");
+      if (!btn) return;
+      e.preventDefault();
+      btn.setPointerCapture?.(e.pointerId);
+      dpadPress(btn);
     });
     ["pointerup", "pointercancel", "pointerleave"].forEach((evt) =>
       dpad.addEventListener(evt, dpadStop));
+    // Keyboard parity: these buttons drive via pointer events, so focus +
+    // Enter/Space fires only `click` — which has no handler. Mirror the
+    // hold-to-drive contract on keydown/keyup (repeat keydowns are ignored;
+    // the 120 ms re-send timer is already running).
+    dpad.addEventListener("keydown", (e) => {
+      const btn = e.target.closest("button[data-drive]");
+      if (!btn || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault();
+      if (!e.repeat) dpadPress(btn);
+    });
+    dpad.addEventListener("keyup", (e) => {
+      if (e.target.closest("button[data-drive]") && (e.key === "Enter" || e.key === " ")) dpadStop();
+    });
 
     // ---- Sign-in shortcuts, tried in order of intent strength ----
     // 1. #code=user:pass in the URL — the QR-card / shared-link path. Scrubbed
