@@ -416,15 +416,20 @@ void board_run(bool self_broker_ok)
         char discovered[33] = "";
         bool joined = false, joined_hub = false;
 
-        /* 1. a stored uplink (home Wi-Fi, or an explicit choice) wins if set. */
-        if (ssid[0]) {
+        /* 1. a hub in range wins — the classroom IS the venue. Stored-first here
+         * broke the yield promise: a board with home Wi-Fi stored would join it,
+         * island, and hub_watch would then reboot it in a loop (restart → stored
+         * joins again → island → watch fires again) for as long as a hub-* was
+         * visible, never once trying the hub. Cost of hub-first at home: one
+         * (retried) scan of empty air per boot before the stored join. */
+        if (discover_hub(discovered) && sta_join(discovered, "")) {
+            joined = joined_hub = true;
+        }
+        /* 2. else the stored uplink (home Wi-Fi, or an explicit choice). */
+        if (!joined && ssid[0]) {
             ESP_LOGI(TAG, "trying stored network '%s'", ssid);
             joined = sta_join(ssid, pass);
             if (!joined) ESP_LOGW(TAG, "stored network '%s' unreachable", ssid);
-        }
-        /* 2. else discover the strongest open hub-* (classroom convention). */
-        if (!joined && discover_hub(discovered) && sta_join(discovered, "")) {
-            joined = joined_hub = true;
         }
 
         char uri[80];

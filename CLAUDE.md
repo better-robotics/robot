@@ -117,12 +117,14 @@ stored is fully operable**: no ssid → scan-join the strongest *open* `hub-*`
 network (the classroom AP convention is the onboarding channel); no locator →
 dial the DHCP gateway (on its own AP the hub is the gateway); no team → the
 compile-time demo credential until the dashboard assigns one. Discovery results
-are never persisted — stored config is retried first every boot, and when a
-stored join fails, a live open `hub-*` is tried before giving up (the stored
-locator is ignored on that path: half-stale config isn't trusted by halves).
+are never persisted — and **a hub in range wins over the stored network** (the
+classroom IS the venue; fixed 2026-07-10 — stored-first made a home-configured
+board reboot-loop off `hub_watch` instead of ever joining a classroom hub). Only
+when no `hub-*` is found does the stored ssid join, and a stored locator rides
+only its own stored network (half-stale config isn't trusted by halves).
 
 ```
-boot ──► [dispatcher: role_pref] ──► rover role ──► Wi-Fi STA: stored ssid, or discover open hub-*
+boot ──► [dispatcher: role_pref] ──► rover role ──► Wi-Fi STA: discover open hub-*, else stored ssid
          → mqtt connect(stored locator, or mqtt://<gateway>:1883) as <team>
          → LED on; publish robots/<team>/sys every 2s
          → subscribe robots/<team>/{pwm, cmd/config, cmd/reprovision}
