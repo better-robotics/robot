@@ -163,7 +163,7 @@
     input, button { font: inherit; }
     #code-gate { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     #code-input, #assign-form input, .pins-grid input, #hub-host-input, #wifi-pass,
-    #codes-user, #codes-pass, #req-name {
+    #codes-user, #codes-pass, #req-name, .claim-name {
       background: var(--inset); color: var(--ink);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
       padding: 0.6rem 0.85rem; min-height: var(--tap);
@@ -212,6 +212,11 @@
     #codes .gate-row { margin-top: 0.9rem; }
     #codes-add { flex: 1 0 auto; }
     /* Access requests: the knock (gate side) and the answer (codes panel). */
+    #gate-lede { display: none; flex-basis: 100%; margin: 0; font-size: 0.95rem; }
+    #gate-lede a { color: var(--link); }
+    /* display:contents keeps chips + code row laid out as direct flex
+       children of #code-gate, exactly as before the collapse existed. */
+    #manual-gate { display: contents; }
     #req-access { display: none; flex-basis: 100%; font-size: 0.88rem; margin-top: 0.2rem; }
     #req-access a { color: var(--link); }
     #req-form { display: none; flex-basis: 100%; }
@@ -331,8 +336,15 @@
     .pool-id { display: flex; align-items: baseline; gap: 0.55rem; flex-wrap: wrap; }
     .pool-id .b { font-weight: 600; font-size: 0.92rem; white-space: nowrap; }
     .pool-id .meta { color: var(--ink-muted); font-size: 0.8rem; }
-    .pool-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .pool-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; align-items: center; }
     .pool-actions .btn-tile { margin: 0; }
+    /* Inline claim: the name field lives in the rover's own row. */
+    .pool-actions .claim-name { flex: 1 1 8rem; min-width: 0; padding: 0.4rem 0.7rem; min-height: 2.2rem; }
+    .claim-wait { color: var(--ink-muted); font-size: 0.85rem; }
+    .claim-wait::before { content: ""; display: inline-block; width: 0.6rem; height: 0.6rem;
+      margin-right: 0.4rem; border-radius: 50%; border: 2px solid var(--accent);
+      border-top-color: transparent; animation: reqspin 0.9s linear infinite; vertical-align: -0.05rem; }
+    .claim-err { color: var(--danger-text); font-size: 0.85rem; flex-basis: 100%; }
     .pool-note { color: var(--ink-muted); font-size: 0.85rem; margin-top: 0.45rem; }
     .warn-note { color: var(--warn-ink); font-size: 0.85rem; margin-top: 0.45rem; }
     .robot.collision { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
@@ -430,17 +442,26 @@
   <div id="controls">
   <section id="drive">
     <h2 class="section-title">Drive</h2>
-    <p class="assign-help">Pick who you are, enter your code. Professors can drive any robot and assign rovers to teams.</p>
+    <p class="assign-help" id="gate-help">Pick who you are, enter your code. Professors can drive any robot and assign rovers to teams.</p>
     <div id="code-gate">
-      <div id="team-chips"></div>
-      <div class="gate-row">
-        <input id="code-input" type="password" placeholder="code" autocomplete="off">
-        <button id="connect-btn">Drive</button>
+      <!-- Claim-first gate (Pi-served only): the lede replaces the manual
+           chips+code block, which collapses behind one link — it's the
+           fallback (borrowed phone, lost QR card, professor on a new device),
+           not the arrival path. On hosts without the /codes API the manual
+           block stays expanded and this lede never shows. -->
+      <p id="gate-lede">New team? Tap <b>Claim</b> on your rover above — you'll be driving in a
+        minute. Already have one? Scan your team's sign-in card, or
+        <a href="#" id="gate-toggle">sign in with a code</a>.</p>
+      <div id="manual-gate">
+        <div id="team-chips"></div>
+        <div class="gate-row">
+          <input id="code-input" type="password" placeholder="code" autocomplete="off">
+          <button id="connect-btn">Drive</button>
+        </div>
+        <p id="req-access">No code yet? <a href="#" id="req-access-link">Request access</a></p>
       </div>
-      <!-- Access requests, gate side: knock with a team name, wait for the
-           professor, and the approved code signs this browser in by itself.
-           Shown only when the serving hub has the /codes API (the Pi). -->
-      <p id="req-access">No code yet? <a href="#" id="req-access-link">Request access</a></p>
+      <!-- The knock form + waiting status live OUTSIDE the collapsible block:
+           Claim (the primary path) opens them while manual sign-in is hidden. -->
       <div id="req-form" class="gate-row">
         <input id="req-name" placeholder="team name" autocomplete="off">
         <button id="req-send">Request</button>
@@ -3092,8 +3113,15 @@ safe-buffer/index.js:
           ${prof ? `<div class="pool-actions">
             <button class="btn-tile" data-blink="${esc(m.board)}" data-bteam="${esc(id)}">💡 Blink</button>
             <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button></div>`
-          : claimable ? `<div class="pool-actions">
-            <button class="btn-tile" data-claim="${esc(m.board)}">🙋 Claim</button></div>` : ""}
+          : !claimable ? ""
+          : claimingBoard === m.board ? `<div class="pool-actions">
+            <input class="claim-name" placeholder="team name" value="${esc(claimDraft)}" autocomplete="off">
+            <button class="btn-tile" data-claimsend="${esc(m.board)}">Request</button>
+            ${claimErr ? `<span class="claim-err">${esc(claimErr)}</span>` : ""}</div>`
+          : localStorage.getItem("hubReqBoard") === m.board && reqTimer ? `<div class="pool-actions">
+            <span class="claim-wait">waiting for the professor…</span></div>`
+          : `<div class="pool-actions">
+            <button class="btn-tile" data-claim="${esc(m.board)}">🙋 Claim</button></div>`}
         </div>`).join("");
       return `<div class="robot${offline ? " offline" : ""}${isPool ? "" : " collision"}">
         <h2><span class="dot"></span>${isPool ? `Unassigned rovers${mem.length ? ` (${mem.length})` : ""}` : esc(id)}
@@ -3105,6 +3133,10 @@ safe-buffer/index.js:
     }
 
     function renderRobots() {
+      // Cards repaint every 2 s, which would wipe an inline claim input mid-
+      // typing — hold the repaint while an input inside the cards has focus.
+      const active = document.activeElement;
+      if (active && active.tagName === "INPUT" && document.getElementById("robots").contains(active)) return;
       const ids = [...robots.keys()].sort();
       document.getElementById("empty").style.display = ids.length ? "none" : "block";
       // Live boards per team, from the per-board map (10 s freshness, same as cards).
@@ -3401,6 +3433,14 @@ safe-buffer/index.js:
         knownTeams = r.users.filter(u => u !== "unassigned");
         codesApi = true;
         document.getElementById("req-access").style.display = (myCred || reqTimer) ? "none" : "block";
+        if (!myCred) {
+          // Claim-first presentation: lede up, manual block collapsed —
+          // unless this browser has manually signed in before (hubUser).
+          document.getElementById("gate-lede").style.display = "block";
+          document.getElementById("gate-help").style.display = "none";
+          if (!localStorage.getItem("hubUser"))
+            document.getElementById("manual-gate").style.display = "none";
+        }
         renderChips();
       } catch { /* no /codes API here */ }
     }
@@ -3492,6 +3532,7 @@ safe-buffer/index.js:
     function stopRequestWait(msg, cls) {
       clearInterval(reqTimer); reqTimer = null;
       localStorage.removeItem("hubReqToken"); localStorage.removeItem("hubReqName");
+      localStorage.removeItem("hubReqBoard");
       reqStatus(msg || "", cls);
     }
     async function pollRequest() {
@@ -3518,40 +3559,70 @@ safe-buffer/index.js:
     }
     document.getElementById("req-access-link").addEventListener("click", (e) => {
       e.preventDefault();
-      claimBoard = null; // plain name-only request
       const form = document.getElementById("req-form");
       form.style.display = form.style.display === "flex" ? "none" : "flex";
       if (form.style.display === "flex") reqStatus("");
       document.getElementById("req-name").focus();
     });
-    // Claim = the same knock, anchored to a board: the Claim tap on a pool
-    // row lands here, and the professor's approval will assign that rover.
-    let claimBoard = null;
-    function startClaim(board) {
-      claimBoard = board;
-      document.getElementById("req-form").style.display = "flex";
-      reqStatus(`Claiming ${board} — enter your team name and send the request.`, "");
-      document.getElementById("drive").scrollIntoView({ behavior: "smooth", block: "center" });
-      document.getElementById("req-name").focus({ preventScroll: true });
+    // One knock for both doors: the gate's name-only request and the pool
+    // row's inline claim. Returns whether the request was accepted.
+    async function knock(name, board) {
+      const body = board ? { name, board } : { name };
+      let r;
+      try { r = await (await fetch("/codes/request", { method: "POST", body: JSON.stringify(body) })).json(); }
+      catch { return "The hub didn't answer — are you on its Wi-Fi?"; }
+      if (!r.ok) return r.error;
+      localStorage.setItem("hubReqToken", r.token);
+      localStorage.setItem("hubReqName", name);
+      if (board) localStorage.setItem("hubReqBoard", board);
+      startRequestWait(name);
+      return null;
     }
     async function sendRequest() {
       const name = document.getElementById("req-name").value.trim();
       if (!name) return reqStatus("Enter your team name first.", "assign-err");
-      const body = { name };
-      if (claimBoard) body.board = claimBoard;
-      let r;
-      try { r = await (await fetch("/codes/request", { method: "POST", body: JSON.stringify(body) })).json(); }
-      catch { return reqStatus("The hub didn't answer — are you on its Wi-Fi?", "assign-err"); }
-      if (!r.ok) return reqStatus(r.error, "assign-err");
-      localStorage.setItem("hubReqToken", r.token);
-      localStorage.setItem("hubReqName", name);
-      claimBoard = null;
+      const fail = await knock(name);
+      if (fail) return reqStatus(fail, "assign-err");
       document.getElementById("req-form").style.display = "none";
-      startRequestWait(name);
     }
     document.getElementById("req-send").addEventListener("click", sendRequest);
     document.getElementById("req-name").addEventListener("keydown", e => {
       if (e.key === "Enter") sendRequest();
+    });
+
+    // ---- Inline claim on the pool row: Claim swaps the button for a name
+    // field IN the row; Request knocks with the board attached; the row shows
+    // the waiting badge. State lives here (not the DOM) because the cards
+    // re-render — renderRobots() repaints from these on every pass.
+    let claimingBoard = null; // row currently showing the inline name field
+    let claimDraft = "";      // its input value, preserved across repaints
+    let claimErr = "";        // inline error, rendered under the field
+    async function sendClaim(board) {
+      const name = claimDraft.trim();
+      if (!name) { claimErr = "Enter your team name first."; renderRobots(); return; }
+      claimErr = "";
+      const fail = await knock(name, board);
+      if (fail) { claimErr = fail; renderRobots(); return; }
+      claimingBoard = null; claimDraft = "";
+      renderRobots();
+    }
+    document.getElementById("robots").addEventListener("input", (e) => {
+      if (e.target.classList.contains("claim-name")) claimDraft = e.target.value;
+    });
+    document.getElementById("robots").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.classList.contains("claim-name")) {
+        e.target.blur(); // release the repaint hold before the row re-renders
+        sendClaim(e.target.closest(".pool-row").querySelector("[data-claimsend]").dataset.claimsend);
+      }
+    });
+
+    // ---- Claim-first gate: when the serving hub can mint codes, the lede
+    // replaces the manual chips+code block (still one tap away — and always
+    // expanded on hosts with no /codes API, where manual entry is the only door).
+    document.getElementById("gate-toggle").addEventListener("click", (e) => {
+      e.preventDefault();
+      document.getElementById("manual-gate").style.display = "contents";
+      document.getElementById("code-input").focus();
     });
 
     // ---- Team codes panel (professor + hub-served only): broker identities
@@ -3678,12 +3749,17 @@ safe-buffer/index.js:
       const blk = e.target.closest("[data-blink]");
       const asg = e.target.closest("[data-assign]");
       const clm = e.target.closest("[data-claim]");
+      const cls = e.target.closest("[data-claimsend]");
       if (cam) openCamera(cam.dataset.id, cam.dataset.camIp);
       else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp);
       else if (drv) selectTarget(drv.dataset.robot);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.bteam);
       else if (asg) preselectAssign(asg.dataset.assign, asg.dataset.bteam, true);
-      else if (clm) startClaim(clm.dataset.claim);
+      else if (clm) {
+        claimingBoard = clm.dataset.claim; claimDraft = ""; claimErr = "";
+        renderRobots();
+        document.querySelector(".claim-name")?.focus();
+      } else if (cls) sendClaim(cls.dataset.claimsend);
     });
 
     // ---- Per-board modal: camera lightbox + embedded /wifi config panel ----
