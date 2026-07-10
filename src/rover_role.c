@@ -244,6 +244,13 @@ static int json_int(const cJSON *root, const char *key, int dflt) {
 static void motor_apply(const char *json, int len) {
     cJSON *root = cJSON_ParseWithLength(json, len);
     if (!root) { ESP_LOGW(TAG, "pwm: unparseable payload"); return; }
+    /* Optional "target" board-id, same filter as cmd/config: pool (and
+     * collision) boards all see one pwm topic, so a target drives ONE of
+     * them; absent = every subscriber drives (a team's normal case). */
+    const cJSON *target = cJSON_GetObjectItemCaseSensitive(root, "target");
+    if (cJSON_IsString(target) && strcmp(target->valuestring, s_id) != 0) {
+        cJSON_Delete(root); return;   /* not addressed to this board */
+    }
     int left  = json_int(root, "left_motor",  0);
     int right = json_int(root, "right_motor", 0);
     int ms    = json_int(root, "duration_ms", 400);
