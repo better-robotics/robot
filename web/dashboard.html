@@ -688,6 +688,7 @@ safe-buffer/index.js:
           ${offline ? '<span class="offline-label">offline</span>' : ""}</h2>
         ${note ? `<div class="${isPool ? "pool-note" : "warn-note"}">${isPool ? "" : "⚠ "}${note}</div>` : ""}
         ${rows || `<div class="pool-note">nothing online here — last seen ${fmtUptime(ageMs)} ago</div>`}
+        ${prof && mem.length ? `<div class="card-actions"><button class="btn-drive" data-robot="${esc(id)}">Drive${mem.length > 1 ? " all " + mem.length : ""}</button></div>` : ""}
       </div>`;
     }
 
