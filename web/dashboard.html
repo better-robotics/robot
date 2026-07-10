@@ -179,7 +179,6 @@
       padding: 0.6rem 0.85rem; min-height: var(--tap);
     }
     #code-input { min-width: 13rem; }
-    #assign-form input { min-width: 9rem; }
     :focus-visible { outline: 2.5px solid var(--focus); outline-offset: 2px; }
     input::placeholder { color: var(--ink-faint); }
 
@@ -264,7 +263,10 @@
     #codes-share { margin-top: 0.8rem; }
     #codes-qr svg { width: 11rem; height: 11rem; background: #fff; padding: 0.5rem; border-radius: 8px; }
     .btn-drive.driving { background: var(--accent); color: var(--accent-ink); }
-    #orient-row { margin: 0.6rem 0; }
+    /* Orientation buttons publish immediately (unlike the fields above, which
+       commit on Assign) — the divider marks the change of contract. */
+    #orient-row { flex-basis: 100%; border-top: 0.5px solid var(--border-default);
+      padding-top: 0.8rem; margin: 0.4rem 0; }
     .orient-btns { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
     #drive-panel { display: none; }
     #scope-label { color: var(--ink-muted); font-size: 0.92rem; margin: 0.85rem 0; }
@@ -354,8 +356,17 @@
     .board.offline { opacity: 0.5; cursor: default; }
     .board .dot { width: 8px; height: 8px; }
     .board.offline .dot { background: var(--ink-faint); }
-    #assign-form { display: none; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 1rem; }
-    #assign-selected { flex-basis: 100%; color: var(--ink); font-size: 0.9rem; margin-bottom: 0.25rem; }
+    /* Assign/repair form: its own hairline-divided block (it follows the
+       Set-code form — without the divider the two read as one broken form),
+       labeled fields on the pins-grid pattern (an anonymous placeholder box
+       loses its name on the first keystroke), equal widths via flex-grow. */
+    #assign-form { display: none; flex-wrap: wrap; gap: 0.6rem; align-items: stretch;
+      border-top: 0.5px solid var(--border-default); padding-top: 1rem; margin-top: 1.25rem; }
+    #assign-selected { flex-basis: 100%; color: var(--ink); font-weight: 600; font-size: 0.95rem; margin-bottom: 0.25rem; }
+    #assign-form .field { display: flex; flex-direction: column; gap: 0.25rem;
+      flex: 1 1 12rem; min-width: 0; font-size: 0.8rem; color: var(--ink-muted); }
+    #assign-form .field input { width: 100%; min-width: 0; }
+    #assign-btn { flex: 1 1 100%; margin-top: 0.25rem; }
     #assign-pins-wrap { flex-basis: 100%; margin: 0.25rem 0; }
     #assign-pins-wrap summary { cursor: pointer; color: var(--ink-muted); font-size: 0.85rem; }
     .pins-help { color: var(--ink-muted); font-size: 0.78rem; margin: 0.5rem 0; }
@@ -592,15 +603,19 @@
     </div>
     <div id="assign-form">
       <p id="assign-selected"></p>
-      <input id="assign-team" placeholder="team (e.g. team3)" aria-label="Team"
-             autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
-      <input id="assign-pass" type="password" placeholder="team code" aria-label="Team code" autocomplete="off">
-      <input id="assign-name" placeholder="name — optional" aria-label="Display name, optional" autocomplete="off">
+      <label class="field">Team
+        <input id="assign-team" placeholder="team3"
+               autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off"></label>
+      <label class="field">Team code — needed to move it there
+        <input id="assign-pass" type="password" placeholder="" autocomplete="off"></label>
+      <label class="field">Display name — optional
+        <input id="assign-name" placeholder="shown on its card" autocomplete="off"></label>
       <!-- Rogue-hub guard, TOFU at assignment time: lock the board to one exact
            hub SSID so a student's own hub-XXXX can't absorb it. "-" clears.
            ("Lock", not "pin" — "Motor pins" below already means GPIO.) -->
-      <input id="assign-hub" placeholder='lock to hub — optional (e.g. hub-a045; "-" clears)' aria-label="Lock to hub SSID, optional"
-             autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
+      <label class="field">Lock to hub — optional
+        <input id="assign-hub" placeholder='hub-a045 · "-" clears'
+               autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off"></label>
       <details id="assign-pins-wrap">
         <summary>Motor pins — only for a custom-wired chassis</summary>
         <p class="pins-help">Leave blank to keep the rover's current wiring. GPIO numbers, 0–33.</p>
