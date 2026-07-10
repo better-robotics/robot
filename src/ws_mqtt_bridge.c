@@ -21,6 +21,7 @@
 #include "freertos/task.h"
 #include "esp_http_server.h"
 #include "esp_netif.h"
+#include "esp_wifi.h"   /* fleet identity chip: read the AP's own SSID */
 #include "esp_log.h"
 #include "lwip/sockets.h"
 #include "wifi_portal.h"   /* share the board's always-on :80 rather than fighting for it */
@@ -209,9 +210,17 @@ static esp_err_t fleet_handler(httpd_req_t *req)
     esp_netif_ip_info_t ipi;
     if (sta && esp_netif_get_ip_info(sta, &ipi) == ESP_OK && ipi.ip.addr)
         uplink = "full";
-    char body[96];
+    /* ssid/host feed the dashboard's identity chip: which host serves this
+     * page. Read from the live AP config, so a hub reports hub-XXXX and an
+     * island board reports its own rover-XXXX — both truthful. */
+    wifi_config_t apcfg = { 0 };
+    const char *ssid = "";
+    if (esp_wifi_get_config(WIFI_IF_AP, &apcfg) == ESP_OK)
+        ssid = (const char *)apcfg.ap.ssid;
+    char body[160];
     snprintf(body, sizeof body,
-             "{\"uplink\":\"%s\",\"locator\":\"mqtt://192.168.4.1:1883\"}", uplink);
+             "{\"uplink\":\"%s\",\"locator\":\"mqtt://192.168.4.1:1883\","
+             "\"ssid\":\"%s\",\"host\":\"esp32\"}", uplink, ssid);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_sendstr(req, body);

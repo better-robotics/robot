@@ -189,6 +189,10 @@
     .btn-drive:hover, #wifi-open:hover, #wifi-scan:hover { filter: brightness(1.15); }
     #gate-error { display: none; color: var(--danger-text); font-size: 0.85rem; margin-top: 0.6rem; }
     /* Login chips: who-are-you comes from the live fleet, not typing. */
+    /* Which host serves this page — one glanceable token matching the Wi-Fi
+       name the user just joined (two hubs on the air look identical otherwise). */
+    #host-chip { font-size: 0.72rem; font-weight: 400; opacity: 0.6; margin-left: 0.8rem;
+                 letter-spacing: 0.02em; vertical-align: middle; }
     #team-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
     .chip { padding: 0.45rem 0.9rem; border-radius: 999px; border: 1px solid var(--border, #444);
             background: transparent; color: inherit; cursor: pointer; font-size: 0.9rem; }
@@ -370,7 +374,7 @@
   </style>
 </head>
 <body>
-  <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span></h1></header>
+  <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span><span id="host-chip"></span></h1></header>
   <main>
   <div id="hub-host-gate" class="notice" style="gap:0.5rem; align-items:center; flex-wrap:wrap">
     <span id="hub-host-label">Standalone copy — which hub?</span>
@@ -2916,6 +2920,17 @@ safe-buffer/index.js:
         localStorage.setItem("hubHost", v);
         location.reload(); // simplest correct way to reconnect everything on the new host
       });
+      setHostChip(""); // "→ <broker host>"; hub-served pages get theirs from /fleet
+    }
+
+    // Identity chip: name the host serving this page. Hub-served → its AP SSID
+    // (the token the user just tapped in Wi-Fi settings) + host class; older
+    // firmware without ssid in /fleet → the bare address; standalone copy →
+    // an arrow at whichever broker host it's pointed at.
+    function setHostChip(ssid, host) {
+      const cls = host === "pi" ? "Pi" : host === "esp32" ? "ESP32" : "";
+      document.getElementById("host-chip").textContent =
+        ssid ? `${ssid}${cls ? " · " + cls : ""}` : (standalone ? (hubHost ? `→ ${hubHost}` : "") : location.host);
     }
 
     async function refreshUplink() {
@@ -2928,6 +2943,7 @@ safe-buffer/index.js:
         banner.style.display = "block";
         return;
       }
+      setHostChip(data.ssid, data.host);
       const uplinkEl = document.getElementById("uplink");
       const msg = UPLINK_MSG[data.uplink];
       uplinkEl.textContent = msg || "";
