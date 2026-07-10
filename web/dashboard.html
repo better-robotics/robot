@@ -895,21 +895,46 @@ safe-buffer/index.js:
     modal.querySelector(".modal-backdrop").addEventListener("click", closeModal);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.hidden) closeModal(); });
 
+    // When this dashboard is served from a board's own AP (192.168.99.1, or
+    // rover.local on it), the only board behind that hostname IS the serving
+    // board — and the STA address its card advertises may sit on a network this
+    // device can't route to (e.g. an isolated public Wi-Fi lease). Talk to the
+    // host the page already loaded from instead.
+    function boardHost(ip) {
+      return (ip === location.hostname ||
+              location.hostname === "192.168.99.1" ||   // firmware's fixed AP address
+              location.hostname === "rover.local")
+        ? location.hostname : ip;
+    }
     function openCamera(id, ip) {
       const img = document.createElement("img");
       img.className = "cam-full";
-      img.src = `http://${ip}:81/stream`;
+      img.src = `http://${boardHost(ip)}:81/stream`;
       img.alt = `${id} camera`;
+      img.addEventListener("error", () => {
+        if (!img.isConnected) return;           // modal already closed / replaced
+        const hint = document.createElement("div");
+        hint.className = "modal-note";
+        hint.textContent = `Couldn't load the stream — this device may not be able to reach ${ip}. ` +
+                           "If the board sits on an isolated guest/public network, join its own rover-XXXX Wi-Fi first.";
+        modalBody.prepend(hint);
+      });
       openModal(`${id} — camera`, img);
     }
     function openConfig(id, ip) {
+      // The panel is /wifi, addressed DIRECTLY: `/` is a redirect that drops the
+      // ?embed query on a plain board, and on a hub/island board `/` is this very
+      // dashboard — iframing it would nest the dashboard inside its own modal.
+      // Same-host boards get a relative URL (same-origin, always reachable).
+      const host = boardHost(ip);
+      const panel = (host === location.hostname ? "" : `http://${host}`) + "/wifi?embed=1";
       // Mixed content: an https-served dashboard (github.io) can't iframe the
       // board's http panel — fall back to opening it in a new tab.
       if (location.protocol === "https:") {
         const note = document.createElement("div");
         note.className = "modal-note";
         const a = document.createElement("a");
-        a.href = `http://${ip}/`; a.target = "_blank"; a.rel = "noopener";
+        a.href = panel.replace("?embed=1", ""); a.target = "_blank"; a.rel = "noopener";
         a.textContent = `Open ${id}'s Wi-Fi panel ↗`;
         note.append("This page is served over https, which browsers won't let embed the board's panel over http. ", a);
         openModal(`${id} — Wi-Fi & role`, note);
@@ -917,9 +942,24 @@ safe-buffer/index.js:
       }
       const frame = document.createElement("iframe");
       frame.className = "cfg-frame";
-      frame.src = `http://${ip}/?embed=1`;      // ?embed=1 hides the panel's own topbar
+      frame.src = panel;                        // ?embed=1 hides the panel's own topbar
       frame.title = `${id} Wi-Fi and role`;
       openModal(`${id} — Wi-Fi & role`, frame);
+      // A board can publish an address this device can't route to (e.g. its STA
+      // lease on an isolated guest/public network) — the iframe then never loads
+      // and just sits blank. Say so instead of leaving a white rectangle.
+      const t = setTimeout(() => {
+        if (!frame.isConnected) return;         // modal already closed / replaced
+        const hint = document.createElement("div");
+        hint.className = "modal-note";
+        const a = document.createElement("a");
+        a.href = panel.replace("?embed=1", ""); a.target = "_blank"; a.rel = "noopener";
+        a.textContent = "try opening it directly ↗";
+        hint.append(`Still blank? This device may not be able to reach ${ip} — `, a,
+                    ". If that fails too, join the board's own rover-XXXX Wi-Fi first.");
+        modalBody.prepend(hint);
+      }, 4000);
+      frame.addEventListener("load", () => clearTimeout(t));
     }
 
     function sendPwm({ left, right }) {

@@ -12,7 +12,12 @@ dependencies:
   ## breaks the build. The rule keeps it out of esp32c3; the other ESP32 boards
   ## pull it but never reference it (HAS_CAMERA is esp32cam-only), so --gc-sections
   ## drops it from their binaries. Actual init/stream lives in camera.c (#ifdef).
+  ## PINNED ==2.1.6 for reproducibility: "*" let a routine rebuild silently swap
+  ## 2.1.6→2.1.7 inside an unrelated UI commit (dependencies.lock is gitignored,
+  ## so the manifest is the only durable pin — same reason platformio.ini pins
+  ## espressif32). Tested 2026-07-10: 2.1.6 and 2.1.7 behave identically on the
+  ## AI-Thinker board; bump deliberately, not incidentally.
   espressif/esp32-camera:
-    version: "*"
+    version: "==2.1.6"
     rules:
       - if: "target == esp32"

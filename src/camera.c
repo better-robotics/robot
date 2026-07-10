@@ -99,6 +99,14 @@ void camera_start(void)
         .fb_count = 2,                    /* double-buffer: capture N+1 while the pump sends N */
     };
     esp_err_t e = esp_camera_init(&cfg);
+    if (e == ESP_ERR_NO_MEM) {
+        /* PSRAM absent or dead (this board's has read back 0xffffffff under
+         * marginal power) — the driver has no DRAM fallback of its own, and
+         * QVGA @ q=18 JPEG frames (~5-15 KB ×2) fit internal RAM fine. */
+        ESP_LOGW(TAG, "PSRAM frame buffer failed — retrying in internal RAM");
+        cfg.fb_location = CAMERA_FB_IN_DRAM;
+        e = esp_camera_init(&cfg);
+    }
     if (e != ESP_OK) {
         /* Connection-first: a camera that can't fit its buffers must not take the
          * board down — log loudly and run without it (sys.cam stays false). */
