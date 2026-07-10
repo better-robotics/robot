@@ -1,121 +1,114 @@
 # robot
 
-ESP32 firmware for the robot end of the classroom Robotics Hub — an
+One ESP32 image, both ends of the wire. Every board is a **rover** — an
 [`esp-mqtt`](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/protocols/mqtt.html)
-client that publishes telemetry to, and drives from, the hub broker at
-[`better-robotics/hub`](https://github.com/better-robotics/hub) (Mosquitto on a
-Raspberry Pi, or an on-chip broker on an ESP32 hub — one firmware reaches
-either). Robots are role-named — every unit today is a rover (`rover-XXXX`); the
-hardware model rides telemetry as metadata, so one codebase covers every board,
-and future roles, without renaming anything.
+drive client — and any board can become **the whole hub** (open Wi-Fi AP + MQTT
+broker + dashboard) the moment a room needs one. Runtime decisions, never
+builds: boards flash identically and get named later. The contract and the
+Raspberry Pi hub live at [`better-robotics/hub`](https://github.com/better-robotics/hub).
 
-## Build + flash
+## How a board decides what to be
 
-```sh
-pio run -e <env> -t upload     # envs: esp32dev · esp32c3-supermini · esp32cam
+```
+power on
+   │
+   ├── sees an open hub-… ────────▶ joins it · drives off its broker
+   │                                 (ESP32 hub-XXXX, or Pi hub-pi-…; a stored
+   │                                  hub pin narrows this to ONE exact hub)
+   │
+   └── sees none ─────────────────▶ becomes its own hub — AP + broker +
+                                     dashboard at http://rover.local
+                                     (stored home Wi-Fi = internet uplink;
+                                      drives fine with none)
+                                        │
+                                        └─⟲ keeps watching: when a hub-…
+                                            appears, steps down and joins it
 ```
 
-No toolchain to install? Flash from a browser instead:
-**[better-robotics.github.io/provision/flash](https://better-robotics.github.io/provision/flash/)**
-(desktop Chrome/Edge, over USB). Watch serial with `pio device monitor` (115200 baud).
+The board is always **AP + station at once** — its own open `rover-XXXX`
+network never goes away. `http://rover.local` always answers with a landing
+page that routes to wherever the dashboard is *right now*, and holds the
+**Wi-Fi & role settings** (network scanner, home Wi-Fi, rover/hub/auto switch).
 
-`esp-mqtt` ships inside ESP-IDF, so there's no external MQTT library — it's just a
-component in `REQUIRES`. Platform pinned to `espressif32@6.13.0`.
+## Life of a board
 
-## Onboarding
-
-Turn a rover on — that's it.
-
-- **Zero-touch (default).** With no stored network, it scans for an *open*
-  `hub-…` network — the classroom hub's access point — joins the strongest one,
-  and dials that network's gateway (on the hub's AP, the hub itself) at
-  `mqtt://<gateway>:1883`. It comes up under a default demo team, publishing
-  within seconds.
-- **Assign it from the hub dashboard.** Once a rover is online, the hub
-  dashboard's **"Assign a rover"** panel lists it by its board id. Give it a
-  **team** (its credential + topic), an optional **name**, and — for a
-  student-wired chassis — its **motor pins**. The rover saves them and reconnects
-  under the new team. A rover is named *after* it joins, not before — no
-  per-device onboarding step, no Bluetooth.
-
-Pointing a rover at a *specific* (non-open) network isn't supported yet — it
-returns with hub self-election (a board that finds no hub becomes one and serves
-a Wi-Fi picker). Until then a rover joins the open classroom `hub-*` AP.
-
-## Drive
-
-The rover subscribes to `robots/<team>/pwm` and drives an L298N H-bridge:
-
-```json
-{ "left_motor": 180, "right_motor": -180, "duration_ms": 200 }
+```
+flash ──▶ power on ──▶ unassigned pool ──▶ Blink 💡 ──▶ assigned ──▶ drives as
+browser    joins a      on the dashboard;   LED flashes:  team ·      robots/<team>
+or pio     hub, or      professor-only      match id to   name ·      until told
+           islands      until assigned      desk robot    hub pin ·   otherwise
+                                                          motor pins
 ```
 
-Signed ±255 per wheel — sign sets direction, magnitude sets speed. A watchdog
-stops the motors `duration_ms` after the last command, so a dropped connection or
-a silent controller coasts to a halt instead of running away. Pins default to the
-L298N kit's wiring (`ENA=25 IN1=26 IN2=27 · ENB=14 IN3=12 IN4=13`) and are
-reconfigurable from the dashboard for a custom chassis.
+- **Flash from a browser** — [better-robotics.github.io](https://better-robotics.github.io/)
+  (desktop Chrome/Edge over USB) — or `pio run -e <env> -t upload`
+  (envs: `esp32dev` · `esp32c3-supermini` · `esp32cam` · `rover-l298n`).
+- **Zero-touch join**: no stored network → scan, join the strongest open
+  `hub-…`, dial its gateway at `mqtt://<gateway>:1883`. Publishing in seconds.
+- **Assignment is remote** (dashboard → `cmd/config` → NVS): no per-device
+  setup step, no Bluetooth. The **hub pin** locks a board to one exact hub
+  SSID so nobody's rogue `hub-…` can absorb it.
+- Everything stored is optional — a factory-erased board is fully usable.
 
-## Recovery
+## The wire
 
-- **Automatic.** Can't join (30 s), no broker in 10 s, or a ~20 s dead session →
-  reboot → retry the whole discovery/connect path. A rover powered on before its
-  hub just loops, rescanning, until the hub's AP appears; `esp-mqtt`
-  auto-reconnects, so brief outages self-heal in place without a reboot.
-- **BOOT button (hold ~1 s).** Reboots — force a rescan / recover a wedged rover.
-  (The ESP32-CAM has no BOOT button — use the remote path.)
-- **Remote.** Publish anything to `robots/<id>/cmd/reprovision` and the rover
-  reboots.
+All topics under `robots/<team>/…` — the team IS the MQTT username, enforced
+per-subtree by the Pi broker's ACL. `▲` board publishes · `▼` board obeys:
 
-The onboard LED lights when the rover reaches the broker — a visible "live and
-drivable" signal.
+| topic | | payload |
+|---|---|---|
+| `sys` | ▲ 2 s | `{"uptime_ms":…,"free_heap":…,"hw":"esp32cam","board":"rover-XXXX","ip":…,"cam":…}` |
+| `pwm` | ▼ | `{"left_motor":180,"right_motor":-180,"duration_ms":200}` — signed ±255/wheel; a watchdog coasts to a stop `duration_ms` after the last command |
+| `cmd/config` | ▼ | assign: `team` `pass` `name` `hub` (pin; `""` clears) `pins` (L298N wiring) — optional `target` board-id addresses one of N |
+| `cmd/identify` | ▼ | blink the LED ~6 s — find the physical board |
+| `cmd/reprovision` | ▼ | remote reboot |
 
-## Operating mode
+HTTP on the board itself: `/` state-routing landing · `/wifi` settings ·
+`/wifi/status` live state JSON — plus, when hosting a dashboard, `/fleet` and a
+`:9001` MQTT-over-WebSocket bridge; the ESP32-CAM streams MJPEG at `:81/stream`.
 
-- Joins Wi-Fi (stored network, or a discovered open `hub-…`).
-- Connects to the broker (stored locator, or `mqtt://<gateway>:1883`),
-  authenticating as its **team** username/password.
-- Publishes `{"uptime_ms":…,"free_heap":…,"hw":"<board>","board":"rover-XXXX",…}`
-  every 2 s on `robots/<team>/sys`.
-- Subscribes to `robots/<team>/pwm` (drive), `/cmd/config` (post-join
-  assignment), `/cmd/identify` (blink the LED ~6 s to find the physical
-  board), and `/cmd/reprovision`.
+Motor pins default to the L298N kit (`ENA=25 IN1=26 IN2=27 · ENB=14 IN3=12
+IN4=13`) and are re-wireable from the dashboard for a custom chassis.
 
-## Identity
+## Identity & recovery
 
-Two ids, split by job:
+Two ids, split by job: the **team** (MQTT credential = topic subtree; fresh
+boards are `unassigned`, a pool identity only the professor can drive) and
+**`rover-XXXX`** (last 2 MAC bytes — the AP name, the `board` telemetry field,
+the serial-log token; hardware model is metadata, so boards swap without
+identity churn).
 
-- **Team** — the MQTT username/password. The rover publishes under
-  `robots/<team>/*`, and the broker's per-team ACL keeps teams from crossing.
-  Assigned post-join from the dashboard (until then a fresh board is
-  `unassigned` — the pool identity only the professor can drive).
-- **`rover-XXXX`** — the last 2 bytes of the Wi-Fi MAC (e.g. `rover-c9d0`), the
-  same token in the `board` telemetry field and serial logs. It carries the
-  robot's *role*; the hardware model (`esp32-devkit` ·
-  `esp32c3-supermini` · `esp32cam`) is metadata, never part of the name — boards
-  swap without identity churn.
+Recovery is layered: `esp-mqtt` auto-reconnects through brief outages; a dead
+session (~20 s) re-evaluates the whole decision tree above **without
+rebooting**; the BOOT button (hold ~1 s) forces a reboot/rescan; and
+`cmd/reprovision` is the remote twin (the ESP32-CAM has no button). The onboard
+LED = "reached the broker"; a ~6 s blink = someone pressed **Blink**.
 
 ## Layout
 
 ```
-platformio.ini      PlatformIO/ESP-IDF; espressif32@6.13.0 (esp-mqtt is in-tree, no lib_deps)
-partitions.csv      3 MB app partition (over-large since BLE was removed; harmless)
-CMakeLists.txt      IDF project root
-src/main.c          Discovery, connect/retry, BOOT button, MQTT client, motor drive
-src/provisioning_util.c  Robot-id formatting + locator validation (no BLE — just helpers)
-src/rover_config.c  NVS config: network (ssid/pass/locator), team identity, motor pins
-src/CMakeLists.txt  component REQUIRES (mqtt, json — no bt)
-sdkconfig.defaults  Stack size, 4 MB flash (BLE removed)
+src/
+├── main.c               boot dispatcher: role_pref → board_run | hub_role_run
+├── hub_role.c           Wi-Fi + broker services — always-APSTA board, tier-2 hub,
+│                        discovery + hub-watch (islands yield to real hubs), NAT
+├── rover_role.c         drive client — esp-mqtt, motors + watchdog, cmd/* handlers
+├── wifi_portal.c        the board's :80 — landing, Wi-Fi & role settings, /wifi/status
+├── ws_mqtt_bridge.c     :9001 WebSocket↔MQTT bridge + serves the embedded dashboard
+├── camera.c             ESP32-CAM MJPEG (:81)
+├── rover_config.c       NVS — network, team identity, motor pins, boot role, hub pin
+└── provisioning_util.c  pure helpers: robot id, locator, hub admission (unit-tested)
+web/dashboard.html       VENDORED from better-robotics/hub — tools/sync-dashboard.sh --check
+tools/                   dashboard embed (pre-build hook) + sync/drift-check
+test/test_util/          Unity tests for the pure helpers
 ```
 
-## Status
+## Build & test
 
-**v5: MQTT + drive, BLE removed** — an `esp-mqtt` client (per-team
-username/password auth), motor drive from `robots/<id>/pwm`, post-join team +
-motor-pin assignment from the hub dashboard, and — new in v5 — the entire BLE
-onboarding stack deleted (post-join config made it redundant), freeing ~175 KB
-flash and ~44 KB heap. Zero-touch open-`hub-*` scan-join, gateway-derived broker,
-remote reboot, three board envs. Hardware-validated on a classic ESP32-D0WD
-devkit and ESP32-C3 SuperMini against a live hub. Next: hub self-election (a
-board that finds no hub becomes one — also restores specific-network setup),
-then the LED RPC.
+```sh
+pio run -e esp32c3-supermini -t upload   # espressif32@6.13.0 pinned; esp-mqtt is in-tree
+pio test -e native                       # Unity: locator, hub admission, id format
+pio device monitor                       # 115200 baud
+```
+
+The hub role adds two managed components: `espressif/mosquitto` (the on-chip
+broker) and `espressif/mdns`.
