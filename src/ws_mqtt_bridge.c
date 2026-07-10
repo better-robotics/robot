@@ -21,6 +21,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
+#include "wifi_portal.h"   /* share the board's always-on :80 rather than fighting for it */
 
 #define WS_PORT      9001
 #define BROKER_PORT  1883
@@ -209,21 +210,32 @@ static esp_err_t fleet_handler(httpd_req_t *req)
  * the Pi). The dashboard, served from :80, connects mqtt.js to ws://host:9001. */
 void start_ws_mqtt_bridge(void)
 {
-    /* Instance 1 — the dashboard page + /fleet, on :80. */
-    httpd_config_t page_cfg = HTTPD_DEFAULT_CONFIG();
-    page_cfg.server_port = 80;
-    page_cfg.ctrl_port = 32768;
-    page_cfg.max_open_sockets = 4;
-    page_cfg.lru_purge_enable = true;
-    httpd_handle_t page_srv = NULL;
-    if (httpd_start(&page_srv, &page_cfg) == ESP_OK) {
+    /* Instance 1 — the dashboard page + /fleet on :80. A normal board already runs
+     * the Wi-Fi config panel on :80 (wifi_portal_start, from board_run), so we
+     * register the dashboard onto THAT shared server and take over "/" from the
+     * panel's setup-redirect. Only the tier-2 hub (no board_run, no panel) has no
+     * :80 yet → it starts its own, preserving the original behavior. */
+    httpd_handle_t page_srv = wifi_portal_httpd();
+    if (page_srv) {
+        /* Drop the panel's "/"→/wifi redirect so the drive UI owns the home page. */
+        httpd_unregister_uri_handler(page_srv, "/", HTTP_GET);
+    } else {
+        httpd_config_t page_cfg = HTTPD_DEFAULT_CONFIG();
+        page_cfg.server_port = 80;
+        page_cfg.ctrl_port = 32768;
+        page_cfg.max_open_sockets = 4;
+        page_cfg.lru_purge_enable = true;
+        if (httpd_start(&page_srv, &page_cfg) != ESP_OK) {
+            ESP_LOGE(TAG, "page httpd (:80) failed to start");
+            page_srv = NULL;
+        }
+    }
+    if (page_srv) {
         httpd_uri_t page = { .uri = "/", .method = HTTP_GET, .handler = page_handler };
         httpd_uri_t fleet = { .uri = "/fleet", .method = HTTP_GET, .handler = fleet_handler };
         httpd_register_uri_handler(page_srv, &page);
         httpd_register_uri_handler(page_srv, &fleet);
         ESP_LOGI(TAG, "dashboard served at http://192.168.4.1/ (port 80)");
-    } else {
-        ESP_LOGE(TAG, "page httpd (:80) failed to start");
     }
 
     /* Instance 2 — the WS<->TCP bridge, on :9001. */

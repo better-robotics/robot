@@ -33,4 +33,13 @@ void rover_button_start(void);
 #define HUB_SSID_PREFIX     "hub-"
 #define HUB_PI_SSID_PREFIX  "hub-pi-"
 
+/* A scanned network, deduped by SSID (strongest kept). A flat struct so the Wi-Fi
+ * config panel (wifi_portal.c) can list networks without pulling in esp_wifi.h.
+ * board_wifi_scan is implemented in hub_role.c because it owns the radio + the
+ * s_want_connect reconnect gate — it saves/restores that gate around the scan so a
+ * panel scan can't silently kill the STA auto-reconnect (robot#1). Returns the
+ * count written (≤ max), 0 on failure (e.g. a scan already in flight). */
+typedef struct { char ssid[33]; signed char rssi; bool open; } board_ap_t;
+int board_wifi_scan(board_ap_t *out, int max);
+
 #endif

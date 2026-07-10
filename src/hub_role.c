@@ -39,6 +39,7 @@
 #include "roles.h"
 #include "rover_config.h"        /* rover_config_load — the stored STA uplink */
 #include "provisioning_util.h"   /* rover_format_robot_id — the board's AP SSID = its rover-id */
+#include "wifi_portal.h"         /* the always-on :80 Wi-Fi config panel (rover.local/wifi) */
 
 /* STA_SSID / STA_PASS — the tier-2 hub's venue uplink. Gitignored header so real
  * Wi-Fi credentials never land in committed source; copy wifi_creds.example.h. */
@@ -271,6 +272,46 @@ static bool discover_hub(char out[33])
     return false;
 }
 
+/* Scan for the Wi-Fi config panel (roles.h): every visible network, deduped by
+ * SSID (strongest kept), so a student can pick their home network by name. Shares
+ * the radio with drive/discovery, so it borrows the same s_want_connect discipline
+ * as discover_hub — but RESTORES the gate afterward (a panel scan is incidental to
+ * a live session, unlike discovery which is about to re-issue its own connect). */
+int board_wifi_scan(board_ap_t *out, int max)
+{
+    bool prev = s_want_connect;
+    s_want_connect = false;                       /* don't let a reconnect fire mid-scan */
+    esp_err_t e = esp_wifi_scan_start(NULL, true);
+    s_want_connect = prev;                        /* restore: the STA may still be driving */
+    if (e != ESP_OK) return 0;                    /* e.g. a discovery/hub-watch scan in flight */
+
+    uint16_t n = 0;
+    esp_wifi_scan_get_ap_num(&n);
+    if (n == 0) return 0;
+    wifi_ap_record_t *ap = malloc(n * sizeof *ap);   /* heap: ~80 B each — never on the stack */
+    if (!ap) return 0;
+    esp_wifi_scan_get_ap_records(&n, ap);
+
+    int count = 0;
+    for (int i = 0; i < n && count < max; i++) {
+        const char *ss = (const char *)ap[i].ssid;
+        if (!ss[0]) continue;                     /* hidden network — no name to show */
+        int at = -1;
+        for (int j = 0; j < count; j++)
+            if (strcmp(out[j].ssid, ss) == 0) { at = j; break; }
+        if (at >= 0) {                            /* same SSID seen already — keep the stronger */
+            if (ap[i].rssi > out[at].rssi) out[at].rssi = ap[i].rssi;
+            continue;
+        }
+        snprintf(out[count].ssid, sizeof out[count].ssid, "%s", ss);
+        out[count].rssi = ap[i].rssi;
+        out[count].open = (ap[i].authmode == WIFI_AUTH_OPEN);
+        count++;
+    }
+    free(ap);
+    return count;
+}
+
 /* ── hub-watch: an island yields to a real hub (DESIGN-unified.md § Pi-preference)
  * A board islanded because it saw no hub — but one may appear just after (a Pi
  * boots ~30-60 s slower than an ESP; a professor's hub is switched on; or our own
@@ -353,6 +394,13 @@ void board_run(bool self_broker_ok)
     rover_format_robot_id(stamac, ap_ssid);   /* "rover-<suffix>" — matches the board id */
     wifi_apsta_up(ap_ssid, "rover", true);    /* AP on 192.168.99.1 (so the STA can join a
                                                * hub cleanly); mDNS → rover.local */
+
+    /* The Wi-Fi config panel — always on, on this board's :80, before any broker
+     * decision. This is what makes "join rover.local, set your home Wi-Fi" work in
+     * EVERY mode (a classroom rover has no broker/dashboard of its own otherwise).
+     * When the board later islands, start_ws_mqtt_bridge registers the drive
+     * dashboard onto this same :80 handle. */
+    wifi_portal_start();
 
     bool broker_started = false;
     for (;;) {
