@@ -82,8 +82,8 @@ app_main ─► role_pref == HUB → hub_role_run()   (tier 2: dedicated hub-* +
                                  else AUTO → local broker, drive 127.0.0.1 (island);
                                  else ROVER-pinned → rescan, never island.
 ```
-**Always-APSTA, no mode-switch reboot** (DESIGN-unified.md § Direction change,
-2026-07-09). The board is APSTA from line one and never switches radio mode, so
+**Always-APSTA, no mode-switch reboot** (decided 2026-07-09; § Status & design
+history). The board is APSTA from line one and never switches radio mode, so
 home↔classroom is a **runtime re-point** of the broker URI, not a boot role — the
 old `role_boot_as_hub`/`RTC_NOINIT` claim-by-reboot is **deleted** (it only ever
 existed to dodge a live STA→APSTA switch; it also caused two HW bugs — the
@@ -104,12 +104,6 @@ The always-on AP keeps `http://rover.local/` reachable for the #17 config panel
 ("set your home Wi-Fi" = the home switch); cost is per-board beacons in a
 classroom (measure-then-mitigate; `hub#3` closed 2026-07-10 — the per-board-AP
 topology question dissolved into always-APSTA).
-
-> **Status (2026-07-09):** always-APSTA board built and **hardware-validated on
-> the C3** — APSTA from boot, `rover.local`, island broker, drive, **no reboot**,
-> stable past the pi-watch scan. Remaining: motor contention under drive load,
-> the #17 Wi-Fi panel, tier-2 designate-as-hub. Tracker: robot#2. Owed: the Pi
-> advertises `hub-pi-<suffix>` (`hub` repo).
 
 ### Rover role
 One radio: Wi-Fi STA + esp-mqtt (BLE removed 2026-07-09 — see below).
@@ -216,37 +210,34 @@ correct code.
   `{"hub":…}`, `rover_hub_admits`). All optional — absent falls back to the
   compile-time / AUTO default.
 
-## Status
-**v6 (unified image) — builds green 2026-07-09; hub role not yet hardware-run.**
-One firmware now carries both roles behind the `role_pref` dispatcher (§ Boot
-flow). Build-verified on both arches: `esp32dev`/xtensa 48% flash, `esp32c3`/riscv
-51% (~1.5 MB of the 3 MB partition) — the two MQTT stacks (embedded broker +
-esp-mqtt client) and the 408 KB embedded dashboard coexist in one image.
+## Status & design history
+Live state (validated-on-hardware, open threads): the **pinned tracker,
+robot#4**. Narrative: git log. What can't be regenerated from the code — the
+chosen-against:
 
-- **rover role** — hardware-validated at **v5** (2026-07-09) on rover-a044
-  (ESP32-D0WD) + rover-b79c (ESP32-C3): boot → join open `hub-*` → connect as the
-  NVS team → publish + drive; motor init, LED-on-connect, NVS persistence across
-  reflash confirmed. Unchanged by the fold (same code, now `rover_role.c`).
-- **hub role** — folded in from the former `hub/esp32` project (feasibility-
-  validated there on hardware; that standalone project was **removed** from the
-  `hub` monorepo once its source landed here). Forced via `role_pref = HUB`
-  (tier 2), or entered via a tier-3 self-hub. Boot-run on hardware 2026-07-09.
-- BLE gone since v5 (#11), freeing ~175 KB flash + ~44 KB heap.
+- **Election → claim-by-reboot → always-APSTA (2026-07-09).** The distributed
+  election (grace window + MAC jitter + lowest-MAC tiebreak + abdication;
+  shipped `5b5b49d`, deleted `2e32956`) auto-picked one shared ESP hub among
+  student boards — imitating the Pi in software, on worse hardware, at the
+  design's highest complexity. Its successor, claim-by-reboot (`RTC_NOINIT`
+  flag), existed only to dodge a live STA→APSTA radio switch, and caused two
+  hardware bugs (the `RTC_DATA` wipe reboot-loop; the pi-watch stack panic).
+  Always-APSTA removed the switch, so both died: home↔classroom is a runtime
+  re-point of the broker URI, and the room's topology is explicit (a hub exists
+  or it doesn't), never emergent. Don't re-propose coordination between boards.
+- **Captive portal rejected for onboarding (cold pass 2026-07-09).** MDM-managed
+  Chromebooks/iPads often can't join arbitrary open APs, and OSes auto-drop
+  no-internet networks. The stronger move: rovers already auto-join `hub-*`, so
+  there is nothing to configure *before* join — config moved post-join
+  (dashboard → `cmd/config` → NVS). BLE (#11) and the portal died to the same
+  insight; onboarding a rover is: turn it on. The one config that can't be
+  post-join is a board's own uplink Wi-Fi — the `/wifi` panel, deliberately a
+  settings page you visit, not a captive portal.
+- **Per-board-AP-vs-shared-hub dichotomy dissolved (hub#3, closed 2026-07-10)** —
+  always-APSTA runs both topologies, split by hub presence; the beacon/client-cap
+  cost stays measure-then-mitigate (if it bites, drop the beacon when cleanly
+  joined to a hub).
 
-**Direction changed 2026-07-09: election → role tiers** (§ Boot flow;
-`DESIGN-unified.md` § Direction change; **robot#2**). The distributed election
-shipped (`5b5b49d`) then was superseded by the tier model (rover / hub-only /
-auto-self-hub) — **islands, not attraction**: a self-hub board raises an open
-`rover-<id>` AP (not `hub-*`), so nothing joins it, and a shared broker is opt-in
-via a Pi or a tier-2 `hub-*`. A tier-3 board yields only to `hub-pi-*`. **Built &
-HW-validated** (`42a73b4`): election deleted, tier-3 combined HUB+ROVER run-path
-(`rover_client_run` against the loopback broker), self-hub survives reboot
-(`RTC_NOINIT`), open APs. **Remaining:** motor contention under drive load
-(`hub#2`); the #17 **Wi-Fi config panel**; **tier 2** designate-as-hub + first
-classroom run. **Owed:** the Pi advertises `hub-pi-<suffix>` (`hub` repo).
-**Resolved (hub#3, closed 2026-07-10):** the per-board-AP-vs-shared-hub dichotomy
-dissolved — always-APSTA runs both, split by hub presence; the beacon/client-cap
-cost stays measure-then-mitigate.
-
-History (git): v2 zenoh firmware (three-rover fleet, BLE provisioning); v3/v4 the
-MQTT port + motor drive; v5 BLE removed; v6 the unified rover+hub image.
+History ladder (details: git log): v2 zenoh + BLE provisioning → v3/v4 MQTT port
++ motor drive → v5 BLE removed → v6 unified always-APSTA image.
+(`DESIGN-unified.md` folded into this section + README, 2026-07-10.)

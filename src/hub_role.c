@@ -5,7 +5,7 @@
  *       it raises its own open `rover-<id>` AP AND an STA uplink from line one,
  *       and never switches radio mode again. So home↔classroom is runtime state,
  *       not a boot role, and there is NO mode-switch reboot (the old RTC-flag
- *       self-hub claim is deleted — DESIGN-unified.md § Always-APSTA):
+ *       self-hub claim is deleted — CLAUDE.md § Status & design history):
  *         - joins a hub-* (classroom) → drives off that shared broker (central).
  *         - no hub, AUTO → runs a LOCAL broker and drives itself (home/island).
  *         - no hub, ROVER-pinned → keeps looking (never self-brokers).
@@ -388,7 +388,7 @@ int board_wifi_scan(board_ap_t *out, int max)
     return count;
 }
 
-/* ── hub-watch: an island yields to a real hub (DESIGN-unified.md § Pi-preference)
+/* ── hub-watch: an island yields to a real hub.
  * A board islanded because it saw no hub — but one may appear just after (a Pi
  * boots ~30-60 s slower than an ESP; a professor's hub is switched on; or our own
  * boot scan simply missed it). For a bounded window, watch for any `hub-*` and

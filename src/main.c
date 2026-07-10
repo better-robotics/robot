@@ -1,7 +1,8 @@
 /*
  * app_main — the boot dispatcher for the unified image.
  *
- * One firmware, decided from role_pref in NVS (DESIGN-unified.md § Always-APSTA):
+ * One firmware, decided from role_pref in NVS (README "How a board decides
+ * what to be"):
  *
  *   role_pref = hub   → tier 2: a dedicated professor hub (hub_role_run) — a
  *                       hub-* AP + broker, no drive.

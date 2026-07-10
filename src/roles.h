@@ -5,7 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Entry points of the unified image (DESIGN-unified.md § Always-APSTA). app_main
+/* Entry points of the unified image (README "How a board decides what to be").
+ * app_main
  * (main.c) reads role_pref from NVS and calls one; each brings up its own radio
  * and never returns. */
 
@@ -36,8 +37,8 @@ int64_t rover_ms_since_drive(void);
 
 /* SSID classification shared by discovery and Pi-watch (hub_role.c). Any open
  * "hub-*" is a hub to join; "hub-pi-*" additionally marks the Pi, which a self-
- * hub (island) board ALWAYS yields to (DESIGN-unified.md § Pi-preference — the Pi
- * is the preferred hub; peer ESP islands are left alone). */
+ * hub (island) board ALWAYS yields to (the Pi is the preferred hub; peer ESP
+ * islands are left alone). */
 #define HUB_SSID_PREFIX     "hub-"
 #define HUB_PI_SSID_PREFIX  "hub-pi-"
 
