@@ -73,12 +73,22 @@ static const char PAGE[] =
 "#nets button{background:var(--inset);border:.5px solid var(--border);color:var(--ink);text-align:left;"
 "display:flex;justify-content:space-between;align-items:center;gap:.5rem;font-weight:500}"
 "#msg,#rmsg{margin-top:1rem}"
+".btn{display:block;text-align:center;background:var(--accent);color:var(--accent-ink);"
+"border-radius:var(--radius);padding:.75rem .85rem;margin:.6rem 0 0;font-weight:600;"
+"text-decoration:none;min-height:var(--tap);box-sizing:border-box}"
 "</style></head><body>"
 /* Set the embed class synchronously before first paint (no topbar flash) when
  * the dashboard iframes this panel with ?embed=1. */
 "<script>if(location.search.indexOf('embed')>=0)document.documentElement.className='embed'</script>"
 "<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
 "<main>"
+/* Live status first (#21 UX fix): the panel used to be write-only — no way to see
+ * what's configured, whether a save landed, or where the dashboard is. */
+"<div class=card>"
+"<h2 id=bid>This board</h2>"
+"<p class=s id=bst>checking status&#8230;</p>"
+"<div id=bgo></div>"
+"</div>"
 "<div class=card>"
 "<h2>Set the rover&rsquo;s Wi-Fi</h2>"
 "<p class=s>Pick your home network, enter its password, and the rover restarts to join it.</p>"
@@ -127,6 +137,25 @@ static const char PAGE[] =
 "catch(x){m.textContent='Saved. The rover is restarting \\u2014 stay on its Wi-Fi and reopen rover.local.'}return false}"
 /* Reflect the board's current role in the select on load. */
 "fetch('/wifi/role').then(r=>r.json()).then(j=>{document.getElementById('role').value=j.role}).catch(()=>{});"
+/* Status card: poll /wifi/status. In embed mode the panel already sits inside the
+ * dashboard, so the "open the dashboard" button is suppressed (it would navigate
+ * the modal iframe into a nested dashboard). */
+"async function stat(){try{let r=await fetch('/wifi/status');let j=await r.json();"
+"document.getElementById('bid').textContent=j.board||'This board';"
+"let t=j.role=='hub'?'Classroom hub':j.role=='rover'?'Rover (always joins a hub)':'Rover';"
+"t+=' \\u00b7 ';"
+"t+=j.state=='hub'?'part of classroom '+j.uplink:"
+"j.state=='local'?(j.ip?'self-hosted \\u00b7 internet via '+j.uplink+' ('+j.ip+')':"
+"'self-hosted \\u00b7 no internet uplink (drives fine offline)'):"
+"j.state=='remote'?'on '+j.uplink+(j.ip?' ('+j.ip+')':''):"
+"'looking for a network\\u2026';"
+"document.getElementById('bst').textContent=t;"
+"let g=document.getElementById('bgo');g.textContent='';"
+"if(j.dash&&document.documentElement.className!='embed'){"
+"let a=document.createElement('a');a.className='btn';a.href=j.dash;"
+"a.textContent=j.dash=='/'?'Open the dashboard':'Open the class dashboard';g.appendChild(a)}"
+"}catch(e){}setTimeout(stat,5000)}"
+"stat();"
 "async function setrole(){let rm=document.getElementById('rmsg');rm.textContent='applying\\u2026';"
 "let v=document.getElementById('role').value;let f=new URLSearchParams();f.append('role',v);"
 "try{await fetch('/wifi/role',{method:'POST',body:f});"
@@ -142,13 +171,77 @@ static esp_err_t page_get(httpd_req_t *req)
     return httpd_resp_send(req, PAGE, HTTPD_RESP_USE_STRLEN);
 }
 
-/* Bare rover.local → the setup page. When the board islands, start_ws_mqtt_bridge
- * unregisters this and serves the drive dashboard at / instead. */
-static esp_err_t root_redirect(httpd_req_t *req)
+/* The landing at "/", replacing a naked 302→/wifi (scar 2026-07-10: a first-time
+ * user's very first screen was a Wi-Fi form — implying internet is required for a
+ * product whose point is working without it — and nothing ever led them onward).
+ * It polls /wifi/status and routes to wherever the drive dashboard actually is:
+ * reload once THIS board serves it (start_ws_mqtt_bridge takes over "/", so the
+ * reload lands on the dashboard), a button to the hub's copy when the board
+ * joined a classroom (reachable from this AP via NAPT), a holding line while the
+ * board is still deciding. /wifi stays one tap away. */
+static const char LANDING[] =
+"<!doctype html><html><head><meta charset=utf-8>"
+"<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+"<title>BetterRobotics</title><style>"
+":root{color-scheme:dark;--bg:#0d0f12;--surface:#16191d;--ink:#f2f3f5;--ink-muted:#aeb4bd;"
+"--border:rgba(255,255,255,.10);--accent:#00539B;--accent-ink:#fff;--radius-lg:18px;--radius:12px;--tap:44px}"
+"*{box-sizing:border-box}"
+"body{margin:0;background:var(--bg);color:var(--ink);"
+"font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Helvetica Neue',Arial,sans-serif;"
+"font-size:16px;line-height:1.47;-webkit-font-smoothing:antialiased;"
+"padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}"
+".topbar{display:flex;align-items:center;height:50px;padding:0 20px;border-bottom:.5px solid var(--border)}"
+".topbar h1{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}"
+".topbar .a{font-weight:700}.topbar .b{font-weight:400;color:var(--ink-muted)}"
+"main{max-width:32rem;margin:0 auto;padding:24px 16px 48px}"
+".card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-lg);"
+"padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.6)}"
+".card h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px}"
+".s{color:var(--ink-muted);font-size:13px}"
+".btn{display:block;text-align:center;background:var(--accent);color:var(--accent-ink);"
+"border-radius:var(--radius);padding:.75rem .85rem;margin:.9rem 0 0;font-weight:600;"
+"text-decoration:none;min-height:var(--tap)}"
+".foot{text-align:center}.foot a{color:var(--ink-muted)}"
+"</style></head><body>"
+"<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
+"<main>"
+"<div class=card><h2 id=bn>&#8230;</h2><p class=s id=st>Starting up&#8230;</p><div id=act></div></div>"
+"<p class=\"s foot\"><a href=/wifi>Wi-Fi &amp; role settings</a></p>"
+"</main>"
+"<script>"
+"let n=0;"
+"function go(){fetch('/wifi/status').then(r=>r.json()).then(j=>{"
+"document.getElementById('bn').textContent=j.board||'rover';"
+"let st=document.getElementById('st'),act=document.getElementById('act');"
+/* This board serves the dashboard now — "/" was re-registered, so reload IS it. */
+"if(j.dash=='/'){location.reload();return}"
+"if(j.dash){"
+"st.textContent='Part of the classroom network'+(j.uplink?' '+j.uplink:'')+' \\u2014 drive it from the class dashboard.';"
+/* DOM, not innerHTML: dash derives from a stored locator (user-supplied NVS). */
+"if(!act.firstChild){let a=document.createElement('a');a.className='btn';a.href=j.dash;"
+"a.textContent='Open the class dashboard';act.appendChild(a)}"
+"setTimeout(go,5000);return}"
+"act.innerHTML='';"
+"st.textContent=n>12?'No hub found yet \\u2014 the rover keeps looking. You can set its Wi-Fi or role below.':"
+"'Starting up \\u2014 deciding how to connect\\u2026';"
+"n++;setTimeout(go,1200)}).catch(()=>{n++;setTimeout(go,2000)})}"
+"go();"
+"</script></body></html>";
+
+static esp_err_t landing_get(httpd_req_t *req)
 {
-    httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "/wifi");
-    return httpd_resp_send(req, NULL, 0);
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    return httpd_resp_send(req, LANDING, HTTPD_RESP_USE_STRLEN);
+}
+
+/* Live board state for the landing page + the panel's status card (facts owned
+ * and serialized by hub_role.c — board_status_json). */
+static esp_err_t status_get(httpd_req_t *req)
+{
+    char j[256];
+    board_status_json(j, sizeof j);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, j);
 }
 
 static esp_err_t scan_get(httpd_req_t *req)
@@ -317,7 +410,8 @@ void wifi_portal_start(void)
     cfg.server_port = 80;
     cfg.ctrl_port = 32768;
     cfg.max_open_sockets = 7;
-    cfg.max_uri_handlers = 12;   /* /wifi{,/scan,/save} + / here; +/fleet & dashboard / later */
+    cfg.max_uri_handlers = 12;   /* /wifi{,/scan,/save,/role×2,/status} + / here;
+                                  * +/fleet & dashboard / later (bridge) = 9 peak */
     cfg.lru_purge_enable = true;
 
     if (httpd_start(&s_http, &cfg) != ESP_OK) {
@@ -325,19 +419,21 @@ void wifi_portal_start(void)
         s_http = NULL;
         return;
     }
-    httpd_uri_t u_page  = { .uri = "/wifi",      .method = HTTP_GET,  .handler = page_get };
-    httpd_uri_t u_scan  = { .uri = "/wifi/scan", .method = HTTP_GET,  .handler = scan_get };
-    httpd_uri_t u_save  = { .uri = "/wifi/save", .method = HTTP_POST, .handler = save_post };
-    httpd_uri_t u_rget  = { .uri = "/wifi/role", .method = HTTP_GET,  .handler = role_get };
-    httpd_uri_t u_rpost = { .uri = "/wifi/role", .method = HTTP_POST, .handler = role_post };
-    httpd_uri_t u_root  = { .uri = "/",          .method = HTTP_GET,  .handler = root_redirect };
+    httpd_uri_t u_page  = { .uri = "/wifi",        .method = HTTP_GET,  .handler = page_get };
+    httpd_uri_t u_scan  = { .uri = "/wifi/scan",   .method = HTTP_GET,  .handler = scan_get };
+    httpd_uri_t u_save  = { .uri = "/wifi/save",   .method = HTTP_POST, .handler = save_post };
+    httpd_uri_t u_rget  = { .uri = "/wifi/role",   .method = HTTP_GET,  .handler = role_get };
+    httpd_uri_t u_rpost = { .uri = "/wifi/role",   .method = HTTP_POST, .handler = role_post };
+    httpd_uri_t u_stat  = { .uri = "/wifi/status", .method = HTTP_GET,  .handler = status_get };
+    httpd_uri_t u_root  = { .uri = "/",            .method = HTTP_GET,  .handler = landing_get };
     httpd_register_uri_handler(s_http, &u_page);
     httpd_register_uri_handler(s_http, &u_scan);
     httpd_register_uri_handler(s_http, &u_save);
     httpd_register_uri_handler(s_http, &u_rget);
     httpd_register_uri_handler(s_http, &u_rpost);
+    httpd_register_uri_handler(s_http, &u_stat);
     httpd_register_uri_handler(s_http, &u_root);
-    ESP_LOGI(TAG, "config panel on :80 (/wifi — Wi-Fi + board role)");
+    ESP_LOGI(TAG, "config panel on :80 (/wifi + /wifi/status; state-routing landing at /)");
 }
 
 httpd_handle_t wifi_portal_httpd(void)

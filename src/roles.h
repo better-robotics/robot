@@ -2,6 +2,7 @@
 #define ROLES_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* Entry points of the unified image (DESIGN-unified.md § Always-APSTA). app_main
@@ -39,6 +40,20 @@ int64_t rover_ms_since_drive(void);
  * is the preferred hub; peer ESP islands are left alone). */
 #define HUB_SSID_PREFIX     "hub-"
 #define HUB_PI_SSID_PREFIX  "hub-pi-"
+
+/* Board network state, published by hub_role.c at each broker decision and served
+ * as JSON by GET /wifi/status (wifi_portal.c). The landing page at / and the
+ * config panel's status card route on it — `dash` is the actionable field: where
+ * the drive dashboard for THIS board lives right now ("" while undecided, "/"
+ * once this board serves it, "http://<ip>/" when it's at a hub or stored broker). */
+typedef enum {
+    BOARD_NET_SEARCHING = 0,  /* pre-decision: scanning for a hub / trying stored */
+    BOARD_NET_HUB,            /* STA joined a hub-* — dashboard at the DHCP gateway */
+    BOARD_NET_REMOTE,         /* stored network + explicit locator (e.g. a home Pi) */
+    BOARD_NET_LOCAL,          /* this board serves broker + dashboard itself */
+} board_net_state_t;
+void board_net_state_set(board_net_state_t st, const char *uplink_ssid, const char *dash);
+int  board_status_json(char *buf, size_t len);   /* → bytes written (snprintf) */
 
 /* A scanned network, deduped by SSID (strongest kept). A flat struct so the Wi-Fi
  * config panel (wifi_portal.c) can list networks without pulling in esp_wifi.h.

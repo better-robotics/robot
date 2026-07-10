@@ -231,7 +231,8 @@ void start_ws_mqtt_bridge(void)
      * :80 yet → it starts its own, preserving the original behavior. */
     httpd_handle_t page_srv = wifi_portal_httpd();
     if (page_srv) {
-        /* Drop the panel's "/"→/wifi redirect so the drive UI owns the home page. */
+        /* Drop the panel's state-routing landing so the drive UI owns the home
+         * page — the landing's dash=="/" reload lands exactly here. */
         httpd_unregister_uri_handler(page_srv, "/", HTTP_GET);
     } else {
         httpd_config_t page_cfg = HTTPD_DEFAULT_CONFIG();

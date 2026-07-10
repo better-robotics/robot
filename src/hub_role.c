@@ -68,6 +68,44 @@ static volatile bool s_sta_got_ip = false;
 static volatile bool s_want_connect = false;   /* gate auto-reconnect so it doesn't fight a scan */
 static esp_ip4_addr_t s_gw;                    /* DHCP gateway — on a hub's AP, the hub/broker */
 
+/* ── /wifi/status facts (roles.h board_net_state_t) ──────────────────────────
+ * Owned here because every input is this file's: the broker decision (board_run),
+ * the STA lease, the gateway. wifi_portal.c only serializes them out. */
+static volatile board_net_state_t s_net_state = BOARD_NET_SEARCHING;
+static char s_uplink_ssid[33];   /* the STA target we last committed to ("" = none) */
+static char s_dash[64];          /* where the drive dashboard lives (roles.h) */
+static char s_board_id[16];      /* rover-xxxx / hub-xxxx — set once at entry */
+
+void board_net_state_set(board_net_state_t st, const char *uplink_ssid, const char *dash)
+{
+    s_net_state = st;
+    snprintf(s_uplink_ssid, sizeof s_uplink_ssid, "%s", uplink_ssid ? uplink_ssid : "");
+    snprintf(s_dash, sizeof s_dash, "%s", dash ? dash : "");
+}
+
+int board_status_json(char *buf, size_t len)
+{
+    static const char *st_str[] = { "searching", "hub", "remote", "local" };
+    char ip[16] = "";
+    esp_netif_ip_info_t ipi;
+    if (s_sta_got_ip && sta_netif && esp_netif_get_ip_info(sta_netif, &ipi) == ESP_OK)
+        snprintf(ip, sizeof ip, IPSTR, IP2STR(&ipi.ip));
+    rover_role_pref_t rp = rover_config_load_role_pref();
+    const char *role = rp == ROLE_HUB ? "hub" : rp == ROLE_ROVER ? "rover" : "auto";
+    /* The uplink SSID is user/venue-supplied — escape " and \ , drop control bytes
+     * (same rule as the scan list; the pages render it with textContent). */
+    char esc[65]; size_t e = 0;
+    for (const unsigned char *p = (const unsigned char *)s_uplink_ssid; *p && e < sizeof esc - 2; p++) {
+        if (*p < 0x20) continue;
+        if (*p == '"' || *p == '\\') esc[e++] = '\\';
+        esc[e++] = (char)*p;
+    }
+    esc[e] = 0;
+    return snprintf(buf, len,
+        "{\"state\":\"%s\",\"board\":\"%s\",\"role\":\"%s\",\"uplink\":\"%s\",\"ip\":\"%s\",\"dash\":\"%s\"}",
+        st_str[s_net_state], s_board_id, role, esc, ip, s_dash);
+}
+
 /* Session auth: whole-session accept/reject, the only gate this broker offers (no
  * per-topic ACL). Isolation is connect-auth + rover convention (each rover
  * subscribes only its own robots/<id>); the Pi enforces the same per-topic. */
@@ -423,6 +461,7 @@ void board_run(bool self_broker_ok)
     esp_read_mac(stamac, ESP_MAC_WIFI_STA);
     char ap_ssid[16];
     rover_format_robot_id(stamac, ap_ssid);   /* "rover-<suffix>" — matches the board id */
+    snprintf(s_board_id, sizeof s_board_id, "%s", ap_ssid);
     wifi_apsta_up(ap_ssid, "rover", true);    /* AP on 192.168.99.1 (so the STA can join a
                                                * hub cleanly); mDNS → rover.local */
 
@@ -446,6 +485,7 @@ void board_run(bool self_broker_ok)
 
         char discovered[33] = "";
         bool joined = false, joined_hub = false;
+        board_net_state_set(BOARD_NET_SEARCHING, "", "");
 
         /* 1. a hub in range wins — the classroom IS the venue. Stored-first here
          * broke the yield promise: a board with home Wi-Fi stored would join it,
@@ -465,12 +505,24 @@ void board_run(bool self_broker_ok)
 
         char uri[80];
         if (joined_hub) {
-            /* Classroom: the DHCP gateway is the hub/broker — central control. */
+            /* Classroom: the DHCP gateway is the hub/broker — central control. The
+             * hub also serves the class dashboard on :80, and NAPT (armed on our
+             * STA lease) lets a phone on THIS board's AP reach it — so the landing
+             * page can hand out the URL. IP, not hub.local: mDNS is link-local and
+             * doesn't cross the NAT hop. */
             snprintf(uri, sizeof uri, "mqtt://" IPSTR ":1883", IP2STR(&s_gw));
+            char dash[32];
+            snprintf(dash, sizeof dash, "http://" IPSTR "/", IP2STR(&s_gw));
+            board_net_state_set(BOARD_NET_HUB, discovered, dash);
             ESP_LOGI(TAG, "joined hub '%s' — driving off its broker (central)", discovered);
         } else if (joined && loc[0] && strncmp(loc, "mqtt://", 7) == 0) {
             /* A stored network with an explicit broker locator (e.g. a home Pi). */
             snprintf(uri, sizeof uri, "%s", loc);
+            char host[48], dash[64];
+            size_t h = strcspn(loc + 7, ":/");   /* host part of mqtt://host[:port] */
+            snprintf(host, sizeof host, "%.*s", (int)(h < sizeof host ? h : sizeof host - 1), loc + 7);
+            snprintf(dash, sizeof dash, "http://%s/", host);
+            board_net_state_set(BOARD_NET_REMOTE, ssid, dash);
             ESP_LOGI(TAG, "joined '%s' — driving off stored broker %s", ssid, loc);
         } else if (self_broker_ok) {
             /* Home/island: no hub broker reachable — be our own. The uplink (if any)
@@ -484,6 +536,9 @@ void board_run(bool self_broker_ok)
                 vTaskDelay(pdMS_TO_TICKS(2000));   /* let the broker bind :1883 first */
             }
             snprintf(uri, sizeof uri, "mqtt://127.0.0.1:1883");
+            /* Only now does dash say "/" — the bridge above owns :80's / from here,
+             * so a landing page that reloads on "/" always gets the dashboard. */
+            board_net_state_set(BOARD_NET_LOCAL, joined ? ssid : "", "/");
         } else {
             /* ROVER-pinned with no hub in range: never self-broker. Keep the AP up
              * (reconfigurable) and rescan shortly — no reboot. */
@@ -511,6 +566,7 @@ void hub_role_run(void)
     esp_read_mac(apmac, ESP_MAC_WIFI_SOFTAP);
     char ap_ssid[16];
     snprintf(ap_ssid, sizeof ap_ssid, AP_SSID_PREFIX "%02x%02x", apmac[4], apmac[5]);
+    snprintf(s_board_id, sizeof s_board_id, "%s", ap_ssid);
     wifi_apsta_up(ap_ssid, "hub", false);     /* AP stays 192.168.4.1 — boards join THIS;
                                                * mDNS → hub.local (matches the Pi) */
 
@@ -539,6 +595,7 @@ void hub_role_run(void)
     esp_wifi_connect();
 
     start_ws_mqtt_bridge();
+    board_net_state_set(BOARD_NET_LOCAL, up_ssid, "/");   /* dashboard is here */
     struct mosq_broker_config bcfg = {
         .host = "0.0.0.0", .port = 1883, .tls_cfg = NULL, .handle_connect_cb = connect_cb,
     };
