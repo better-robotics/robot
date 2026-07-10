@@ -209,8 +209,11 @@
     .codes-row .spacer { flex: 1; }
     .codes-row button { padding: 0.25rem 0.7rem; border-radius: 6px; border: 1px solid var(--border, #444);
             background: transparent; color: inherit; cursor: pointer; }
+    #codes .gate-row { margin-top: 0.9rem; }
+    #codes-add { flex: 1 0 auto; }
     #codes-share { margin-top: 0.8rem; }
     #codes-qr svg { width: 11rem; height: 11rem; background: #fff; padding: 0.5rem; border-radius: 8px; }
+    .btn-drive.driving { background: var(--accent); color: var(--accent-ink); }
     #orient-row { margin: 0.6rem 0; }
     .orient-btns { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
     #drive-panel { display: none; }
@@ -510,7 +513,7 @@
     <div id="codes-nag">&#9888; This class is still running the placeholder codes it shipped with — rotate them before students arrive.</div>
     <div id="codes-list"></div>
     <div class="gate-row">
-      <input id="codes-user" placeholder="team (new or existing, e.g. team3)" autocomplete="off">
+      <input id="codes-user" placeholder="team name" autocomplete="off">
       <input id="codes-pass" placeholder="new code" autocomplete="off">
       <button id="codes-add">Set code</button>
     </div>
@@ -3063,7 +3066,7 @@ safe-buffer/index.js:
           ${offline ? '<span class="offline-label">offline</span>' : ""}</h2>
         ${note ? `<div class="${isPool ? "pool-note" : "warn-note"}">${isPool ? "" : "⚠ "}${note}</div>` : ""}
         ${rows || `<div class="pool-note">nothing online here — last seen ${fmtUptime(ageMs)} ago</div>`}
-        ${prof && mem.length ? `<div class="card-actions"><button class="btn-drive" data-robot="${esc(id)}">Drive${mem.length > 1 ? " all " + mem.length : ""}</button></div>` : ""}
+        ${prof && mem.length ? `<div class="card-actions"><button class="btn-drive${target === id ? " driving" : ""}" data-robot="${esc(id)}">${target === id ? "Driving" : "Drive"}${mem.length > 1 ? " all " + mem.length : ""}</button></div>` : ""}
       </div>`;
     }
 
@@ -3092,7 +3095,7 @@ safe-buffer/index.js:
         if (!offline && sys.ip)
           actions.push(`<button class="btn-tile" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(id)}">⚙ Wi-Fi &amp; role</button>`);
         if (myScope && myScope.scope === "all")
-          actions.push(`<button class="btn-drive" data-robot="${esc(id)}">Drive</button>`);
+          actions.push(`<button class="btn-drive${target === id ? " driving" : ""}" data-robot="${esc(id)}">${target === id ? "Driving" : "Drive"}</button>`);
         return `<div class="robot${offline ? " offline" : ""}">
           <h2><span class="dot"></span>${esc(id)}${offline ? '<span class="offline-label">offline</span>' : ""}</h2>
           <div class="hw">${esc(sys.hw || "unknown board")}</div>
@@ -3195,6 +3198,15 @@ safe-buffer/index.js:
       target = id;
       document.getElementById("joystick-title").textContent = `Driving ${id}`;
       applyDriveMode();  // reveal whichever input (joystick / D-pad) is active
+      if (myScope && myScope.scope === "all") {
+        // The Drive tap happened on a card below; the pad appeared up here —
+        // bring it to the finger (the Assign flow's own pattern), and retire
+        // the now-stale "pick a robot" instruction.
+        document.getElementById("scope-label").textContent =
+          `Driving ${id} — tap Drive on another robot to switch.`;
+        document.getElementById("drive").scrollIntoView({ behavior: "smooth", block: "center" });
+        renderRobots(); // repaint cards so the chosen one shows its Driving state
+      }
     }
 
     // Drive input mode — the segmented control switches between the analog
@@ -3203,6 +3215,7 @@ safe-buffer/index.js:
     let driveMode = "joystick";
     function applyDriveMode() {
       const ready = !!target;
+      document.getElementById("drive-mode").style.display    = ready ? "" : "none"; // inert before a target exists
       document.getElementById("joystick-wrap").style.display = ready && driveMode === "joystick" ? "block" : "none";
       document.getElementById("dpad-wrap").style.display     = ready && driveMode === "dpad"     ? "block" : "none";
     }
