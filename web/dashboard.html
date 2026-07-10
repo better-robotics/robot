@@ -931,22 +931,49 @@ safe-buffer/index.js:
         .forEach(i => document.getElementById(i).value = "");
     });
 
+    function gateMsg(text) {
+      const el = document.getElementById("gate-error");
+      el.textContent = text;
+      el.style.display = text ? "block" : "none";
+    }
     function connect(username, password) {
-      if (!hubHost) return; // standalone, no hub address entered yet
-      document.getElementById("gate-error").style.display = "none";
+      if (!hubHost) return gateMsg("No hub address set — enter one above first.");
+      gateMsg("");
+      const btn = document.getElementById("connect-btn");
+      btn.disabled = true; btn.textContent = "Connecting…";
+      const restore = () => { btn.disabled = false; btn.textContent = "Drive"; };
+      // mqtt.js retries an unreachable host forever without ever emitting
+      // "error" — surface that case ourselves instead of spinning silently.
+      const stall = setTimeout(() => {
+        gateMsg("No answer from the hub — are you on its Wi-Fi?");
+        try { driveClient.end(true); } catch {}
+        restore();
+      }, 8000);
       driveClient = mqtt.connect(`ws://${hubHost}:${wsPort}`, { username, password });
       driveClient.on("connect", () => {
+        clearTimeout(stall); restore();
         onScope(username);
         const filter = myScope.scope === "all" ? "robots/+/#" : `robots/${username}/#`;
         driveClient.subscribe(filter);
       });
-      driveClient.on("error", () => { document.getElementById("gate-error").style.display = "block"; });
+      driveClient.on("error", () => {
+        clearTimeout(stall); restore();
+        gateMsg("The hub rejected that code — check it and try again.");
+        try { driveClient.end(true); } catch {} // stop mqtt.js re-trying bad creds
+      });
       driveClient.on("message", (topic, payload) => logLine("in", `${topic} ${payload.toString()}`));
     }
-    document.getElementById("connect-btn").addEventListener("click", () => {
+    function submitCode() {
       const code = document.getElementById("code-input").value.trim();
       const sep = code.indexOf(":");
-      if (sep > 0) connect(code.slice(0, sep), code.slice(sep + 1));
+      if (!code) return gateMsg("Enter your code first — it looks like name:password.");
+      if (sep <= 0 || sep === code.length - 1)
+        return gateMsg("Codes are name:password in one line — e.g. team1:team1pass.");
+      connect(code.slice(0, sep), code.slice(sep + 1));
+    }
+    document.getElementById("connect-btn").addEventListener("click", submitCode);
+    document.getElementById("code-input").addEventListener("keydown", e => {
+      if (e.key === "Enter") submitCode();
     });
     document.getElementById("robots").addEventListener("click", (e) => {
       // Delegated on #robots (which persists across re-renders); the buttons inside
