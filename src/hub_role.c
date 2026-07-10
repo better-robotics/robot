@@ -320,9 +320,18 @@ int board_wifi_scan(board_ap_t *out, int max)
  * `rover-<id>`, NOT `hub-*` — so a `hub-*` beacon can only be a *real* designated
  * hub (a Pi `hub-pi-*` or a tier-2 professor hub), never another home board.
  * Yielding = a clean esp_restart (NOT a mode switch, no RTC flag): board_run
- * re-runs, discovers the now-present hub, and joins it as a rover. */
-#define HUB_WATCH_WINDOW_MS 180000   /* watch the first ~3 min, then commit as the island */
+ * re-runs, discovers the now-present hub, and joins it as a rover.
+ *
+ * The watch is PERPETUAL, not a bounded window: a teacher who powers the hub
+ * after the kids' boards would otherwise get a dead room until every board is
+ * hand-rebooted (the 3-min window was too short for real classroom boot order,
+ * 2026-07-10). The cost of a forever-scan — a brief AP+STA interruption every
+ * scan — is avoided by SKIPPING the scan whenever the board was driven in the
+ * last few seconds: an idle island keeps looking, an actively-driven one never
+ * hiccups. (Home solo use is the only case that scans forever with no payoff;
+ * idle-gated, that's an invisible ~100 ms blip every 20 s with nobody driving.) */
 #define HUB_WATCH_SCAN_MS    20000   /* slow — an active scan interrupts AP+STA briefly */
+#define HUB_WATCH_DRIVE_QUIET_MS 5000 /* skip the scan if driven within this window */
 #define HUB_SCAN_MAX_AP 20           /* heap-sized cap; a classroom sees far fewer hubs */
 
 static bool sees_hub_to_yield_to(const uint8_t self_bssid[6])
@@ -357,15 +366,15 @@ static void hub_watch_task(void *arg)
     (void)arg;
     uint8_t self_bssid[6];
     esp_read_mac(self_bssid, ESP_MAC_WIFI_SOFTAP);
-    for (uint32_t waited = 0; waited < HUB_WATCH_WINDOW_MS; waited += HUB_WATCH_SCAN_MS) {
+    for (;;) {
         vTaskDelay(pdMS_TO_TICKS(HUB_WATCH_SCAN_MS));
+        if (rover_ms_since_drive() < HUB_WATCH_DRIVE_QUIET_MS)
+            continue;    /* being driven — don't hiccup the link with a scan */
         if (sees_hub_to_yield_to(self_bssid)) {
             vTaskDelay(pdMS_TO_TICKS(500));
             esp_restart();   /* clean restart → board_run → discovery → join the hub */
         }
     }
-    ESP_LOGI(TAG, "no hub appeared — committed as the island (hub-watch window closed)");
-    vTaskDelete(NULL);
 }
 
 static void broker_task(void *arg)

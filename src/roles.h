@@ -2,6 +2,7 @@
 #define ROLES_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 /* Entry points of the unified image (DESIGN-unified.md § Always-APSTA). app_main
  * (main.c) reads role_pref from NVS and calls one; each brings up its own radio
@@ -25,6 +26,12 @@ void hub_role_run(void);
  * rover_button_start arms the recover button (hold to reboot). */
 void rover_client_run(const char *broker_uri);
 void rover_button_start(void);
+
+/* Milliseconds since the last drive (pwm) command, or INT64_MAX if none this
+ * boot. hub_watch (hub_role.c) reads it to skip its yield-scan while a board is
+ * being actively driven — an active scan briefly interrupts AP+STA, so an island
+ * only looks for a late-booting hub when idle, never mid-drive. */
+int64_t rover_ms_since_drive(void);
 
 /* SSID classification shared by discovery and Pi-watch (hub_role.c). Any open
  * "hub-*" is a hub to join; "hub-pi-*" additionally marks the Pi, which a self-

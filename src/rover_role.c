@@ -113,6 +113,12 @@ static char s_name[33] = "";
 static const char *s_topic_id = s_user;
 
 static volatile bool s_mqtt_up = false;   /* live session; drives dead-session self-heal */
+static volatile int64_t s_last_drive_us = INT64_MIN;  /* esp_timer time of the last pwm; hub_watch reads it */
+
+int64_t rover_ms_since_drive(void) {
+    if (s_last_drive_us == INT64_MIN) return INT64_MAX;   /* no drive command this boot */
+    return (esp_timer_get_time() - s_last_drive_us) / 1000;
+}
 
 /* ── motor drive: L298N, 6-wire (ENA/ENB = PWM speed, IN1-4 = direction) ──────
  * The standard L298N control: each motor's IN pair picks direction (one HIGH,
@@ -239,6 +245,7 @@ static void motor_apply(const char *json, int len) {
     int ms    = json_int(root, "duration_ms", 400);
     cJSON_Delete(root);
 
+    s_last_drive_us = esp_timer_get_time();           /* hub_watch skips its scan while driving */
     motor_drive(left, right);
     esp_timer_stop(s_motor_watchdog);                 /* no-op if not armed */
     if (ms > 0) esp_timer_start_once(s_motor_watchdog, (int64_t)ms * 1000);
