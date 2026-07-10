@@ -47,7 +47,7 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   via a plug-in USB↔UART adapter; **no BOOT button**, so its only manual
   re-entry is the `reprovision` topic; LED=GPIO33 rear red, active-low),
   `rover-l298n` (extends esp32dev). Each passes `-DMQTT_USER`/`-DMQTT_PASS`
-  (demo `team1`) as a *fallback* only — a rover's team is assigned post-join over
+  (the `unassigned` pool identity) as a *fallback* only — a rover's team is assigned post-join over
   MQTT (`robots/<id>/cmd/config` → NVS) from the dashboard's "Assign a rover"
   panel, so boards flash identically and get named at the hub.
 - Platform pinned **`espressif32@6.13.0`** (ships **IDF 5.5.3**, not 5.1 as an
@@ -102,7 +102,8 @@ All APs **open** by default. mDNS: a board is **`rover.local`**, a hub is
 `hub.local` (a board never claims `hub.local` — it would collide with the Pi).
 The always-on AP keeps `http://rover.local/` reachable for the #17 config panel
 ("set your home Wi-Fi" = the home switch); cost is per-board beacons in a
-classroom (`hub#3`, measure-then-mitigate).
+classroom (measure-then-mitigate; `hub#3` closed 2026-07-10 — the per-board-AP
+topology question dissolved into always-APSTA).
 
 > **Status (2026-07-09):** always-APSTA board built and **hardware-validated on
 > the C3** — APSTA from boot, `rover.local`, island broker, drive, **no reboot**,
@@ -116,7 +117,8 @@ Boot is a pure function of NVS; no stored state is ever a dead end. **Nothing
 stored is fully operable**: no ssid → scan-join the strongest *open* `hub-*`
 network (the classroom AP convention is the onboarding channel); no locator →
 dial the DHCP gateway (on its own AP the hub is the gateway); no team → the
-compile-time demo credential until the dashboard assigns one. Discovery results
+compile-time `unassigned` pool credential (professor-drivable only — no
+student holds it) until the dashboard assigns one. Discovery results
 are never persisted — and **a hub in range wins over the stored network** (the
 classroom IS the venue; fixed 2026-07-10 — stored-first made a home-configured
 board reboot-loop off `hub_watch` instead of ever joining a classroom hub). Only
@@ -158,9 +160,11 @@ locator overrides. No multicast — campus Wi-Fi filters it and isolates clients
 Two ids, split by job (CONTRACT.md § Discovery & isolation):
 - **Topic/auth id == the team.** The rover authenticates as its team credential
   and publishes under `robots/<team>/*`, so the Pi's `pattern robots/%u/#` ACL
-  admits it and teams can't cross. Compile-time demo `team1` (`-DMQTT_USER`) is
-  the fallback; the real team is assigned post-join from the dashboard
-  (`robots/<id>/cmd/config` → NVS).
+  admits it and teams can't cross. Compile-time `unassigned` (`-DMQTT_USER`) is
+  the fallback — a first-class pool identity (2026-07-10; was demo `team1`,
+  which let fresh boards collide on a real team's card and obey its
+  student-known drive credential); the real team is assigned post-join from
+  the dashboard (`robots/<id>/cmd/config` → NVS).
 - **`rover-XXXX`** (last 2 MAC bytes via `rover_format_robot_id`) is a `board`
   field in the sys payload — hardware is metadata, never the topic id.
 - **`role_pref`** (NVS key `role`, one byte; `rover_config_load/set_role_pref`,
@@ -236,8 +240,9 @@ HW-validated** (`42a73b4`): election deleted, tier-3 combined HUB+ROVER run-path
 (`RTC_NOINIT`), open APs. **Remaining:** motor contention under drive load
 (`hub#2`); the #17 **Wi-Fi config panel**; **tier 2** designate-as-hub + first
 classroom run. **Owed:** the Pi advertises `hub-pi-<suffix>` (`hub` repo).
-**Deferred (hub#3):** *preferring* per-board APs even when a hub exists (islands
-are already the no-hub default; the open question is the client-cap tradeoff).
+**Resolved (hub#3, closed 2026-07-10):** the per-board-AP-vs-shared-hub dichotomy
+dissolved — always-APSTA runs both, split by hub presence; the beacon/client-cap
+cost stays measure-then-mitigate.
 
 History (git): v2 zenoh firmware (three-rover fleet, BLE provisioning); v3/v4 the
 MQTT port + motor drive; v5 BLE removed; v6 the unified rover+hub image.

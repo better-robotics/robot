@@ -40,7 +40,7 @@ complexity. Both later passes drop the distributed part entirely.
   `rover-<id>` AP up, so its config surface (`http://rover.local/`) is always
   reachable — the seam the `#17` Wi-Fi panel fills ("go to rover.local, set your
   home Wi-Fi" = the home switch). Cost: every board beacons its own AP → classroom
-  co-channel congestion (this is `hub#3`, measured-not-assumed; if it bites, drop
+  co-channel congestion (measured-not-assumed — `hub#3`, closed 2026-07-10; if it bites, drop
   the beacon when cleanly joined to a Pi).
 - **Islands by default, not attraction.** A self-broker board's AP is named after
   its **rover-id** (`rover-<id>`), *not* `hub-*` — so no other rover's `hub-*`
@@ -73,7 +73,7 @@ complexity. Both later passes drop the distributed part entirely.
 professor — the board must be its own hub *and* drive itself, or a single board
 does nothing. So it's the home deployment context, first-class.
 
-**Deferred to hub#3:** "*every* classroom board runs its own AP" (each student
+**Deferred to hub#3 (closed 2026-07-10 — dissolved, not decided: always-APSTA runs both topologies split by hub presence):** "*every* classroom board runs its own AP" (each student
 joins their own rover, STA uplinks to the hub). Solves the ESP hub's ~8–10
 client cap, but flips classroom control from **central** (one shared broker, ACL
 team isolation, teacher drives any robot) to **local**, and adds RF co-channel
@@ -203,7 +203,8 @@ Compile-time defaults stay as fallbacks; NVS overrides them.
   every board beacons its own `rover-<id>` AP, forced onto the Pi's channel
   (single radio). Measure whether the beacons/client-cap actually bite a real
   room; if they do, drop a board's AP beacon when it's cleanly joined to a Pi
-  (`hub#3`). This replaced the old election-correctness risk (election deleted).
+  (`hub#3`, closed — the mitigation plan stands). This replaced the old
+  election-correctness risk (election deleted).
 - **Binary size:** broker + AP+NAT + httpd + WS bridge *plus* the drive client in
   one image — ~51% of the 3 MB factory partition (built on both xtensa + riscv,
   ESP32-CAM included). RAM is fine (~150 KB free on the C3 with the full stack).

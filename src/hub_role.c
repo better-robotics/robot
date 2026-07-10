@@ -113,9 +113,12 @@ static int connect_cb(const char *client_id, const char *username,
                       const char *password, int password_len)
 {
     static const struct { const char *u, *p; } creds[] = {
-        { "professor", "change-me" },
-        { "team1",     "change-me-team1" },
-        { "team2",     "change-me-team2" },
+        { "professor",  "change-me" },
+        { "team1",      "change-me-team1" },
+        { "team2",      "change-me-team2" },
+        /* Fresh boards' pool identity (rover_role.c MQTT_USER default): no
+         * student holds this credential, so only the professor drives the pool. */
+        { "unassigned", "unassigned-secret" },
     };
     const char *cid = client_id ? client_id : "(none)";
     /* DEMO-ONLY: allow anonymous (no username) so the dashboard's credential-free

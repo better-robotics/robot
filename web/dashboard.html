@@ -285,6 +285,18 @@
     #assign-status.assign-ok { color: var(--success); }
     #assign-status.assign-err { color: var(--danger-text); }
 
+    /* Pool / collision cards: per-board rows (keyed by hardware id) instead of
+       one card flapping last-writer-wins between boards sharing an identity. */
+    .pool-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.65rem;
+      background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
+    .pool-row .b { font-weight: 600; font-size: 0.92rem; }
+    .pool-row .meta { color: var(--ink-muted); font-size: 0.8rem; }
+    .pool-row .spacer { flex: 1; }
+    .pool-row .btn-tile { margin: 0; }
+    .pool-note { color: var(--ink-muted); font-size: 0.85rem; margin-top: 0.45rem; }
+    .warn-note { color: var(--warn-ink); font-size: 0.85rem; margin-top: 0.45rem; }
+    .robot.collision { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+
     /* Per-card action row: Camera / Wi-Fi & role / Drive as tinted tiles. */
     .card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }
     .card-actions .btn-drive { margin-top: 0; }
@@ -420,9 +432,9 @@
 
   <section id="assign">
     <h2 class="section-title">Assign a rover</h2>
-    <p class="assign-help">Every board that's online, by its hardware id. Pick one, give it a
-      team credential — the rover saves it and reconnects under that team. Rovers still on the
-      default <code>team1</code> are unassigned.</p>
+    <p class="assign-help">Every board that's online, by its hardware id. Pick one (Blink it
+      first to find it on the desk), give it a team credential — the rover saves it and
+      reconnects under that team. Fresh boards arrive as <code>unassigned</code>.</p>
     <div id="board-list"></div>
     <div id="assign-form">
       <p id="assign-selected"></p>
@@ -513,11 +525,12 @@ safe-buffer/index.js:
     // (2026-07-08), hubd only still knows the uplink verdict and locator.
     const robots = new Map();
 
-    // board id (rover-XXXX) -> {team, seenAt} — the assign panel's view. The
-    // `robots` map above collapses by team (topic id == team), so unassigned
-    // rovers all sharing `team1` become one card; this map keeps them distinct
-    // by the sys payload's `board` field, which is what a config's `target`
-    // addresses. Professor-only; populated from the same anonymous sys stream.
+    // board id (rover-XXXX) -> {team, sys, seenAt} — the per-BOARD view. The
+    // `robots` map above collapses by team (topic id == team), so boards
+    // sharing one identity would flap last-writer-wins on a single card; this
+    // map keeps them distinct by the sys payload's `board` field, which is what
+    // a config/identify `target` addresses. Feeds the assign panel, the
+    // unassigned-pool card, and the collision rendering on team cards.
     const boards = new Map();
 
     // Two ways to load this page (2026-07-08): served by hubd — same origin,
@@ -644,13 +657,53 @@ safe-buffer/index.js:
       });
     }
 
+    // The pool ("unassigned", fresh boards awaiting a team) and a collision
+    // (≥2 live boards sharing one team — they ALL obey that team's pwm) render
+    // as per-board rows keyed by hardware id, the one field that stays
+    // distinct, instead of a normal card whose last-writer-wins telemetry
+    // flaps between boards. Blink = robots/<team>/cmd/identify targeted by
+    // board id; Assign preselects the board in the assign panel. Both are
+    // professor actions (the pool's credential is deliberately not a student's).
+    function memberCard(id, mem, offline, ageMs) {
+      const isPool = id === "unassigned";
+      const prof = myScope && myScope.scope === "all";
+      const note = !mem.length
+        ? ""
+        : isPool
+          ? (prof ? "Fresh boards land here. Blink one to find it on the desk, then assign it to a team."
+                  : "Fresh boards land here — a professor assigns them to teams.")
+          : `${mem.length} boards are sharing this team — every drive command moves all of them. Split them in Assign.`;
+      const rows = mem.map(m => `<div class="pool-row">
+          <span class="b">${esc(m.board)}</span>
+          <span class="meta">${esc(m.sys.hw || "")}${m.sys.uptime_ms != null ? " · up " + fmtUptime(m.sys.uptime_ms) : ""}</span>
+          <span class="spacer"></span>
+          ${prof ? `<button class="btn-tile" data-blink="${esc(m.board)}" data-bteam="${esc(id)}">💡 Blink</button>
+                    <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button>` : ""}
+        </div>`).join("");
+      return `<div class="robot${offline ? " offline" : ""}${isPool ? "" : " collision"}">
+        <h2><span class="dot"></span>${isPool ? `Unassigned rovers${mem.length ? ` (${mem.length})` : ""}` : esc(id)}
+          ${offline ? '<span class="offline-label">offline</span>' : ""}</h2>
+        ${note ? `<div class="${isPool ? "pool-note" : "warn-note"}">${isPool ? "" : "⚠ "}${note}</div>` : ""}
+        ${rows || `<div class="pool-note">nothing online here — last seen ${fmtUptime(ageMs)} ago</div>`}
+      </div>`;
+    }
+
     function renderRobots() {
       const ids = [...robots.keys()].sort();
       document.getElementById("empty").style.display = ids.length ? "none" : "block";
+      // Live boards per team, from the per-board map (10 s freshness, same as cards).
+      const members = new Map();
+      for (const [b, rec] of boards) {
+        if (Date.now() - rec.seenAt > 10000) continue;
+        if (!members.has(rec.team)) members.set(rec.team, []);
+        members.get(rec.team).push({ board: b, sys: rec.sys });
+      }
       document.getElementById("robots").innerHTML = ids.map(id => {
         const { sys, seenAt } = robots.get(id);
         const ageMs = Date.now() - seenAt;
         const offline = ageMs > 10000;  /* robots publish every 2 s */
+        const mem = (members.get(id) || []).sort((a, b) => a.board < b.board ? -1 : 1);
+        if (id === "unassigned" || mem.length > 1) return memberCard(id, mem, offline, ageMs);
         // Actions are markup, not a live stream — a per-card <img> would be torn
         // down and reconnected on every 2s re-render, so the camera + config open
         // in the static modal instead (see openCamera / openConfig).
@@ -709,7 +762,7 @@ safe-buffer/index.js:
         try {
           const sys = JSON.parse(payload.toString());
           robots.set(id, { sys, seenAt: Date.now() });
-          if (sys.board) boards.set(sys.board, { team: id, seenAt: Date.now() });
+          if (sys.board) boards.set(sys.board, { team: id, sys, seenAt: Date.now() });
           renderRobots();
           renderBoards();
         } catch { /* a non-JSON payload on this topic isn't a valid sys sample */ }
@@ -793,7 +846,7 @@ safe-buffer/index.js:
         const { team, seenAt } = boards.get(b);
         const offline = Date.now() - seenAt > 10000;
         const sel = assignTarget && assignTarget.board === b ? " selected" : "";
-        const unassigned = team === "team1"; // default identity == not yet assigned
+        const unassigned = team === "unassigned"; // the first-class pool identity
         return `<button class="board${sel}${offline ? " offline" : ""}" data-board="${esc(b)}"
           data-team="${esc(team)}"${offline ? " disabled" : ""}>
           <span class="dot"></span>${esc(b)}
@@ -803,16 +856,36 @@ safe-buffer/index.js:
       }).join("");
     }
 
+    // Select a board for assignment — from the assign panel's own list, or
+    // preselected by a pool/collision row's "Assign…" (which also scrolls the
+    // panel into view, since those rows live up in the fleet grid).
+    function preselectAssign(board, team, scroll) {
+      assignTarget = { board, team };
+      document.getElementById("assign-form").style.display = "flex";
+      document.getElementById("assign-selected").textContent =
+        `Assigning ${board} — currently ${team}.`;
+      document.getElementById("assign-status").textContent = "";
+      renderBoards();
+      if (scroll) document.getElementById("assign").scrollIntoView({ behavior: "smooth", block: "center" });
+      document.getElementById("assign-team").focus({ preventScroll: scroll });
+    }
+
+    // Blink = robots/<team>/cmd/identify targeted at one board: the rover
+    // flashes its LED ~6 s so the professor can match the on-screen id to a
+    // physical board before assigning it. Fire-and-forget (a lamp, not a
+    // mutation) — qos 0, nothing retained.
+    function blinkBoard(board, team) {
+      if (!driveClient || !driveClient.connected) return;
+      const topic = `robots/${team}/cmd/identify`;
+      const payload = JSON.stringify({ target: board });
+      driveClient.publish(topic, payload, { qos: 0, retain: false });
+      logLine("out", `${topic} ${payload}`);
+    }
+
     document.getElementById("board-list").addEventListener("click", (e) => {
       const btn = e.target.closest(".board");
       if (!btn || btn.disabled) return;
-      assignTarget = { board: btn.dataset.board, team: btn.dataset.team };
-      document.getElementById("assign-form").style.display = "flex";
-      document.getElementById("assign-selected").textContent =
-        `Assigning ${assignTarget.board} — currently ${assignTarget.team}.`;
-      document.getElementById("assign-status").textContent = "";
-      document.getElementById("assign-team").focus();
-      renderBoards();
+      preselectAssign(btn.dataset.board, btn.dataset.team, false);
     });
 
     document.getElementById("assign-btn").addEventListener("click", () => {
@@ -839,7 +912,7 @@ safe-buffer/index.js:
       // subscribed to — targeted by board id so only that rover acts. Non-
       // retained (QoS 1): the rover is online (its telemetry is why it's listed),
       // so a live message reaches it, and nothing lingers to re-fire on the next
-      // board that boots as team1.
+      // board that boots as unassigned.
       const topic = `robots/${assignTarget.team}/cmd/config`;
       driveClient.publish(topic, JSON.stringify(cfg), { qos: 1, retain: false });
       logLine("out", `${topic} ${JSON.stringify(cfg)}`);
@@ -873,9 +946,13 @@ safe-buffer/index.js:
       const cam = e.target.closest("[data-cam-ip]");
       const cfg = e.target.closest("[data-cfg-ip]");
       const drv = e.target.closest(".btn-drive");
+      const blk = e.target.closest("[data-blink]");
+      const asg = e.target.closest("[data-assign]");
       if (cam) openCamera(cam.dataset.id, cam.dataset.camIp);
       else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp);
       else if (drv) selectTarget(drv.dataset.robot);
+      else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.bteam);
+      else if (asg) preselectAssign(asg.dataset.assign, asg.dataset.bteam, true);
     });
 
     // ---- Per-board modal: camera lightbox + embedded /wifi config panel ----

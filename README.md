@@ -78,7 +78,8 @@ drivable" signal.
 - Publishes `{"uptime_ms":…,"free_heap":…,"hw":"<board>","board":"rover-XXXX",…}`
   every 2 s on `robots/<team>/sys`.
 - Subscribes to `robots/<team>/pwm` (drive), `/cmd/config` (post-join
-  assignment), and `/cmd/reprovision`.
+  assignment), `/cmd/identify` (blink the LED ~6 s to find the physical
+  board), and `/cmd/reprovision`.
 
 ## Identity
 
@@ -86,7 +87,8 @@ Two ids, split by job:
 
 - **Team** — the MQTT username/password. The rover publishes under
   `robots/<team>/*`, and the broker's per-team ACL keeps teams from crossing.
-  Assigned post-join from the dashboard (default demo `team1` until then).
+  Assigned post-join from the dashboard (until then a fresh board is
+  `unassigned` — the pool identity only the professor can drive).
 - **`rover-XXXX`** — the last 2 bytes of the Wi-Fi MAC (e.g. `rover-c9d0`), the
   same token in the `board` telemetry field and serial logs. It carries the
   robot's *role*; the hardware model (`esp32-devkit` ·

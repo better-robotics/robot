@@ -96,13 +96,17 @@ void rover_button_start(void) {
  * robots/<team> subtree, so the Pi's `pattern robots/%u/#` ACL admits it and a
  * team can't touch another's subtree. The MAC-derived s_id stays a payload
  * field — hardware is metadata, never the topic id.
- * Compile-time demo defaults; the real team is assigned post-join over
- * robots/<id>/cmd/config from the hub dashboard. */
+ * Fresh boards land in the UNASSIGNED POOL, a first-class identity: flashing
+ * used to default to team1, which made "factory-new" indistinguishable from a
+ * real student team — two fresh boards collided on team1's card AND both obeyed
+ * team1's drive commands with a student-known credential. `unassigned` has no
+ * student credential, so only the professor (robots/# rw) can drive the pool;
+ * the real team is assigned post-join over robots/<id>/cmd/config. */
 #ifndef MQTT_USER
-#define MQTT_USER "team1"
+#define MQTT_USER "unassigned"
 #endif
 #ifndef MQTT_PASS
-#define MQTT_PASS "change-me-team1"
+#define MQTT_PASS "unassigned-secret"
 #endif
 /* Identity is NVS-backed: a team assigned post-join (robots/<id>/cmd/config)
  * overrides these compile-time defaults. s_topic_id tracks s_user so the
@@ -307,9 +311,44 @@ static void config_apply(const char *json, int len) {
     ESP_LOGW(TAG, "config: nothing to apply");
 }
 
-/* Three subscriptions: robots/<id>/pwm (drive), /cmd/config (post-join team
- * assignment), /cmd/reprovision (the BOOT button's remote twin). Routed by topic
- * suffix; topic/data arrive without null terminators. */
+/* ── cmd/identify: blink the LED so a physical board can be matched to its id ──
+ * The assign flow's missing physical link: the professor sees rover-c9d0 on
+ * screen and three identical boards on the desk. ~6 s of 2 Hz blinking, then the
+ * LED returns to its liveness meaning (on = connected to the broker). */
+static volatile bool s_blinking = false;
+
+static void blink_task(void *p) {
+    (void)p;
+    for (int i = 0; i < 24; i++) {   /* 24 half-periods × 250 ms = 6 s at 2 Hz */
+        led_set(i & 1);
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
+    led_set(s_mqtt_up);
+    s_blinking = false;
+    vTaskDelete(NULL);
+}
+
+static void identify_apply(const char *json, int len) {
+    /* Same optional "target" rule as config: boards sharing a team all see this
+     * topic; a target picks ONE. Empty/unparseable payload blinks (forgiving —
+     * identify is a lamp, not a mutation). */
+    cJSON *root = cJSON_ParseWithLength(json, len);
+    if (root) {
+        const cJSON *target = cJSON_GetObjectItemCaseSensitive(root, "target");
+        bool skip = cJSON_IsString(target) && strcmp(target->valuestring, s_id) != 0;
+        cJSON_Delete(root);
+        if (skip) return;   /* addressed to a different board on this team */
+    }
+    if (s_blinking) return;
+    s_blinking = true;
+    ESP_LOGI(TAG, "identify — blinking the LED");
+    xTaskCreate(blink_task, "blink", 2048, NULL, 4, NULL);
+}
+
+/* Four subscriptions: robots/<id>/pwm (drive), /cmd/config (post-join team
+ * assignment), /cmd/identify (blink to find the physical board), /cmd/reprovision
+ * (the BOOT button's remote twin). Routed by topic suffix; topic/data arrive
+ * without null terminators. */
 static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg; (void)base;
     esp_mqtt_event_handle_t e = data;
@@ -322,9 +361,11 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
         esp_mqtt_client_subscribe(e->client, t, 0);
         snprintf(t, sizeof t, "robots/%s/cmd/config", s_topic_id);
         esp_mqtt_client_subscribe(e->client, t, 0);
+        snprintf(t, sizeof t, "robots/%s/cmd/identify", s_topic_id);
+        esp_mqtt_client_subscribe(e->client, t, 0);
         snprintf(t, sizeof t, "robots/%s/cmd/reprovision", s_topic_id);
         esp_mqtt_client_subscribe(e->client, t, 0);
-        ESP_LOGI(TAG, "mqtt connected; subscribed pwm + cmd/{config,reprovision} for %s", s_topic_id);
+        ESP_LOGI(TAG, "mqtt connected; subscribed pwm + cmd/{config,identify,reprovision} for %s", s_topic_id);
         break;
     }
     case MQTT_EVENT_DISCONNECTED:
@@ -338,6 +379,8 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
             motor_apply(e->data, e->data_len);
         } else if (e->topic_len >= 7 && memcmp(e->topic + e->topic_len - 7, "/config", 7) == 0) {
             config_apply(e->data, e->data_len);
+        } else if (e->topic_len >= 9 && memcmp(e->topic + e->topic_len - 9, "/identify", 9) == 0) {
+            identify_apply(e->data, e->data_len);
         } else {                                       /* remaining sub: reprovision */
             ESP_LOGW(TAG, "reprovision command — rebooting");
             esp_restart();
