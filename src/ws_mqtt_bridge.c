@@ -15,10 +15,12 @@
  * grade, not hardened: idle-with-no-traffic WS closes are reclaimed on the
  * next broker->client byte (MQTT keepalive guarantees periodic traffic).
  */
+#include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_http_server.h"
+#include "esp_netif.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
 #include "wifi_portal.h"   /* share the board's always-on :80 rather than fighting for it */
@@ -195,12 +197,24 @@ static esp_err_t page_handler(httpd_req_t *req)
 
 /* The dashboard polls /fleet for the uplink pill + rover-setup locator. On the
  * Pi that's hubd; here the same httpd answers it so the real page works
- * unmodified. */
+ * unmodified. Uplink is honest, not hardcoded: an ESP hub/island with no STA
+ * lease has no internet, and the dashboard's "none" pill tells the professor
+ * exactly that (robots unaffected) instead of leaving them to debug the venue.
+ * Portal detection needs an HTTP probe the Pi does — "full" here means only
+ * "an uplink exists". */
 static esp_err_t fleet_handler(httpd_req_t *req)
 {
+    const char *uplink = "none";
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t ipi;
+    if (sta && esp_netif_get_ip_info(sta, &ipi) == ESP_OK && ipi.ip.addr)
+        uplink = "full";
+    char body[96];
+    snprintf(body, sizeof body,
+             "{\"uplink\":\"%s\",\"locator\":\"mqtt://192.168.4.1:1883\"}", uplink);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_sendstr(req, "{\"uplink\":\"full\",\"locator\":\"mqtt://192.168.4.1:1883\"}");
+    httpd_resp_sendstr(req, body);
     return ESP_OK;
 }
 

@@ -913,6 +913,7 @@ safe-buffer/index.js:
       img.alt = `${id} camera`;
       img.addEventListener("error", () => {
         if (!img.isConnected) return;           // modal already closed / replaced
+        img.style.display = "none";             // a broken <img> is just a black box behind the hint
         const hint = document.createElement("div");
         hint.className = "modal-note";
         hint.textContent = `Couldn't load the stream — this device may not be able to reach ${ip}. ` +
@@ -946,10 +947,16 @@ safe-buffer/index.js:
       frame.title = `${id} Wi-Fi and role`;
       openModal(`${id} — Wi-Fi & role`, frame);
       // A board can publish an address this device can't route to (e.g. its STA
-      // lease on an isolated guest/public network) — the iframe then never loads
-      // and just sits blank. Say so instead of leaving a white rectangle.
-      const t = setTimeout(() => {
-        if (!frame.isConnected) return;         // modal already closed / replaced
+      // lease on an isolated guest/public network). Two failure shapes, two
+      // detectors: a FAST network error makes Chrome render its own error page
+      // inside the iframe — which FIRES `load`, so a timer alone gets cancelled
+      // (verified in the 2026-07-10 sim audit) — caught by the no-cors probe
+      // rejecting; a silent HANG (dropped SYN) never settles the probe promptly,
+      // caught by the timer. `load` only clears the timer once the probe proved
+      // the host reachable, so the error page can't mask the hint.
+      let reachable = false, loaded = false;
+      const showHint = () => {
+        if (!frame.isConnected || modalBody.querySelector(".modal-note")) return;
         const hint = document.createElement("div");
         hint.className = "modal-note";
         const a = document.createElement("a");
@@ -958,8 +965,17 @@ safe-buffer/index.js:
         hint.append(`Still blank? This device may not be able to reach ${ip} — `, a,
                     ". If that fails too, join the board's own rover-XXXX Wi-Fi first.");
         modalBody.prepend(hint);
-      }, 4000);
-      frame.addEventListener("load", () => clearTimeout(t));
+      };
+      const goodPanel = () => {                 // both signals in, either order
+        if (!reachable || !loaded) return;
+        clearTimeout(t);
+        modalBody.querySelector(".modal-note")?.remove();  // retract a hint a slow load outran
+      };
+      const t = setTimeout(showHint, 4000);
+      fetch((host === location.hostname ? "" : `http://${host}`) + "/wifi", { mode: "no-cors" })
+        .then(() => { reachable = true; goodPanel(); })    // opaque response = host answered
+        .catch(() => { clearTimeout(t); showHint(); });
+      frame.addEventListener("load", () => { loaded = true; goodPanel(); });
     }
 
     function sendPwm({ left, right }) {
@@ -1053,7 +1069,14 @@ safe-buffer/index.js:
     const dpadReadout = document.getElementById("dpad-readout");
     let dpadTimer = null;
     function dpadStop() {
-      if (dpadTimer) { clearInterval(dpadTimer); dpadTimer = null; }
+      // Publish the stop frame only if a drive was actually in progress. These
+      // handlers also fire on phantom pointerleave — e.g. the growing wire log
+      // shifting the D-pad under a stationary pointer (2026-07-10 sim audit) —
+      // and an idle page must not spray 0/0 frames that fight whoever is
+      // really driving this robot. Safety unchanged: every live drive holds
+      // dpadTimer, so a real release always sends its stop.
+      if (!dpadTimer) return;
+      clearInterval(dpadTimer); dpadTimer = null;
       sendPwm({ left: 0, right: 0 });
       dpadReadout.textContent = "hold a direction to drive";
       for (const b of dpad.querySelectorAll("button")) b.classList.remove("pressed");
