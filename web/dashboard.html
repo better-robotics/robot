@@ -162,7 +162,8 @@
     /* --- Form controls: iOS-style fills, 44px tap targets, filled/tinted buttons --- */
     input, button { font: inherit; }
     #code-gate { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-    #code-input, #assign-form input, .pins-grid input, #hub-host-input, #wifi-pass {
+    #code-input, #assign-form input, .pins-grid input, #hub-host-input, #wifi-pass,
+    #codes-user, #codes-pass {
       background: var(--inset); color: var(--ink);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
       padding: 0.6rem 0.85rem; min-height: var(--tap);
@@ -173,12 +174,12 @@
     input::placeholder { color: var(--ink-faint); }
 
     /* Primary (filled) button. Active press = subtle scale, the HIG tap feedback. */
-    #connect-btn, #assign-btn, #hub-host-save, #wifi-connect {
+    #connect-btn, #assign-btn, #hub-host-save, #wifi-connect, #codes-add {
       font-weight: 600; cursor: pointer; min-height: var(--tap);
       padding: 0.6rem 1.25rem; border-radius: var(--radius); border: none;
       color: var(--accent-ink); background: var(--accent); transition: transform 0.08s ease, filter 0.15s ease;
     }
-    #connect-btn:hover, #assign-btn:hover { filter: brightness(1.08); }
+    #connect-btn:hover, #assign-btn:hover, #codes-add:hover { filter: brightness(1.08); }
     button:active { transform: scale(0.97); }
     /* Tinted (secondary) button — accent text on a soft accent wash. */
     .btn-drive, #wifi-open, #wifi-scan {
@@ -203,7 +204,8 @@
     #identity-bar button { margin-left: 0.75rem; padding: 0.2rem 0.7rem; border-radius: 6px;
             border: 1px solid var(--border, #444); background: transparent; color: inherit; cursor: pointer; }
     #codes-nag { display: none; color: var(--danger-text); font-size: 0.9rem; margin: 0.4rem 0 0.8rem; }
-    .codes-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.35rem 0; font-size: 0.95rem; }
+    .codes-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.65rem;
+      font-size: 0.95rem; background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
     .codes-row .spacer { flex: 1; }
     .codes-row button { padding: 0.25rem 0.7rem; border-radius: 6px; border: 1px solid var(--border, #444);
             background: transparent; color: inherit; cursor: pointer; }
@@ -310,10 +312,12 @@
 
     /* Pool / collision cards: per-board rows (keyed by hardware id) instead of
        one card flapping last-writer-wins between boards sharing an identity. */
-    .pool-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.65rem;
+    .pool-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem;
+      padding: 0.5rem 0.65rem;
       background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
-    .pool-row .b { font-weight: 600; font-size: 0.92rem; }
-    .pool-row .meta { color: var(--ink-muted); font-size: 0.8rem; }
+    .pool-row .b { font-weight: 600; font-size: 0.92rem; white-space: nowrap; }
+    .pool-row .meta { color: var(--ink-muted); font-size: 0.8rem; flex: 1 1 auto;
+      min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .pool-row .spacer { flex: 1; }
     .pool-row .btn-tile { margin: 0; }
     .pool-note { color: var(--ink-muted); font-size: 0.85rem; margin-top: 0.45rem; }
@@ -365,6 +369,7 @@
          force a horizontal scroll — collapse to one column below 32rem. */
       #controls { grid-template-columns: 1fr; }
       #code-gate { flex-direction: column; align-items: stretch; }
+      .gate-row { flex-direction: column; align-items: stretch; }
       #code-input, #connect-btn { width: 100%; }
       .segmented { display: flex; width: 100%; }
       .segmented button { flex: 1; }
