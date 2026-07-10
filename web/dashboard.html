@@ -146,13 +146,13 @@
     #empty { color: var(--ink-muted); padding: 2rem 0; }
     footer { margin-top: 3rem; color: var(--ink-faint); font-size: 0.85rem; }
 
-    /* Controls: drive + assign are cards that share a row when width allows and
+    /* Controls: drive + teams are cards that share a row when width allows and
        stack below ~53rem — the wide canvas reads as panels, not a long scroll. */
     #controls {
       display: grid; gap: 1rem; margin-top: 2rem; align-items: start;
       grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
     }
-    #drive, #assign {
+    #drive, #teams {
       background: var(--surface); border: 0.5px solid var(--border-default);
       border-radius: var(--radius-lg); padding: 1.25rem 1.4rem; box-shadow: var(--shadow-card);
     }
@@ -209,9 +209,9 @@
     .codes-row .spacer { flex: 1; }
     .codes-row button { padding: 0.25rem 0.7rem; border-radius: 6px; border: 1px solid var(--border, #444);
             background: transparent; color: inherit; cursor: pointer; }
-    #codes .gate-row { margin-top: 0.9rem; }
+    #codes-form { display: none; margin-top: 0.9rem; }
     #codes-add { flex: 1 0 auto; }
-    /* Access requests: the knock (gate side) and the answer (codes panel). */
+    /* Access requests: the knock (gate side) and the answer (teams panel). */
     #gate-lede { display: none; flex-basis: 100%; margin: 0; font-size: 0.95rem; }
     #gate-lede a { color: var(--link); }
     /* display:contents keeps chips + code row laid out as direct flex
@@ -302,9 +302,10 @@
     .log-out { color: var(--link); }
     .log-in { color: var(--success); }
 
-    /* Assign (professor-only): boards listed by hardware id, select-then-name. */
-    #assign { display: none; }
-    #board-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+    /* Teams (professor-only): one roster — team rows carrying their code
+       actions, member boards nested beneath as select-then-act chips. */
+    #teams { display: none; }
+    .team-boards { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0 0.2rem 0.9rem; }
     .assign-empty { color: var(--ink-muted); font-size: 0.9rem; }
     .board {
       cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem;
@@ -316,12 +317,7 @@
     .board.offline { opacity: 0.5; cursor: default; }
     .board .dot { width: 8px; height: 8px; }
     .board.offline .dot { background: var(--ink-faint); }
-    .team-badge {
-      font-size: 0.72rem; color: var(--ink-muted); background: var(--bg);
-      border: 0.5px solid var(--border-default); border-radius: var(--radius-pill); padding: 0.1rem 0.55rem;
-    }
-    .team-badge.unassigned { color: var(--warn-ink); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
-    #assign-form { display: none; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    #assign-form { display: none; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 1rem; }
     #assign-selected { flex-basis: 100%; color: var(--ink); font-size: 0.9rem; margin-bottom: 0.25rem; }
     #assign-pins-wrap { flex-basis: 100%; margin: 0.25rem 0; }
     #assign-pins-wrap summary { cursor: pointer; color: var(--ink-muted); font-size: 0.85rem; }
@@ -329,9 +325,10 @@
     .pins-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
     .pins-grid label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.72rem; color: var(--ink-muted); }
     .pins-grid input { width: 100%; min-height: 2.4rem; padding: 0.4rem 0.55rem; }
-    #assign-status { flex-basis: 100%; font-size: 0.85rem; margin-top: 0.25rem; }
-    #assign-status.assign-ok { color: var(--success); }
-    #assign-status.assign-err { color: var(--danger-text); }
+    #teams-status { font-size: 0.85rem; margin-top: 0.6rem; }
+    /* Outcome colors, shared by every status line (#teams-status, #req-status). */
+    .assign-ok { color: var(--success); }
+    .assign-err { color: var(--danger-text); }
 
     /* Pool / collision cards: per-board rows (keyed by hardware id) instead of
        one card flapping last-writer-wins between boards sharing an identity. */
@@ -515,13 +512,30 @@
     </div>
   </section>
 
-  <section id="assign">
-    <h2 class="section-title">Assign a rover</h2>
-    <p class="assign-help">Rovers usually arrive via a team's claim — approve it in Team codes
-      and the assignment happens in the same tap. This panel is the repair path: rewiring,
-      motor orientation, hub pins, or manually moving a board between teams (the credential
-      you type must match the team's broker code).</p>
-    <div id="board-list"></div>
+  <!-- Professor-only. One roster for the whole classroom: requests arrive at
+       the top, each team row carries its code actions (hub-served only —
+       hubd /codes/* wraps mosquitto_passwd + reload) and its rovers, and
+       tapping a rover opens the repair form below. QR/link appear when a
+       code is (re)set — that's the only moment the plaintext exists here. -->
+  <section id="teams">
+    <h2 class="section-title">Teams</h2>
+    <p class="assign-help">Rovers usually arrive via a team's claim — approve it below and the
+      code, sign-in card, and rover land in the same tap. Tap a rover to repair or move it:
+      motor pins, orientation, hub pin, or another team (moving needs that team's code typed —
+      the broker only stores hashes).</p>
+    <div id="codes-nag">&#9888; This class is still running the placeholder codes it shipped with — rotate them before students arrive.</div>
+    <!-- Access requests, professor side: Approve mints a code and delivers it
+         to the requester's screen — nothing to read out or type. -->
+    <div id="codes-requests" style="display:none">
+      <p class="assign-help" style="margin-bottom:0.2rem">Access requests — approve and the team lands signed in on their own screen.</p>
+      <div id="codes-req-list"></div>
+    </div>
+    <div id="team-roster"></div>
+    <div class="gate-row" id="codes-form">
+      <input id="codes-user" placeholder="team name" autocomplete="off">
+      <input id="codes-pass" placeholder="code — blank to auto-generate" autocomplete="off">
+      <button id="codes-add">Set code</button>
+    </div>
     <div id="assign-form">
       <p id="assign-selected"></p>
       <input id="assign-team" placeholder="team (e.g. team3)" autocomplete="off">
@@ -551,31 +565,8 @@
         </div>
       </div>
       <button id="assign-btn">Assign</button>
-      <p id="assign-status"></p>
     </div>
-  </section>
-
-  <!-- Professor-only, hub-served-only: broker identities managed in place
-       (hubd /codes/* wraps mosquitto_passwd + reload). QR/link appear when a
-       code is (re)set — that's the only moment the plaintext exists here. -->
-  <section id="codes" style="display:none">
-    <h2 class="section-title">Team codes</h2>
-    <p class="assign-help">Create teams and rotate codes — changes reach the broker immediately.
-      Setting a code mints a sign-in link and QR card; share it and that team lands signed in, nothing to type.</p>
-    <div id="codes-nag">&#9888; This class is still running the placeholder codes it shipped with — rotate them before students arrive.</div>
-    <!-- Access requests, professor side: Approve mints a code and delivers it
-         to the requester's screen — nothing to read out or type. -->
-    <div id="codes-requests" style="display:none">
-      <p class="assign-help" style="margin-bottom:0.2rem">Access requests — approve and the team lands signed in on their own screen.</p>
-      <div id="codes-req-list"></div>
-    </div>
-    <div id="codes-list"></div>
-    <div class="gate-row">
-      <input id="codes-user" placeholder="team name" autocomplete="off">
-      <input id="codes-pass" placeholder="code — blank to auto-generate" autocomplete="off">
-      <button id="codes-add">Set code</button>
-    </div>
-    <p id="codes-status"></p>
+    <p id="teams-status"></p>
     <div id="codes-share" style="display:none">
       <div id="codes-qr"></div>
       <button id="codes-copy" class="btn-tile">Copy sign-in link</button>
@@ -3116,7 +3107,7 @@ safe-buffer/index.js:
           ? (prof ? "Fresh boards land here. Blink one to find it on the desk, then assign it to a team."
                   : claimable ? "Fresh boards land here — find yours on the desk and claim it with your team name."
                               : "Fresh boards land here — a professor assigns them to teams.")
-          : `${mem.length} boards are sharing this team — every drive command moves all of them. Split them in Assign.`;
+          : `${mem.length} boards are sharing this team — every drive command moves all of them. Split them in Teams below.`;
       const rows = mem.map(m => `<div class="pool-row">
           <div class="pool-id"><span class="b">${esc(m.board)}</span>
             <span class="meta">${esc(m.sys.hw || "")}${m.sys.uptime_ms != null ? " · up " + fmtUptime(m.sys.uptime_ms) : ""}</span></div>
@@ -3194,7 +3185,7 @@ safe-buffer/index.js:
       setInterval(refreshUplink, 2000);
       initWifiSetup();
     }
-    setInterval(() => { renderRobots(); renderBoards(); renderChips(); }, 2000); // re-render on a clock too, for offline aging
+    setInterval(() => { renderRobots(); renderRoster(); renderChips(); }, 2000); // re-render on a clock too, for offline aging
 
     // Anonymous mqtt.js connection, scoped by Mosquitto's ACL to read-only
     // robots/+/sys — the same "public fleet view, no login needed" contract
@@ -3225,7 +3216,7 @@ safe-buffer/index.js:
           robots.set(id, { sys, seenAt: Date.now() });
           if (sys.board) boards.set(sys.board, { team: id, sys, seenAt: Date.now() });
           renderRobots();
-          renderBoards();
+          renderRoster();
         } catch { /* a non-JSON payload on this topic isn't a valid sys sample */ }
       });
     }
@@ -3267,11 +3258,11 @@ safe-buffer/index.js:
         : `Driving ${myScope.robot}.`;
       if (myScope.scope === "one") selectTarget(myScope.robot);
       if (myScope.scope === "all") {
-        document.getElementById("assign").style.display = "block";
-        if (!standalone) { document.getElementById("codes").style.display = "block"; loadCodes(); }
+        document.getElementById("teams").style.display = "block";
+        if (!standalone) loadCodes(); // code actions + requests join the roster when /codes exists
       }
       renderRobots(); // re-render cards now that scope is known (adds Drive buttons for "all")
-      renderBoards(); // and the professor-only board list, for the same reason
+      renderRoster(); // and the professor-only team roster, for the same reason
     }
 
     function selectTarget(id, board) {
@@ -3314,42 +3305,58 @@ safe-buffer/index.js:
       applyDriveMode();
     });
 
-    // ---- Assign: professor names a board's team, pushed over MQTT as config ----
-    // Select-then-act (mirrors the drive panel): the board LIST re-renders on a
-    // clock, but the FORM is separate and static so a re-render never wipes a
-    // half-typed credential.
+    // ---- Teams roster: every classroom identity in one list — the union of
+    // the broker's codes (a team minted tonight has no rover yet) and the live
+    // board map (a fleet team still shows on hosts without the /codes API).
+    // Select-then-act (mirrors the drive panel): the LIST re-renders on a
+    // clock, but the FORMS are separate and static so a re-render never wipes
+    // a half-typed credential.
     let assignTarget = null; // { board, team } — the board's *current* team
 
-    function renderBoards() {
+    function renderRoster() {
       if (!myScope || myScope.scope !== "all") return;
-      const list = document.getElementById("board-list");
-      const ids = [...boards.keys()].sort();
-      if (!ids.length) { list.innerHTML = '<p class="assign-empty">No rovers online yet.</p>'; return; }
-      list.innerHTML = ids.map(b => {
-        const { team, seenAt } = boards.get(b);
-        const offline = Date.now() - seenAt > 10000;
-        const sel = assignTarget && assignTarget.board === b ? " selected" : "";
-        const unassigned = team === "unassigned"; // the first-class pool identity
-        return `<button class="board${sel}${offline ? " offline" : ""}" data-board="${esc(b)}"
-          data-team="${esc(team)}"${offline ? " disabled" : ""}>
-          <span class="dot"></span>${esc(b)}
-          <span class="team-badge${unassigned ? " unassigned" : ""}">${esc(team)}</span>
-          ${offline ? '<span class="offline-label">offline</span>' : ""}
-        </button>`;
+      const list = document.getElementById("team-roster");
+      const byTeam = new Map();
+      for (const [b, rec] of boards) {
+        if (!byTeam.has(rec.team)) byTeam.set(rec.team, []);
+        byTeam.get(rec.team).push(b);
+      }
+      // Pool first (arrivals), teams alphabetical, professor last (no rovers).
+      const teams = [...new Set([...knownTeams, ...byTeam.keys()])]
+        .filter(t => t !== "unassigned" && t !== "professor").sort();
+      if (byTeam.has("unassigned")) teams.unshift("unassigned");
+      if (knownTeams.includes("professor")) teams.push("professor");
+      if (!teams.length) { list.innerHTML = '<p class="assign-empty">No teams or rovers yet.</p>'; return; }
+      list.innerHTML = teams.map(t => {
+        const chips = (byTeam.get(t) || []).sort().map(b => {
+          const offline = Date.now() - boards.get(b).seenAt > 10000;
+          const sel = assignTarget && assignTarget.board === b ? " selected" : "";
+          return `<button class="board${sel}${offline ? " offline" : ""}" data-board="${esc(b)}"
+            data-team="${esc(t)}"${offline ? " disabled" : ""}>
+            <span class="dot"></span>${esc(b)}
+            ${offline ? '<span class="offline-label">offline</span>' : ""}
+          </button>`;
+        }).join("");
+        const managed = codesApi && t !== "unassigned"; // broker identity with a rotatable code
+        return `<div class="team-row">
+          <div class="codes-row"><b>${esc(t)}</b><span class="spacer"></span>
+            ${managed ? `<button data-rotate="${esc(t)}">Rotate…</button>` : ""}
+            ${managed && t !== "professor" ? `<button data-delcode="${esc(t)}">&#10005;</button>` : ""}</div>
+          ${chips ? `<div class="team-boards">${chips}</div>` : ""}</div>`;
       }).join("");
     }
 
-    // Select a board for assignment — from the assign panel's own list, or
-    // preselected by a pool/collision row's "Assign…" (which also scrolls the
-    // panel into view, since those rows live up in the fleet grid).
+    // Select a board for repair/move — from a roster chip, or preselected by a
+    // pool/collision row's "Assign…" (which also scrolls the form into view,
+    // since those rows live up in the fleet grid).
     function preselectAssign(board, team, scroll) {
       assignTarget = { board, team };
       document.getElementById("assign-form").style.display = "flex";
       document.getElementById("assign-selected").textContent =
         `Assigning ${board} — currently ${team}.`;
-      document.getElementById("assign-status").textContent = "";
-      renderBoards();
-      if (scroll) document.getElementById("assign").scrollIntoView({ behavior: "smooth", block: "center" });
+      document.getElementById("teams-status").textContent = "";
+      renderRoster();
+      if (scroll) document.getElementById("assign-form").scrollIntoView({ behavior: "smooth", block: "center" });
       document.getElementById("assign-team").focus({ preventScroll: scroll });
     }
 
@@ -3365,14 +3372,29 @@ safe-buffer/index.js:
       logLine("out", `${topic} ${payload}`);
     }
 
-    document.getElementById("board-list").addEventListener("click", (e) => {
-      const btn = e.target.closest(".board");
-      if (!btn || btn.disabled) return;
-      preselectAssign(btn.dataset.board, btn.dataset.team, false);
+    // One listener for the whole roster: board chips open the repair form,
+    // Rotate…/✕ are the team-row code actions (rendered only when /codes exists).
+    document.getElementById("team-roster").addEventListener("click", async (e) => {
+      const chip = e.target.closest(".board");
+      const rot = e.target.closest("[data-rotate]");
+      const del = e.target.closest("[data-delcode]");
+      if (chip) {
+        if (!chip.disabled) preselectAssign(chip.dataset.board, chip.dataset.team, false);
+      } else if (rot) {
+        document.getElementById("codes-user").value = rot.dataset.rotate;
+        document.getElementById("codes-pass").focus();
+      } else if (del && confirm(`Delete ${del.dataset.delcode}? Its rover and browsers lose access.`)) {
+        const status = document.getElementById("teams-status");
+        const r = await (await fetch("/codes/del", { method: "POST",
+          body: JSON.stringify({ auth: myCred.pass, user: del.dataset.delcode }) })).json();
+        status.textContent = r.ok ? `Deleted ${del.dataset.delcode}.` : r.error;
+        status.className = r.ok ? "assign-ok" : "assign-err";
+        loadCodes();
+      }
     });
 
     document.getElementById("assign-btn").addEventListener("click", () => {
-      const status = document.getElementById("assign-status");
+      const status = document.getElementById("teams-status");
       const setErr = m => { status.textContent = m; status.className = "assign-err"; };
       if (!assignTarget) return setErr("Pick a board first.");
       if (!driveClient || !driveClient.connected) return setErr("Connect as professor first.");
@@ -3418,7 +3440,7 @@ safe-buffer/index.js:
     document.querySelector("#orient-row .orient-btns").addEventListener("click", (e) => {
       const b = e.target.closest("[data-flip]");
       if (!b) return;
-      const status = document.getElementById("assign-status");
+      const status = document.getElementById("teams-status");
       const setErr = m => { status.textContent = m; status.className = "assign-err"; };
       if (!assignTarget) return setErr("Pick a board first.");
       if (!driveClient || !driveClient.connected) return setErr("Connect as professor first.");
@@ -3529,12 +3551,12 @@ safe-buffer/index.js:
       try { driveClient.end(true); } catch {}
       driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
       localStorage.removeItem("hubCred");
-      for (const id of ["drive-panel", "assign", "codes", "identity-bar", "join-req"])
+      for (const id of ["drive-panel", "teams", "identity-bar", "join-req"])
         document.getElementById(id).style.display = "none";
       document.getElementById("code-gate").style.display = "";
       document.getElementById("code-input").value = "";
       if (codesApi) { document.getElementById("req-access").style.display = "block"; refreshKnownTeams(); }
-      renderChips(); renderRobots(); renderBoards();
+      renderChips(); renderRobots(); renderRoster();
     });
 
     // ---- Access requests, gate side: POST the knock, poll the token, and an
@@ -3694,17 +3716,17 @@ safe-buffer/index.js:
       document.getElementById("code-input").focus();
     });
 
-    // ---- Team codes panel (professor + hub-served only): broker identities
-    // managed in place via hubd /codes/* (mosquitto_passwd + SIGHUP behind it).
+    // ---- Code actions on the roster (professor + hub-served only): broker
+    // identities managed in place via hubd /codes/* (mosquitto_passwd + SIGHUP
+    // behind it). Off the hub the fetch fails and the roster stays fleet-only.
     async function loadCodes() {
       try {
         const r = await (await fetch("/codes/list")).json();
+        codesApi = true;
+        knownTeams = r.users.filter(u => u !== "unassigned");
         document.getElementById("codes-nag").style.display = r.placeholders ? "block" : "none";
-        document.getElementById("codes-list").innerHTML = r.users
-          .filter(u => u !== "unassigned")
-          .map(u => `<div class="codes-row"><b>${esc(u)}</b><span class="spacer"></span>
-             <button data-rotate="${esc(u)}">Rotate…</button>
-             ${u === "professor" ? "" : `<button data-delcode="${esc(u)}">&#10005;</button>`}</div>`).join("");
+        document.getElementById("codes-form").style.display = "flex";
+        renderRoster();
       } catch { /* not hub-served */ }
       loadRequests();
     }
@@ -3724,7 +3746,7 @@ safe-buffer/index.js:
     // Pending access requests (professor side). Refreshed with loadCodes and
     // on a light clock while the panel is open, so a knock shows up unasked.
     async function loadRequests() {
-      if (document.getElementById("codes").style.display !== "block") return;
+      if (document.getElementById("teams").style.display !== "block") return;
       try {
         const r = await (await fetch("/codes/requests")).json();
         document.getElementById("codes-requests").style.display = r.requests.length ? "block" : "none";
@@ -3744,7 +3766,7 @@ safe-buffer/index.js:
       const app = e.target.closest("[data-approve]");
       const den = e.target.closest("[data-denyreq]");
       const blq = e.target.closest("[data-blinkreq]");
-      const status = document.getElementById("codes-status");
+      const status = document.getElementById("teams-status");
       if (blq) {
         // Verify which physical rover is being claimed before approving.
         const rec = boards.get(blq.dataset.blinkreq);
@@ -3755,7 +3777,7 @@ safe-buffer/index.js:
         if (r.ok && r.board) {
           // The claim's second half: push the freshly minted credential to the
           // claimed rover over this professor session — same cmd/config the
-          // assign panel publishes, targeted at the board on its current team
+          // repair form publishes, targeted at the board on its current team
           // topic. One tap = code delivered + rover renamed.
           const rec = boards.get(r.board);
           const topic = `robots/${rec ? rec.team : "unassigned"}/cmd/config`;
@@ -3780,25 +3802,10 @@ safe-buffer/index.js:
         loadRequests();
       }
     });
-    document.getElementById("codes-list").addEventListener("click", async (e) => {
-      const rot = e.target.closest("[data-rotate]");
-      const del = e.target.closest("[data-delcode]");
-      const status = document.getElementById("codes-status");
-      if (rot) {
-        document.getElementById("codes-user").value = rot.dataset.rotate;
-        document.getElementById("codes-pass").focus();
-      } else if (del && confirm(`Delete ${del.dataset.delcode}? Its rover and browsers lose access.`)) {
-        const r = await (await fetch("/codes/del", { method: "POST",
-          body: JSON.stringify({ auth: myCred.pass, user: del.dataset.delcode }) })).json();
-        status.textContent = r.ok ? `Deleted ${del.dataset.delcode}.` : r.error;
-        status.className = r.ok ? "assign-ok" : "assign-err";
-        loadCodes();
-      }
-    });
     document.getElementById("codes-add").addEventListener("click", async () => {
       const user = document.getElementById("codes-user").value.trim();
       const pass = document.getElementById("codes-pass").value;
-      const status = document.getElementById("codes-status");
+      const status = document.getElementById("teams-status");
       const share = document.getElementById("codes-share");
       share.style.display = "none";
       const r = await (await fetch("/codes/set", { method: "POST",
