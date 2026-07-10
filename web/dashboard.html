@@ -3182,6 +3182,7 @@ safe-buffer/index.js:
       document.getElementById("identity-name").textContent = username;
       document.getElementById("identity-bar").style.display = "block";
       document.getElementById("drive-panel").style.display = "block";
+      applyDriveMode(); // panel just appeared: sync the mode switch to the no-target state
       document.getElementById("scope-label").textContent = myScope.scope === "all"
         ? "Professor — pick a robot below to drive it."
         : `Driving ${myScope.robot}.`;
