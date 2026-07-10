@@ -317,6 +317,30 @@ static void config_apply(const char *json, int len) {
         }
     }
 
+    /* Optional {"flip":{"left"|"right"|"swap":true}} — wrong drive directions
+     * are a wiring permutation, so they're fixed as one: left = swap IN1/IN2,
+     * right = swap IN3/IN4, swap = exchange the whole L/R triples. Sent by the
+     * dashboard's motor-orientation buttons; persists exactly like pins. */
+    const cJSON *flip = cJSON_GetObjectItemCaseSensitive(root, "flip");
+    if (cJSON_IsObject(flip)) {
+        int p[6] = { s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4 };
+        int tmp;
+        if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(flip, "left"))) {
+            tmp = p[1]; p[1] = p[2]; p[2] = tmp;
+        }
+        if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(flip, "right"))) {
+            tmp = p[4]; p[4] = p[5]; p[5] = tmp;
+        }
+        if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(flip, "swap"))) {
+            for (int i = 0; i < 3; i++) { tmp = p[i]; p[i] = p[i + 3]; p[i + 3] = tmp; }
+        }
+        if (rover_config_set_motor_pins(p) == ESP_OK) {
+            ESP_LOGW(TAG, "motor orientation flip -> pins %d %d %d %d %d %d",
+                     p[0], p[1], p[2], p[3], p[4], p[5]);
+            changed = true;
+        }
+    }
+
     cJSON_Delete(root);
     if (changed) {   /* reboot re-reads NVS: new team reconnects, new pins re-init */
         ESP_LOGW(TAG, "config applied — rebooting");
