@@ -221,6 +221,7 @@
       border-top-color: transparent; animation: reqspin 0.9s linear infinite; vertical-align: -0.05rem; }
     @keyframes reqspin { to { transform: rotate(360deg); } }
     #codes-req-list .codes-row { border-left: 3px solid var(--accent); }
+    .req-board { color: var(--ink-muted); font-size: 0.82rem; }
     #codes-share { margin-top: 0.8rem; }
     #codes-qr svg { width: 11rem; height: 11rem; background: #fff; padding: 0.5rem; border-radius: 8px; }
     .btn-drive.driving { background: var(--accent); color: var(--accent-ink); }
@@ -485,9 +486,10 @@
 
   <section id="assign">
     <h2 class="section-title">Assign a rover</h2>
-    <p class="assign-help">Every board that's online, by its hardware id. Pick one (Blink it
-      first to find it on the desk), give it a team credential — the rover saves it and
-      reconnects under that team. Fresh boards arrive as <code>unassigned</code>.</p>
+    <p class="assign-help">Rovers usually arrive via a team's claim — approve it in Team codes
+      and the assignment happens in the same tap. This panel is the repair path: rewiring,
+      motor orientation, hub pins, or manually moving a board between teams (the credential
+      you type must match the team's broker code).</p>
     <div id="board-list"></div>
     <div id="assign-form">
       <p id="assign-selected"></p>
@@ -539,7 +541,7 @@
     <div id="codes-list"></div>
     <div class="gate-row">
       <input id="codes-user" placeholder="team name" autocomplete="off">
-      <input id="codes-pass" placeholder="new code" autocomplete="off">
+      <input id="codes-pass" placeholder="code — blank to auto-generate" autocomplete="off">
       <button id="codes-add">Set code</button>
     </div>
     <p id="codes-status"></p>
@@ -3073,18 +3075,25 @@ safe-buffer/index.js:
     function memberCard(id, mem, offline, ageMs) {
       const isPool = id === "unassigned";
       const prof = myScope && myScope.scope === "all";
+      // A signed-out visitor on the Pi can CLAIM a pool board: the request
+      // carries the board id, and the professor's one approval both mints the
+      // team's code and assigns this rover to it.
+      const claimable = isPool && !myCred && codesApi;
       const note = !mem.length
         ? ""
         : isPool
           ? (prof ? "Fresh boards land here. Blink one to find it on the desk, then assign it to a team."
-                  : "Fresh boards land here — a professor assigns them to teams.")
+                  : claimable ? "Fresh boards land here — find yours on the desk and claim it with your team name."
+                              : "Fresh boards land here — a professor assigns them to teams.")
           : `${mem.length} boards are sharing this team — every drive command moves all of them. Split them in Assign.`;
       const rows = mem.map(m => `<div class="pool-row">
           <div class="pool-id"><span class="b">${esc(m.board)}</span>
             <span class="meta">${esc(m.sys.hw || "")}${m.sys.uptime_ms != null ? " · up " + fmtUptime(m.sys.uptime_ms) : ""}</span></div>
           ${prof ? `<div class="pool-actions">
             <button class="btn-tile" data-blink="${esc(m.board)}" data-bteam="${esc(id)}">💡 Blink</button>
-            <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button></div>` : ""}
+            <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button></div>`
+          : claimable ? `<div class="pool-actions">
+            <button class="btn-tile" data-claim="${esc(m.board)}">🙋 Claim</button></div>` : ""}
         </div>`).join("");
       return `<div class="robot${offline ? " offline" : ""}${isPool ? "" : " collision"}">
         <h2><span class="dot"></span>${isPool ? `Unassigned rovers${mem.length ? ` (${mem.length})` : ""}` : esc(id)}
@@ -3509,19 +3518,34 @@ safe-buffer/index.js:
     }
     document.getElementById("req-access-link").addEventListener("click", (e) => {
       e.preventDefault();
+      claimBoard = null; // plain name-only request
       const form = document.getElementById("req-form");
       form.style.display = form.style.display === "flex" ? "none" : "flex";
+      if (form.style.display === "flex") reqStatus("");
       document.getElementById("req-name").focus();
     });
+    // Claim = the same knock, anchored to a board: the Claim tap on a pool
+    // row lands here, and the professor's approval will assign that rover.
+    let claimBoard = null;
+    function startClaim(board) {
+      claimBoard = board;
+      document.getElementById("req-form").style.display = "flex";
+      reqStatus(`Claiming ${board} — enter your team name and send the request.`, "");
+      document.getElementById("drive").scrollIntoView({ behavior: "smooth", block: "center" });
+      document.getElementById("req-name").focus({ preventScroll: true });
+    }
     async function sendRequest() {
       const name = document.getElementById("req-name").value.trim();
       if (!name) return reqStatus("Enter your team name first.", "assign-err");
+      const body = { name };
+      if (claimBoard) body.board = claimBoard;
       let r;
-      try { r = await (await fetch("/codes/request", { method: "POST", body: JSON.stringify({ name }) })).json(); }
+      try { r = await (await fetch("/codes/request", { method: "POST", body: JSON.stringify(body) })).json(); }
       catch { return reqStatus("The hub didn't answer — are you on its Wi-Fi?", "assign-err"); }
       if (!r.ok) return reqStatus(r.error, "assign-err");
       localStorage.setItem("hubReqToken", r.token);
       localStorage.setItem("hubReqName", name);
+      claimBoard = null;
       document.getElementById("req-form").style.display = "none";
       startRequestWait(name);
     }
@@ -3565,21 +3589,44 @@ safe-buffer/index.js:
         const r = await (await fetch("/codes/requests")).json();
         document.getElementById("codes-requests").style.display = r.requests.length ? "block" : "none";
         document.getElementById("codes-req-list").innerHTML = r.requests
-          .map(n => `<div class="codes-row"><b>${esc(n)}</b><span class="spacer"></span>
-             <button data-approve="${esc(n)}">Approve</button>
-             <button data-denyreq="${esc(n)}">&#10005;</button></div>`).join("");
+          .map(q => `<div class="codes-row"><b>${esc(q.name)}</b>
+             ${q.board ? `<span class="req-board">claims ${esc(q.board)}</span>` : ""}
+             <span class="spacer"></span>
+             ${q.board ? `<button data-blinkreq="${esc(q.board)}" title="Blink the claimed board">&#128161;</button>` : ""}
+             <button data-approve="${esc(q.name)}">Approve</button>
+             <button data-denyreq="${esc(q.name)}">&#10005;</button></div>`).join("");
       } catch { /* not hub-served */ }
     }
     setInterval(loadRequests, 5000);
     document.getElementById("codes-req-list").addEventListener("click", async (e) => {
       const app = e.target.closest("[data-approve]");
       const den = e.target.closest("[data-denyreq]");
+      const blq = e.target.closest("[data-blinkreq]");
       const status = document.getElementById("codes-status");
-      if (app) {
+      if (blq) {
+        // Verify which physical rover is being claimed before approving.
+        const rec = boards.get(blq.dataset.blinkreq);
+        blinkBoard(blq.dataset.blinkreq, rec ? rec.team : "unassigned");
+      } else if (app) {
         const r = await (await fetch("/codes/approve", { method: "POST",
           body: JSON.stringify({ auth: myCred.pass, name: app.dataset.approve }) })).json();
-        status.textContent = r.ok
-          ? `${r.user} approved — the code is on its way to their screen.` : r.error;
+        if (r.ok && r.board) {
+          // The claim's second half: push the freshly minted credential to the
+          // claimed rover over this professor session — same cmd/config the
+          // assign panel publishes, targeted at the board on its current team
+          // topic. One tap = code delivered + rover renamed.
+          const rec = boards.get(r.board);
+          const topic = `robots/${rec ? rec.team : "unassigned"}/cmd/config`;
+          const cfg = { target: r.board, team: r.user, pass: r.pass };
+          if (driveClient && driveClient.connected) {
+            driveClient.publish(topic, JSON.stringify(cfg), { qos: 1, retain: false });
+            logLine("out", `${topic} ${JSON.stringify(cfg)}`);
+          }
+          status.textContent = `${r.user} approved — code on its way; ${r.board} reboots under ${r.user} in a few seconds.`;
+        } else {
+          status.textContent = r.ok
+            ? `${r.user} approved — the code is on its way to their screen.` : r.error;
+        }
         status.className = r.ok ? "assign-ok" : "assign-err";
         if (r.ok) mintShareCard(r.user, r.pass); // backup card, e.g. for their rover's QR label
         loadCodes();
@@ -3618,7 +3665,7 @@ safe-buffer/index.js:
       status.className = r.ok ? "assign-ok" : "assign-err";
       if (!r.ok) return;
       loadCodes();
-      mintShareCard(user, pass);
+      mintShareCard(user, r.pass); // r.pass = the typed code, or the generated one on blank
       document.getElementById("codes-user").value = "";
       document.getElementById("codes-pass").value = "";
     });
@@ -3630,11 +3677,13 @@ safe-buffer/index.js:
       const drv = e.target.closest(".btn-drive");
       const blk = e.target.closest("[data-blink]");
       const asg = e.target.closest("[data-assign]");
+      const clm = e.target.closest("[data-claim]");
       if (cam) openCamera(cam.dataset.id, cam.dataset.camIp);
       else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp);
       else if (drv) selectTarget(drv.dataset.robot);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.bteam);
       else if (asg) preselectAssign(asg.dataset.assign, asg.dataset.bteam, true);
+      else if (clm) startClaim(clm.dataset.claim);
     });
 
     // ---- Per-board modal: camera lightbox + embedded /wifi config panel ----
