@@ -163,7 +163,7 @@
     input, button { font: inherit; }
     #code-gate { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     #code-input, #assign-form input, .pins-grid input, #hub-host-input, #wifi-pass,
-    #codes-user, #codes-pass {
+    #codes-user, #codes-pass, #req-name {
       background: var(--inset); color: var(--ink);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
       padding: 0.6rem 0.85rem; min-height: var(--tap);
@@ -174,12 +174,12 @@
     input::placeholder { color: var(--ink-faint); }
 
     /* Primary (filled) button. Active press = subtle scale, the HIG tap feedback. */
-    #connect-btn, #assign-btn, #hub-host-save, #wifi-connect, #codes-add {
+    #connect-btn, #assign-btn, #hub-host-save, #wifi-connect, #codes-add, #req-send {
       font-weight: 600; cursor: pointer; min-height: var(--tap);
       padding: 0.6rem 1.25rem; border-radius: var(--radius); border: none;
       color: var(--accent-ink); background: var(--accent); transition: transform 0.08s ease, filter 0.15s ease;
     }
-    #connect-btn:hover, #assign-btn:hover, #codes-add:hover { filter: brightness(1.08); }
+    #connect-btn:hover, #assign-btn:hover, #codes-add:hover, #req-send:hover { filter: brightness(1.08); }
     button:active { transform: scale(0.97); }
     /* Tinted (secondary) button — accent text on a soft accent wash. */
     .btn-drive, #wifi-open, #wifi-scan {
@@ -211,6 +211,16 @@
             background: transparent; color: inherit; cursor: pointer; }
     #codes .gate-row { margin-top: 0.9rem; }
     #codes-add { flex: 1 0 auto; }
+    /* Access requests: the knock (gate side) and the answer (codes panel). */
+    #req-access { display: none; flex-basis: 100%; font-size: 0.88rem; margin-top: 0.2rem; }
+    #req-access a { color: var(--link); }
+    #req-form { display: none; flex-basis: 100%; }
+    #req-status { display: none; flex-basis: 100%; font-size: 0.9rem; margin: 0.3rem 0 0; }
+    #req-status.waiting::before { content: ""; display: inline-block; width: 0.65rem; height: 0.65rem;
+      margin-right: 0.45rem; border-radius: 50%; border: 2px solid var(--accent);
+      border-top-color: transparent; animation: reqspin 0.9s linear infinite; vertical-align: -0.05rem; }
+    @keyframes reqspin { to { transform: rotate(360deg); } }
+    #codes-req-list .codes-row { border-left: 3px solid var(--accent); }
     #codes-share { margin-top: 0.8rem; }
     #codes-qr svg { width: 11rem; height: 11rem; background: #fff; padding: 0.5rem; border-radius: 8px; }
     .btn-drive.driving { background: var(--accent); color: var(--accent-ink); }
@@ -426,6 +436,15 @@
         <input id="code-input" type="password" placeholder="code" autocomplete="off">
         <button id="connect-btn">Drive</button>
       </div>
+      <!-- Access requests, gate side: knock with a team name, wait for the
+           professor, and the approved code signs this browser in by itself.
+           Shown only when the serving hub has the /codes API (the Pi). -->
+      <p id="req-access">No code yet? <a href="#" id="req-access-link">Request access</a></p>
+      <div id="req-form" class="gate-row">
+        <input id="req-name" placeholder="team name" autocomplete="off">
+        <button id="req-send">Request</button>
+      </div>
+      <p id="req-status"></p>
     </div>
     <p id="gate-error">Wrong code, or the hub isn't accepting drive connections.</p>
     <p id="identity-bar">Signed in as <b id="identity-name"></b><button id="logout-btn">Log out</button></p>
@@ -511,6 +530,12 @@
     <p class="assign-help">Create teams and rotate codes — changes reach the broker immediately.
       Setting a code mints a sign-in link and QR card; share it and that team lands signed in, nothing to type.</p>
     <div id="codes-nag">&#9888; This class is still running the placeholder codes it shipped with — rotate them before students arrive.</div>
+    <!-- Access requests, professor side: Approve mints a code and delivers it
+         to the requester's screen — nothing to read out or type. -->
+    <div id="codes-requests" style="display:none">
+      <p class="assign-help" style="margin-bottom:0.2rem">Access requests — approve and the team lands signed in on their own screen.</p>
+      <div id="codes-req-list"></div>
+    </div>
     <div id="codes-list"></div>
     <div class="gate-row">
       <input id="codes-user" placeholder="team name" autocomplete="off">
@@ -3353,13 +3378,28 @@ safe-buffer/index.js:
     }
 
     // ---- Who-are-you chips: identities come from the live fleet (anonymous
-    // read already carries every team id), so nothing is typed but the code.
+    // read already carries every team id) UNIONED with the broker's codes list
+    // when the serving hub exposes it — so a team minted tonight has its chip
+    // before its rover is assigned tomorrow. Fleet-only on hosts without the
+    // /codes API (ESP32 hub, standalone copy).
     let chipUser = localStorage.getItem("hubUser") || "";
     let myCred = null;   // {user, pass} after a successful connect
+    let knownTeams = []; // /codes/list usernames, when hub-served by the Pi
+    let codesApi = false;
+    async function refreshKnownTeams() {
+      try {
+        const r = await (await fetch("/codes/list")).json();
+        knownTeams = r.users.filter(u => u !== "unassigned");
+        codesApi = true;
+        document.getElementById("req-access").style.display = (myCred || reqTimer) ? "none" : "block";
+        renderChips();
+      } catch { /* no /codes API here */ }
+    }
     function renderChips() {
       const box = document.getElementById("team-chips");
       if (!box || myCred) return;
-      const teams = [...robots.keys()].filter(t => t !== "unassigned").sort();
+      const teams = [...new Set([...robots.keys(), ...knownTeams])]
+        .filter(t => t !== "unassigned").sort();
       if (!teams.includes("professor")) teams.push("professor");
       box.innerHTML = teams.map(t =>
         `<button class="chip" data-user="${esc(t)}" aria-pressed="${String(t === chipUser)}">${esc(t)}</button>`).join("");
@@ -3426,7 +3466,68 @@ safe-buffer/index.js:
         document.getElementById(id).style.display = "none";
       document.getElementById("code-gate").style.display = "";
       document.getElementById("code-input").value = "";
+      if (codesApi) { document.getElementById("req-access").style.display = "block"; refreshKnownTeams(); }
       renderChips(); renderRobots(); renderBoards();
+    });
+
+    // ---- Access requests, gate side: POST the knock, poll the token, and an
+    // approval signs this browser in by itself. The token survives reloads in
+    // localStorage so a locked phone resumes waiting instead of re-knocking.
+    let reqTimer = null;
+    function reqStatus(text, cls) {
+      const el = document.getElementById("req-status");
+      el.textContent = text;
+      el.className = cls || "";
+      el.style.display = text ? "block" : "none";
+    }
+    function stopRequestWait(msg, cls) {
+      clearInterval(reqTimer); reqTimer = null;
+      localStorage.removeItem("hubReqToken"); localStorage.removeItem("hubReqName");
+      reqStatus(msg || "", cls);
+    }
+    async function pollRequest() {
+      const token = localStorage.getItem("hubReqToken");
+      if (!token || myCred) return stopRequestWait();
+      let r;
+      try { r = await (await fetch("/codes/poll", { method: "POST", body: JSON.stringify({ token }) })).json(); }
+      catch { return; } // transient — keep waiting
+      if (r.status === "approved") {
+        stopRequestWait();
+        document.getElementById("req-form").style.display = "none";
+        connect(r.user, r.pass); // one-shot delivery; connect() remembers it
+      } else if (r.status === "denied") {
+        stopRequestWait("The professor didn't approve this request.", "assign-err");
+      } else if (r.status === "unknown") {
+        stopRequestWait("Request expired — send it again.", "assign-err");
+      } // "waiting" → keep polling
+    }
+    function startRequestWait(name) {
+      reqStatus(`Waiting for the professor to approve “${name}”… keep this page open.`, "waiting");
+      document.getElementById("req-access").style.display = "none";
+      if (!reqTimer) reqTimer = setInterval(pollRequest, 3000);
+      pollRequest();
+    }
+    document.getElementById("req-access-link").addEventListener("click", (e) => {
+      e.preventDefault();
+      const form = document.getElementById("req-form");
+      form.style.display = form.style.display === "flex" ? "none" : "flex";
+      document.getElementById("req-name").focus();
+    });
+    async function sendRequest() {
+      const name = document.getElementById("req-name").value.trim();
+      if (!name) return reqStatus("Enter your team name first.", "assign-err");
+      let r;
+      try { r = await (await fetch("/codes/request", { method: "POST", body: JSON.stringify({ name }) })).json(); }
+      catch { return reqStatus("The hub didn't answer — are you on its Wi-Fi?", "assign-err"); }
+      if (!r.ok) return reqStatus(r.error, "assign-err");
+      localStorage.setItem("hubReqToken", r.token);
+      localStorage.setItem("hubReqName", name);
+      document.getElementById("req-form").style.display = "none";
+      startRequestWait(name);
+    }
+    document.getElementById("req-send").addEventListener("click", sendRequest);
+    document.getElementById("req-name").addEventListener("keydown", e => {
+      if (e.key === "Enter") sendRequest();
     });
 
     // ---- Team codes panel (professor + hub-served only): broker identities
@@ -3441,7 +3542,55 @@ safe-buffer/index.js:
              <button data-rotate="${esc(u)}">Rotate…</button>
              ${u === "professor" ? "" : `<button data-delcode="${esc(u)}">&#10005;</button>`}</div>`).join("");
       } catch { /* not hub-served */ }
+      loadRequests();
     }
+    // The only moment a plaintext code exists in this panel — mint the sign-in
+    // link + QR card now; it can't be recovered from the broker later.
+    function mintShareCard(user, pass) {
+      const share = document.getElementById("codes-share");
+      const link = `http://${location.host}/#code=${encodeURIComponent(`${user}:${pass}`)}`;
+      const qr = qrcode(0, "M"); qr.addData(link); qr.make();
+      document.getElementById("codes-qr").innerHTML = qr.createSvgTag(4, 8);
+      share.style.display = "block";
+      const copyBtn = document.getElementById("codes-copy");
+      copyBtn.onclick = () => { navigator.clipboard.writeText(link); copyBtn.textContent = "Copied"; };
+      copyBtn.textContent = "Copy sign-in link";
+    }
+
+    // Pending access requests (professor side). Refreshed with loadCodes and
+    // on a light clock while the panel is open, so a knock shows up unasked.
+    async function loadRequests() {
+      if (document.getElementById("codes").style.display !== "block") return;
+      try {
+        const r = await (await fetch("/codes/requests")).json();
+        document.getElementById("codes-requests").style.display = r.requests.length ? "block" : "none";
+        document.getElementById("codes-req-list").innerHTML = r.requests
+          .map(n => `<div class="codes-row"><b>${esc(n)}</b><span class="spacer"></span>
+             <button data-approve="${esc(n)}">Approve</button>
+             <button data-denyreq="${esc(n)}">&#10005;</button></div>`).join("");
+      } catch { /* not hub-served */ }
+    }
+    setInterval(loadRequests, 5000);
+    document.getElementById("codes-req-list").addEventListener("click", async (e) => {
+      const app = e.target.closest("[data-approve]");
+      const den = e.target.closest("[data-denyreq]");
+      const status = document.getElementById("codes-status");
+      if (app) {
+        const r = await (await fetch("/codes/approve", { method: "POST",
+          body: JSON.stringify({ auth: myCred.pass, name: app.dataset.approve }) })).json();
+        status.textContent = r.ok
+          ? `${r.user} approved — the code is on its way to their screen.` : r.error;
+        status.className = r.ok ? "assign-ok" : "assign-err";
+        if (r.ok) mintShareCard(r.user, r.pass); // backup card, e.g. for their rover's QR label
+        loadCodes();
+      } else if (den) {
+        const r = await (await fetch("/codes/deny", { method: "POST",
+          body: JSON.stringify({ auth: myCred.pass, name: den.dataset.denyreq }) })).json();
+        status.textContent = r.ok ? `Request from ${den.dataset.denyreq} dismissed.` : r.error;
+        status.className = r.ok ? "assign-ok" : "assign-err";
+        loadRequests();
+      }
+    });
     document.getElementById("codes-list").addEventListener("click", async (e) => {
       const rot = e.target.closest("[data-rotate]");
       const del = e.target.closest("[data-delcode]");
@@ -3469,15 +3618,7 @@ safe-buffer/index.js:
       status.className = r.ok ? "assign-ok" : "assign-err";
       if (!r.ok) return;
       loadCodes();
-      // The only moment the plaintext code exists here — mint the sign-in
-      // link + QR card now; it can't be recovered from the broker later.
-      const link = `http://${location.host}/#code=${encodeURIComponent(`${user}:${pass}`)}`;
-      const qr = qrcode(0, "M"); qr.addData(link); qr.make();
-      document.getElementById("codes-qr").innerHTML = qr.createSvgTag(4, 8);
-      share.style.display = "block";
-      const copyBtn = document.getElementById("codes-copy");
-      copyBtn.onclick = () => { navigator.clipboard.writeText(link); copyBtn.textContent = "Copied"; };
-      copyBtn.textContent = "Copy sign-in link";
+      mintShareCard(user, pass);
       document.getElementById("codes-user").value = "";
       document.getElementById("codes-pass").value = "";
     });
@@ -3735,6 +3876,11 @@ safe-buffer/index.js:
         } catch {}
       }
       renderChips();
+      refreshKnownTeams();
+      // 3. A request still waiting on the professor — resume the poll so a
+      //    locked phone lands signed in the moment it's approved.
+      if (!localStorage.getItem("hubCred") && localStorage.getItem("hubReqToken"))
+        startRequestWait(localStorage.getItem("hubReqName") || "your team");
     }
 </script>
 </body>
