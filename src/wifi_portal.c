@@ -55,6 +55,9 @@ static const char PAGE[] =
 ".topbar .a{font-weight:700;color:var(--ink)}"
 ".topbar .b{font-weight:400;color:var(--ink-muted)}"
 "main{max-width:32rem;margin:0 auto;padding:24px 16px 48px}"
+/* Embed mode (?embed=1): the panel is iframed inside a dashboard card, so drop
+ * its own topbar + trim outer padding and let the host card provide the chrome. */
+".embed .topbar{display:none}.embed main{padding:14px 14px 20px}"
 ".card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-lg);"
 "padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.6)}"
 ".card>h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px}"
@@ -71,6 +74,9 @@ static const char PAGE[] =
 "display:flex;justify-content:space-between;align-items:center;gap:.5rem;font-weight:500}"
 "#msg,#rmsg{margin-top:1rem}"
 "</style></head><body>"
+/* Set the embed class synchronously before first paint (no topbar flash) when
+ * the dashboard iframes this panel with ?embed=1. */
+"<script>if(location.search.indexOf('embed')>=0)document.documentElement.className='embed'</script>"
 "<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
 "<main>"
 "<div class=card>"
