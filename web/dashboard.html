@@ -7,206 +7,304 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNTYgMjU2IiB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiI+CiAgPGRlZnM+CiAgICA8IS0tIFN1YnRsZSB2ZXJ0aWNhbCBncmFkaWVudCDigJQgQXBwbGUgaWNvbnMgcmFyZWx5IHVzZSBhIGZsYXQgZmlsbC4gLS0+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnTGlnaHQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmZmZmZmIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2VjZWVmMSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmdEYXJrIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzIzMjYyYSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMxNDE3MWEiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8IS0tIGlPUyBjb250aW51b3VzLWNvcm5lciBzcXVpcmNsZSAobuKJiDUgc3VwZXJlbGxpcHNlIGFwcHJveGltYXRpb24KICAgICAgICAgdmlhIGFzeW1tZXRyaWMgY3ViaWMgYmV6aWVyczsgfjIyJSByYWRpdXMsIDAuNiBzbW9vdGhuZXNzIGZhY3RvcikuIC0tPgogICAgPGNsaXBQYXRoIGlkPSJpY29uU2hhcGUiPgogICAgICA8cGF0aCBkPSJNIDkyLjE2MDAwMDAwMDAwMDAxIDAgTCAxNjMuODM5OTk5OTk5OTk5OTcgMCBDIDIyMS40NCAwIDI1NiAzNC41NiAyNTYgOTIuMTYwMDAwMDAwMDAwMDEgTCAyNTYgMTYzLjgzOTk5OTk5OTk5OTk3IEMgMjU2IDIyMS40NCAyMjEuNDQgMjU2IDE2My44Mzk5OTk5OTk5OTk5NyAyNTYgTCA5Mi4xNjAwMDAwMDAwMDAwMSAyNTYgQyAzNC41NiAyNTYgMCAyMjEuNDQgMCAxNjMuODM5OTk5OTk5OTk5OTcgTCAwIDkyLjE2MDAwMDAwMDAwMDAxIEMgMCAzNC41NiAzNC41NiAwIDkyLjE2MDAwMDAwMDAwMDAxIDAgWiIvPgogICAgPC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPHN0eWxlPgogICAgLmJnIHsgZmlsbDogdXJsKCNiZ0xpZ2h0KTsgfQogICAgLmIgIHsgZmlsbDogIzAxMjE2OTsgfQogICAgLnIgIHsgZmlsbDogIzZlNmU3MzsgfQogICAgQG1lZGlhIChwcmVmZXJzLWNvbG9yLXNjaGVtZTogZGFyaykgewogICAgICAuYmcgeyBmaWxsOiB1cmwoI2JnRGFyayk7IH0KICAgICAgLmIgIHsgZmlsbDogIzA1NzdCMTsgfQogICAgICAuciAgeyBmaWxsOiAjYWRiNWJkOyB9CiAgICB9CiAgPC9zdHlsZT4KICA8ZyBjbGlwLXBhdGg9InVybCgjaWNvblNoYXBlKSI+CiAgICA8cGF0aCBjbGFzcz0iYmciIGQ9Ik0gOTIuMTYwMDAwMDAwMDAwMDEgMCBMIDE2My44Mzk5OTk5OTk5OTk5NyAwIEMgMjIxLjQ0IDAgMjU2IDM0LjU2IDI1NiA5Mi4xNjAwMDAwMDAwMDAwMSBMIDI1NiAxNjMuODM5OTk5OTk5OTk5OTcgQyAyNTYgMjIxLjQ0IDIyMS40NCAyNTYgMTYzLjgzOTk5OTk5OTk5OTk3IDI1NiBMIDkyLjE2MDAwMDAwMDAwMDAxIDI1NiBDIDM0LjU2IDI1NiAwIDIyMS40NCAwIDE2My44Mzk5OTk5OTk5OTk5NyBMIDAgOTIuMTYwMDAwMDAwMDAwMDEgQyAwIDM0LjU2IDM0LjU2IDAgOTIuMTYwMDAwMDAwMDAwMDEgMCBaIi8+CiAgICA8IS0tIEJSIGxldHRlcmZvcm1zIOKAlCBleHRyYWN0ZWQgZnJvbSBTRiBQcm8gYXQgdGhlIERpc3BsYXkgb3B0aWNhbC1zaXplCiAgICAgICAgIHZhcmlhbnQgKG9wc3o9OTYpLCBCIGF0IHdlaWdodCA4MDAsIFIgYXQgd2VpZ2h0IDQwMC4gVGhlIHdpZGUKICAgICAgICAgd2VpZ2h0IGdhcCAodnMgdGhlIHByZXZpb3VzIDcwMC81MDApIG1ha2VzIHRoZSBwcmltYXJ5L3N1cHBvcnRpbmcKICAgICAgICAgaGllcmFyY2h5IHVubWlzdGFrYWJsZSBhdCBmYXZpY29uIHNpemUuIEVtYmVkZGVkIGFzIHBhdGhzIHNvCiAgICAgICAgIHJlbmRlcmluZyBpcyBpZGVudGljYWwgb24gZXZlcnkgT1MuIC0tPgogICAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNDguNTc5IDE3NC4wODApIHNjYWxlKDAuMDYzODY3IC0wLjA2Mzg2NykiPgogICAgICA8cGF0aCBjbGFzcz0iYiIgZD0iTTI1Ny4zMzE2NjUwMzkwNjI1IDBWMjAyLjY2NDAwMTQ2NDg0Mzc1SDY3My42NjU3MTA0NDkyMTg4UTgxNC4zMzM2NzkxOTkyMTg4IDIwMi42NjQwMDE0NjQ4NDM3NSA4ODguNTAwOTc2NTYyNSAyNTkuMTY0NDg5NzQ2MDkzNzVROTYyLjY2ODI3MzkyNTc4MTIgMzE1LjY2NDk3ODAyNzM0Mzc1IDk2Mi42NjgyNzM5MjU3ODEyIDQyMy42NjU5NTQ1ODk4NDM3NVY0MjUuNjY1OTU0NTg5ODQzNzVROTYyLjY2ODI3MzkyNTc4MTIgNDk4IDkyOC41MDEzMTIyNTU4NTk0IDU0Ny4wMDA0MjcyNDYwOTM4UTg5NC4zMzQzNTA1ODU5Mzc1IDU5Ni4wMDA4NTQ0OTIxODc1IDgyNi44MzM3NDAyMzQzNzUgNjIwLjY2NzcyNDYwOTM3NVE3NTkuMzMzMTI5ODgyODEyNSA2NDUuMzM0NTk0NzI2NTYyNSA2NTkuMzMyMjE0MzU1NDY4OCA2NDUuMzM0NTk0NzI2NTYyNUgyNTcuMzMxNjY1MDM5MDYyNVY4MzMuNjY1ODkzNTU0Njg3NUg2MTguNjY0OTE2OTkyMTg3NVE3NTYuOTk5NTcyNzUzOTA2MiA4MzMuNjY1ODkzNTU0Njg3NSA4MjkuNjY2OTYxNjY5OTIxOSA4ODguNDk5NjY0MzA2NjQwNlE5MDIuMzM0MzUwNTg1OTM3NSA5NDMuMzMzNDM1MDU4NTkzOCA5MDIuMzM0MzUwNTg1OTM3NSAxMDQ0LjY2NzcyNDYwOTM3NVYxMDQ2LjY2NzcyNDYwOTM3NVE5MDIuMzM0MzUwNTg1OTM3NSAxMTM5LjY2ODU3OTEwMTU2MjUgODM5LjMzMzg2MjMwNDY4NzUgMTE5MC4wMDIyODg4MTgzNTk0UTc3Ni4zMzMzNzQwMjM0Mzc1IDEyNDAuMzM1OTk4NTM1MTU2MiA2NjEuOTk5MDIzNDM3NSAxMjQwLjMzNTk5ODUzNTE1NjJIMjU3LjMzMTY2NTAzOTA2MjVWMTQ0M0g3MjcuNjY0MTg0NTcwMzEyNVE4NTkuOTk3MDA5Mjc3MzQzOCAxNDQzIDk1Ny4xNjM0MjE2MzA4NTk0IDEzOTguNDk5OTY5NDgyNDIxOVExMDU0LjMyOTgzMzk4NDM3NSAxMzUzLjk5OTkzODk2NDg0MzggMTEwNy42NjMwODU5Mzc1IDEyNzIuODMzMjgyNDcwNzAzMVExMTYwLjk5NjMzNzg5MDYyNSAxMTkxLjY2NjYyNTk3NjU2MjUgMTE2MC45OTYzMzc4OTA2MjUgMTA4MS42NjY3NDgwNDY4NzVWMTA3OS42NjY3NDgwNDY4NzVRMTE2MC45OTYzMzc4OTA2MjUgMTAwMS42NjY5MzExNTIzNDM4IDExMjUuMzI5NzcyOTQ5MjE4OCA5MzQuMDAwMjQ0MTQwNjI1UTEwODkuNjYzMjA4MDA3ODEyNSA4NjYuMzMzNTU3MTI4OTA2MiAxMDI3LjgzMDA0NzYwNzQyMTkgODIxLjE2NjgwOTA4MjAzMTJROTY1Ljk5Njg4NzIwNzAzMTIgNzc2LjAwMDA2MTAzNTE1NjIgODg3Ljk5NzA3MDMxMjUgNzY1LjAwMDA2MTAzNTE1NjJWNzU5LjY2NjgwOTA4MjAzMTJROTg5LjY2Mzg3OTM5NDUzMTIgNzUwLjk5OTkzODk2NDg0MzggMTA2Ni44MzA0MTM4MTgzNTk0IDcwMy45OTk4Nzc5Mjk2ODc1UTExNDMuOTk2OTQ4MjQyMTg3NSA2NTYuOTk5ODE2ODk0NTMxMiAxMTg2Ljk5Njc2NTEzNjcxODggNTgxLjQ5OTgxNjg5NDUzMTJRMTIyOS45OTY1ODIwMzEyNSA1MDUuOTk5ODE2ODk0NTMxMjUgMTIyOS45OTY1ODIwMzEyNSA0MTAuNjY2NDQyODcxMDkzNzVWNDA4LjY2NjQ0Mjg3MTA5Mzc1UTEyMjkuOTk2NTgyMDMxMjUgMjgyLjMzMzA2ODg0NzY1NjI1IDExNjkuOTk2NjczNTgzOTg0NCAxOTAuODMzMTI5ODgyODEyNVExMTA5Ljk5Njc2NTEzNjcxODggOTkuMzMzMTkwOTE3OTY4NzUgOTk5LjMzMDIwMDE5NTMxMjUgNDkuNjY2NTk1NDU4OTg0Mzc1UTg4OC42NjM2MzUyNTM5MDYyIDAgNzM0LjMzMDMyMjI2NTYyNSAwWk0xMjYuNjY3NDgwNDY4NzUgMFYxNDQzSDM4Ny45OTU4NDk2MDkzNzVWMFoiLz4KICAgIDwvZz4KICAgIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEyNS40ODAgMTc0LjA4MCkgc2NhbGUoMC4wNjM4NjcgLTAuMDYzODY3KSI+CiAgICAgIDxwYXRoIGNsYXNzPSJyIiBkPSJNMTI2LjY2NzQ4MDQ2ODc1IDBWMTQ0M0g3MDMuOTk4NTk2MTkxNDA2MlE4NTguNjY0MzA2NjQwNjI1IDE0NDMgOTcwLjE2MzgxODM1OTM3NSAxMzg4LjMzMzQwNDU0MTAxNTZRMTA4MS42NjMzMzAwNzgxMjUgMTMzMy42NjY4MDkwODIwMzEyIDExNDEuNjYzMTQ2OTcyNjU2MiAxMjMyLjY2NzA4Mzc0MDIzNDRRMTIwMS42NjI5NjM4NjcxODc1IDExMzEuNjY3MzU4Mzk4NDM3NSAxMjAxLjY2Mjk2Mzg2NzE4NzUgOTkxLjY2Nzk2ODc1Vjk4OS42Njc5Njg3NVExMjAxLjY2Mjk2Mzg2NzE4NzUgODQ0LjY2NzY2MzU3NDIxODggMTEyOC44MjkzNDU3MDMxMjUgNzM0LjMzNDM4MTEwMzUxNTZRMTA1NS45OTU3Mjc1MzkwNjI1IDYyNC4wMDEwOTg2MzI4MTI1IDkzMC45OTUxMTcxODc1IDU3OC4zMzQ1OTQ3MjY1NjI1TDEyNDQuOTk2MzM3ODkwNjI1IDBIOTQ2LjMzNTAyMTk3MjY1NjJMNjY0LjMzMzM3NDAyMzQzNzUgNTM4LjY2ODY0MDEzNjcxODhRNjYxLjAwMDA2MTAzNTE1NjIgNTM4LjY2ODY0MDEzNjcxODggNjU3LjY2Njc3ODU2NDQ1MzEgNTM4LjY2ODY0MDEzNjcxODhRNjU0LjMzMzQ5NjA5Mzc1IDUzOC42Njg2NDAxMzY3MTg4IDY1MC42NjY4NzAxMTcxODc1IDUzOC42Njg2NDAxMzY3MTg4SDM4Ny45OTU4NDk2MDkzNzVWMFpNMzg3Ljk5NTg0OTYwOTM3NSA3NDQuMzMyNDU4NDk2MDkzOEg2NzYuOTk5MjY3NTc4MTI1UTc5OC4zMzM2NzkxOTkyMTg4IDc0NC4zMzI0NTg0OTYwOTM4IDg2Ni4wMDA4MjM5NzQ2MDk0IDgwOC42NjYyNTk3NjU2MjVROTMzLjY2Nzk2ODc1IDg3My4wMDAwNjEwMzUxNTYyIDkzMy42Njc5Njg3NSA5ODguMDAxMTU5NjY3OTY4OFY5OTAuMDAxMTU5NjY3OTY4OFE5MzMuNjY3OTY4NzUgMTEwMi4zMzU1MTAyNTM5MDYyIDg2My4wMDA3NjI5Mzk0NTMxIDExNjcuMTY5MzExNTIzNDM3NVE3OTIuMzMzNTU3MTI4OTA2MiAxMjMyLjAwMzExMjc5Mjk2ODggNjcxLjY2NTc3MTQ4NDM3NSAxMjMyLjAwMzExMjc5Mjk2ODhIMzg3Ljk5NTg0OTYwOTM3NVoiLz4KICAgIDwvZz4KICA8L2c+Cjwvc3ZnPgo=">
   <title>Better Robotics — Dashboard</title>
   <style>
-    /* Theme tokens mirror better-robotics.github.io — keep in sync. */
+    /* Better Robotics dashboard — Apple-HIG-flavored dark UI.
+       Deliberately dark-committed (mirrors better-robotics.github.io + the /wifi
+       panel); the token system and Duke-blue accent are shared across surfaces.
+       Selectors are kept stable — the render functions in <script> reference
+       every class/id below, so this is a reskin, not a rename. */
     :root {
       color-scheme: dark;
-      --bg: #1a1d20;
-      --surface: #212529;
-      --ink: #e9ecef;
-      --ink-muted: #adb5bd;
+      /* Grouped-background system (iOS): a near-black canvas, elevated card
+         surfaces, and a further-inset fill for lists/controls *inside* a card,
+         so depth reads by fill, not just by outline. */
+      --bg: #0d0f12;
+      --surface: #16191d;        /* elevated card fill */
+      --inset: #1f242b;          /* inset list / control inside a card */
+      --ink: #f2f3f5;
+      --ink-muted: #aeb4bd;
+      --ink-faint: #838a93;
       --border-default: rgba(255,255,255,0.10);
-      --accent: #00539B;        /* button fills — white text sits on this */
-      --accent-text: #0577B1;   /* accent as text/tint — large text only */
+      --border-strong: rgba(255,255,255,0.18);
+      /* Duke-blue accent — contrast pairs verified AA (kept from the prior
+         theme): --accent for fills under white text, --accent-text for tint. */
+      --accent: #00539B;
+      --accent-text: #0577B1;
       --accent-ink: #ffffff;
-      --link: color-mix(in srgb, #0577B1 70%, white);  /* small-text accent — passes AA */
-      --focus: var(--accent-text);
-      --success: #30a46c;
-      --warn: #e89923;
+      --accent-soft: rgba(5,119,177,0.16);   /* tinted (secondary) button fill */
+      --link: color-mix(in srgb, #0577B1 70%, white);
+      --focus: #4aa3d6;
+      --success: #30d158;        /* iOS system green — the live signal */
+      --success-dim: #248a3d;
+      --warn: #ffd60a;
+      --warn-ink: #e8a900;
       --danger-text: #ff453a;
-      --radius: 8px;
+      /* Continuous-corner radii scale + tap target + card elevation. */
+      --radius-lg: 18px;         /* cards */
+      --radius: 12px;            /* controls, inputs, inset lists */
+      --radius-sm: 8px;
+      --radius-pill: 999px;
+      --tap: 44px;               /* HIG minimum touch target */
+      --shadow-card: 0 0.5px 0 rgba(255,255,255,0.06) inset,
+                     0 1px 2px rgba(0,0,0,0.4), 0 10px 30px -12px rgba(0,0,0,0.6);
     }
     * { margin: 0; box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
     body {
-      font-family: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-      font-size: 15px; background: var(--bg); color: var(--ink);
-      line-height: 1.5; -webkit-font-smoothing: antialiased;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Helvetica Neue", Arial, sans-serif;
+      font-size: 16px; background: var(--bg); color: var(--ink);
+      line-height: 1.47; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+      /* Respect the notch/home-indicator on phones. */
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
-    /* Standard header — full-bleed wordmark bar (matches workbench + the /wifi
-       panel). Sticky so it reads as app chrome as the fleet scrolls. */
+
+    /* App chrome: a translucent, blurred sticky bar — the iOS navigation-bar
+       hallmark. Falls back to an opaque bar where backdrop-filter is absent. */
     .topbar {
-      display: flex; align-items: center; height: 52px; padding: 0 1.25rem;
-      border-bottom: 1px solid var(--border-default);
-      position: sticky; top: 0; z-index: 10; background: var(--bg);
+      display: flex; align-items: center; gap: 0.5rem; height: 50px; padding: 0 1.25rem;
+      position: sticky; top: 0; z-index: 20;
+      border-bottom: 0.5px solid var(--border-default);
+      background: color-mix(in srgb, var(--bg) 82%, transparent);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      backdrop-filter: saturate(180%) blur(20px);
     }
-    .topbar h1 { font-size: 17px; margin: 0; }
-    /* Centered content column (was the body's own max-width). The fleet is a card
-       grid, so width buys cards-per-row, not long lines; prose blocks cap
-       themselves (.lede/.assign-help) so text stays readable on the wide canvas. */
-    main { max-width: 72rem; margin: 0 auto; padding: 2rem 1.5rem 3rem; }
-    .lede { max-width: 40rem; }
-    h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 0.25rem; }
-    h1 .logo-accent { font-weight: 700; color: var(--accent-text); }
-    h1 .logo-base { font-weight: 400; color: color-mix(in srgb, var(--ink) 75%, transparent); }
-    p.lede { color: var(--ink-muted); margin-bottom: 2rem; }
-    a { color: var(--link); }
+    .topbar h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+    h1 .logo-accent { font-weight: 700; color: var(--ink); }
+    h1 .logo-base { font-weight: 400; color: var(--ink-muted); }
+
+    /* Centered reading column; the fleet is a card grid, so width buys
+       cards-per-row while prose blocks cap themselves for readability. */
+    main { max-width: 60rem; margin: 0 auto; padding: 1.75rem 1.25rem 4rem; }
+    .lede {
+      max-width: 40rem; font-size: 1.6rem; line-height: 1.2; font-weight: 700;
+      letter-spacing: -0.02em; color: var(--ink); margin: 0.25rem 0 1.75rem;
+    }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .hint { color: var(--ink-faint); font-size: 0.85rem; }
+
     .notice {
-      display: none; background: rgba(232,153,35,0.12); border: 1px solid var(--warn);
-      border-radius: var(--radius); padding: 0.6rem 1rem; margin-bottom: 1.5rem;
+      display: none; background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+      border: 0.5px solid color-mix(in srgb, var(--warn) 55%, transparent);
+      border-radius: var(--radius); padding: 0.7rem 1rem; margin-bottom: 1.25rem;
       color: var(--ink); font-size: 0.9rem;
     }
+
+    /* Fleet grid — auto-fill so cards reflow from a phone's single column up to
+       the desktop's multi-column without a media query per breakpoint. */
     #robots {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-      gap: 1rem; align-items: start;  /* short cards aren't stretched to a tall row-mate */
+      display: grid; gap: 0.9rem; align-items: start;
+      grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
     }
     .robot {
-      background: var(--surface); border: 1px solid var(--border-default);
-      border-radius: var(--radius); padding: 1rem 1.25rem;
+      background: var(--surface); border: 0.5px solid var(--border-default);
+      border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; box-shadow: var(--shadow-card);
     }
-    .robot.offline { opacity: 0.55; }
-    .robot h2 { font-size: 1.05rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
-    /* Live camera feed (esp32cam board) — MJPEG <img> straight off the rover's
-       :81/stream. 4:3 to match the OV2640; object-fit:cover so it fills the card
-       width cleanly on any viewport. Black backdrop while the first frame loads. */
+    .robot.offline { opacity: 0.55; box-shadow: none; }
+    .robot h2 {
+      font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em;
+      display: flex; align-items: center; gap: 0.55rem;
+    }
+    /* Live MJPEG feed (esp32cam) straight off the rover's :81/stream. 4:3 to
+       match the OV-series sensor; cover so it fills the card cleanly. */
     .robot .cam {
       width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
-      border-radius: 6px; margin: 0.6rem 0; background: #000; display: block;
+      border-radius: var(--radius); margin: 0.7rem 0; background: #000; display: block;
     }
     .offline-label {
-      color: var(--warn); font-size: 0.7rem; font-weight: 600;
-      text-transform: uppercase; letter-spacing: 0.04em; margin-left: auto;
+      color: var(--warn-ink); font-size: 0.68rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.05em; margin-left: auto;
     }
     .remedy { color: var(--ink-muted); font-size: 0.8rem; margin-top: 0.6rem; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); flex: 0 0 auto; }
-    .offline .dot { background: var(--ink-muted); }
-    .hw { color: var(--ink-muted); font-size: 0.8rem; margin-bottom: 0.6rem; }
-    dl { display: grid; grid-template-columns: auto 1fr; gap: 0.1rem 0.75rem; font-size: 0.88rem; }
-    dt { color: var(--ink-muted); }
-    dd { font-variant-numeric: tabular-nums; }
-    #empty { color: var(--ink-muted); padding: 2rem 0; }
-    footer { margin-top: 3rem; color: var(--ink-muted); font-size: 0.85rem; }
 
-    /* Controls: drive + assign share a row when the width exists, stack when it
-       doesn't (auto-fit collapses to one column below ~53rem). Each is a card,
-       so the wide canvas reads as organized panels, not a long scroll. When
-       assign is hidden (non-professor), drive is the lone item → full width. */
+    /* Status dot — the fleet's live signal. Online pulses a soft ring (motion is
+       the "it's alive" cue); offline goes flat grey with no animation. */
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%; background: var(--success);
+      flex: 0 0 auto; box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 70%, transparent);
+      animation: live-pulse 2s ease-out infinite;
+    }
+    .offline .dot { background: var(--ink-faint); box-shadow: none; animation: none; }
+    @keyframes live-pulse {
+      0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 55%, transparent); }
+      70%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--success) 0%, transparent); }
+      100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 0%, transparent); }
+    }
+    @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+
+    .hw { color: var(--ink-muted); font-size: 0.82rem; margin-bottom: 0.7rem; }
+    /* Telemetry as an iOS inset-grouped list: a filled panel with hairline row
+       separators, label left / value right. */
+    dl {
+      display: grid; grid-template-columns: auto 1fr; align-items: center;
+      background: var(--inset); border-radius: var(--radius); padding: 0 0.9rem;
+      font-size: 0.88rem; margin-top: 0.2rem;
+    }
+    dt, dd { padding: 0.5rem 0; border-top: 0.5px solid var(--border-default); }
+    dt:first-of-type, dt:first-of-type + dd { border-top: none; }
+    dt { color: var(--ink-muted); }
+    dd { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+    #empty { color: var(--ink-muted); padding: 2rem 0; }
+    footer { margin-top: 3rem; color: var(--ink-faint); font-size: 0.85rem; }
+
+    /* Controls: drive + assign are cards that share a row when width allows and
+       stack below ~53rem — the wide canvas reads as panels, not a long scroll. */
     #controls {
-      display: grid; gap: 1.25rem; margin-top: 2rem; align-items: start;
-      grid-template-columns: repeat(auto-fit, minmax(26rem, 1fr));
+      display: grid; gap: 1rem; margin-top: 2rem; align-items: start;
+      grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
     }
     #drive, #assign {
-      background: var(--surface); border: 1px solid var(--border-default);
-      border-radius: var(--radius); padding: 1.25rem 1.5rem;
+      background: var(--surface); border: 0.5px solid var(--border-default);
+      border-radius: var(--radius-lg); padding: 1.25rem 1.4rem; box-shadow: var(--shadow-card);
+    }
+    .section-title { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.015em; margin-bottom: 0.35rem; }
+    .assign-help { color: var(--ink-muted); font-size: 0.88rem; margin-bottom: 1rem; }
+
+    /* --- Form controls: iOS-style fills, 44px tap targets, filled/tinted buttons --- */
+    input, button { font: inherit; }
+    #code-gate { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    #code-input, #assign-form input, .pins-grid input, #hub-host-input, #wifi-pass {
+      background: var(--inset); color: var(--ink);
+      border: 0.5px solid var(--border-default); border-radius: var(--radius);
+      padding: 0.6rem 0.85rem; min-height: var(--tap);
+    }
+    #code-input { min-width: 13rem; }
+    #assign-form input { min-width: 9rem; }
+    :focus-visible { outline: 2.5px solid var(--focus); outline-offset: 2px; }
+    input::placeholder { color: var(--ink-faint); }
+
+    /* Primary (filled) button. Active press = subtle scale, the HIG tap feedback. */
+    #connect-btn, #assign-btn, #hub-host-save, #wifi-connect {
+      font-weight: 600; cursor: pointer; min-height: var(--tap);
+      padding: 0.6rem 1.25rem; border-radius: var(--radius); border: none;
+      color: var(--accent-ink); background: var(--accent); transition: transform 0.08s ease, filter 0.15s ease;
+    }
+    #connect-btn:hover, #assign-btn:hover { filter: brightness(1.08); }
+    button:active { transform: scale(0.97); }
+    /* Tinted (secondary) button — accent text on a soft accent wash. */
+    .btn-drive, #wifi-open, #wifi-scan {
+      cursor: pointer; font-weight: 600; font-size: 0.9rem; min-height: 2.2rem;
+      padding: 0.4rem 0.9rem; border-radius: var(--radius); border: none; margin-top: 0.7rem;
+      color: var(--link); background: var(--accent-soft); transition: transform 0.08s ease, filter 0.15s ease;
+    }
+    .btn-drive:hover, #wifi-open:hover, #wifi-scan:hover { filter: brightness(1.15); }
+    #gate-error { display: none; color: var(--danger-text); font-size: 0.85rem; margin-top: 0.6rem; }
+    #drive-panel { display: none; }
+    #scope-label { color: var(--ink-muted); font-size: 0.92rem; margin: 0.85rem 0; }
+
+    /* Segmented control (iOS): a pill track holding equal segments, the selected
+       one raised on an elevated thumb. Here it switches the drive input between
+       an analog joystick and a discrete D-pad — the D-pad is the one-handed
+       phone path where dragging a stick is awkward. */
+    .segmented {
+      display: inline-flex; gap: 2px; padding: 2px; margin-bottom: 1rem;
+      background: var(--inset); border-radius: var(--radius); border: 0.5px solid var(--border-default);
+    }
+    .segmented button {
+      cursor: pointer; border: none; background: transparent; color: var(--ink-muted);
+      font-size: 0.85rem; font-weight: 600; padding: 0.4rem 1rem; min-height: 2rem;
+      border-radius: 10px; transition: background 0.15s ease, color 0.15s ease;
+    }
+    .segmented button[aria-selected="true"] {
+      background: var(--accent); color: var(--accent-ink);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.35);
     }
 
-    /* Manual control: code gate → scoped joystick + wire log. */
-    #code-gate {
-      display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
-    }
-    #code-input {
-      font: inherit; background: var(--surface); color: var(--ink);
-      border: 1px solid var(--border-default); border-radius: var(--radius);
-      padding: 0.5rem 0.75rem; min-height: 2.5rem; min-width: 12rem;
-    }
-    #code-input:focus-visible, .stick-pad:focus-visible, .btn-drive:focus-visible {
-      outline: 2px solid var(--focus); outline-offset: 2px;
-    }
-    #connect-btn, .btn-drive {
-      font: inherit; font-weight: 500; cursor: pointer; min-height: 2.5rem;
-      padding: 0.5rem 1rem; border-radius: var(--radius); border: none;
-      color: var(--accent-ink); background: var(--accent);
-    }
-    .btn-drive { min-height: 1.8rem; padding: 0.3rem 0.7rem; font-size: 0.85rem; margin-top: 0.6rem; }
-    #gate-error { display: none; color: var(--danger-text); font-size: 0.85rem; margin-top: 0.5rem; }
-    #drive-panel { display: none; }
-    #scope-label { color: var(--ink-muted); font-size: 0.9rem; margin: 0.75rem 0; }
-    .drive-grid {
-      display: grid; gap: 1.25rem;
-      grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-    }
-    #joystick-wrap { display: none; text-align: center; }
+    .drive-grid { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+    #joystick-wrap, #dpad-wrap { display: none; text-align: center; }
     #joystick-title { font-weight: 600; margin-bottom: 0.75rem; }
     .stick-pad {
       position: relative; width: 11rem; height: 11rem; margin: 0 auto;
-      border-radius: 50%; background: var(--surface); border: 1px solid var(--border-default);
-      touch-action: none; cursor: grab;
+      border-radius: 50%; background: var(--inset); border: 0.5px solid var(--border-default);
+      touch-action: none; cursor: grab; box-shadow: inset 0 2px 8px rgba(0,0,0,0.35);
     }
     .stick-pad:active { cursor: grabbing; }
     .stick-knob {
-      position: absolute; top: 50%; left: 50%; width: 3rem; height: 3rem;
-      margin: -1.5rem 0 0 -1.5rem; border-radius: 50%; background: var(--accent);
-      transition: transform 0.05s linear; pointer-events: none;
+      position: absolute; top: 50%; left: 50%; width: 3.25rem; height: 3.25rem;
+      margin: -1.625rem 0 0 -1.625rem; border-radius: 50%;
+      background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--accent) 80%, white), var(--accent));
+      box-shadow: 0 2px 8px rgba(0,0,0,0.45); transition: transform 0.05s linear; pointer-events: none;
     }
-    #motor-readout {
-      margin-top: 0.75rem; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
-      font-size: 0.8rem; color: var(--ink-muted);
+    /* D-pad: a 3×3 grid with the four directions on the cross and Stop at center. */
+    .dpad {
+      display: grid; grid-template-columns: repeat(3, 3.5rem); grid-template-rows: repeat(3, 3.5rem);
+      gap: 0.4rem; justify-content: center; margin: 0 auto;
+    }
+    .dpad button {
+      border: 0.5px solid var(--border-default); background: var(--inset); color: var(--ink);
+      border-radius: var(--radius); font-size: 1.1rem; cursor: pointer; touch-action: none;
+      display: flex; align-items: center; justify-content: center; transition: background 0.1s ease, transform 0.06s ease;
+    }
+    .dpad button:active, .dpad button.pressed { background: var(--accent); color: var(--accent-ink); }
+    .dpad .up    { grid-column: 2; grid-row: 1; }
+    .dpad .left  { grid-column: 1; grid-row: 2; }
+    .dpad .stop  { grid-column: 2; grid-row: 2; font-size: 0.9rem; color: var(--ink-muted); }
+    .dpad .right { grid-column: 3; grid-row: 2; }
+    .dpad .down  { grid-column: 2; grid-row: 3; }
+    #motor-readout, #dpad-readout {
+      margin-top: 0.85rem; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem; color: var(--ink-faint);
     }
     #wire-log {
-      height: 11rem; overflow-y: auto; background: var(--surface);
-      border: 1px solid var(--border-default); border-radius: var(--radius);
-      padding: 0.5rem 0.75rem; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
-      font-size: 0.78rem; line-height: 1.6;
+      height: 11rem; overflow-y: auto; background: var(--inset);
+      border: 0.5px solid var(--border-default); border-radius: var(--radius);
+      padding: 0.6rem 0.8rem; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+      font-size: 0.76rem; line-height: 1.65;
     }
     .log-line { white-space: pre-wrap; word-break: break-all; }
     .log-out { color: var(--link); }
     .log-in { color: var(--success); }
 
-    /* Assign: professor-only. Boards (not teams) are listed here — one rover per
-       row, keyed by its MAC-derived board id — because unassigned rovers all
-       share the default team topic and collapse to one card above. */
+    /* Assign (professor-only): boards listed by hardware id, select-then-name. */
     #assign { display: none; }
-    .section-title { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.35rem; }
-    .assign-help { color: var(--ink-muted); font-size: 0.9rem; margin-bottom: 1rem; }
     #board-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
     .assign-empty { color: var(--ink-muted); font-size: 0.9rem; }
     .board {
-      font: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem;
-      background: var(--surface); color: var(--ink);
-      border: 1px solid var(--border-default); border-radius: var(--radius);
-      padding: 0.45rem 0.75rem; min-height: 2.2rem;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem;
+      background: var(--inset); color: var(--ink);
+      border: 0.5px solid var(--border-default); border-radius: var(--radius);
+      padding: 0.5rem 0.8rem; min-height: 2.4rem; transition: box-shadow 0.15s ease, border-color 0.15s ease;
     }
-    .board:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-    .board.selected { border-color: var(--accent-text); box-shadow: 0 0 0 1px var(--accent-text); }
+    .board.selected { border-color: var(--accent-text); box-shadow: 0 0 0 2px var(--accent-text); }
     .board.offline { opacity: 0.5; cursor: default; }
     .board .dot { width: 8px; height: 8px; }
-    .board.offline .dot { background: var(--ink-muted); }
+    .board.offline .dot { background: var(--ink-faint); }
     .team-badge {
       font-size: 0.72rem; color: var(--ink-muted); background: var(--bg);
-      border: 1px solid var(--border-default); border-radius: 999px; padding: 0.05rem 0.5rem;
+      border: 0.5px solid var(--border-default); border-radius: var(--radius-pill); padding: 0.1rem 0.55rem;
     }
-    .team-badge.unassigned { color: var(--warn); border-color: var(--warn); }
+    .team-badge.unassigned { color: var(--warn-ink); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
     #assign-form { display: none; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
     #assign-selected { flex-basis: 100%; color: var(--ink); font-size: 0.9rem; margin-bottom: 0.25rem; }
-    #assign-form input {
-      font: inherit; background: var(--surface); color: var(--ink);
-      border: 1px solid var(--border-default); border-radius: var(--radius);
-      padding: 0.5rem 0.75rem; min-height: 2.5rem; min-width: 9rem;
-    }
-    #assign-form input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-    #assign-btn {
-      font: inherit; font-weight: 500; cursor: pointer; min-height: 2.5rem;
-      padding: 0.5rem 1rem; border-radius: var(--radius); border: none;
-      color: var(--accent-ink); background: var(--accent);
-    }
     #assign-pins-wrap { flex-basis: 100%; margin: 0.25rem 0; }
     #assign-pins-wrap summary { cursor: pointer; color: var(--ink-muted); font-size: 0.85rem; }
     .pins-help { color: var(--ink-muted); font-size: 0.78rem; margin: 0.5rem 0; }
     .pins-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
     .pins-grid label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.72rem; color: var(--ink-muted); }
-    .pins-grid input {
-      font: inherit; background: var(--surface); color: var(--ink);
-      border: 1px solid var(--border-default); border-radius: var(--radius);
-      padding: 0.4rem 0.5rem; min-height: 2.2rem; width: 100%;
-    }
-    .pins-grid input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .pins-grid input { width: 100%; min-height: 2.4rem; padding: 0.4rem 0.55rem; }
     #assign-status { flex-basis: 100%; font-size: 0.85rem; margin-top: 0.25rem; }
     #assign-status.assign-ok { color: var(--success); }
     #assign-status.assign-err { color: var(--danger-text); }
+
+    /* Phone: single column, full-width controls, comfortable spacing. */
+    @media (max-width: 32rem) {
+      main { padding: 1.25rem 1rem 4rem; }
+      .lede { font-size: 1.35rem; }
+      #robots { grid-template-columns: 1fr; }
+      /* auto-fit's 24rem min track (#controls) exceeds a phone's width and would
+         force a horizontal scroll — collapse to one column below 32rem. */
+      #controls { grid-template-columns: 1fr; }
+      #code-gate { flex-direction: column; align-items: stretch; }
+      #code-input, #connect-btn { width: 100%; }
+      .segmented { display: flex; width: 100%; }
+      .segmented button { flex: 1; }
+      .btn-drive { min-height: var(--tap); }  /* full tap target on touch */
+      .dpad { grid-template-columns: repeat(3, 4rem); grid-template-rows: repeat(3, 4rem); }
+    }
   </style>
 </head>
 <body>
   <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span></h1></header>
   <main>
-  <p class="lede">Every robot on this hub, live.</p>
   <div id="hub-host-gate" class="notice" style="gap:0.5rem; align-items:center; flex-wrap:wrap">
     <span id="hub-host-label">Standalone copy — which hub?</span>
     <input id="hub-host-input" type="text" placeholder="10.42.0.1 or hub.local">
@@ -252,14 +350,32 @@
 
     <div id="drive-panel">
       <p id="scope-label"></p>
+      <div class="segmented" role="tablist" id="drive-mode" aria-label="Drive input mode">
+        <button role="tab" data-mode="joystick" aria-selected="true">Joystick</button>
+        <button role="tab" data-mode="dpad" aria-selected="false">Buttons</button>
+      </div>
       <div class="drive-grid">
-        <div id="joystick-wrap">
-          <div id="joystick-title"></div>
-          <div class="stick-pad" id="stick-pad" tabindex="0" role="application"
-               aria-label="Drive joystick — drag, or use arrow keys">
-            <div class="stick-knob" id="stick-knob"></div>
+        <div class="drive-input">
+          <div id="joystick-wrap">
+            <div id="joystick-title"></div>
+            <div class="stick-pad" id="stick-pad" tabindex="0" role="application"
+                 aria-label="Drive joystick — drag, or use arrow keys">
+              <div class="stick-knob" id="stick-knob"></div>
+            </div>
+            <div id="motor-readout">stick (0.00, 0.00) → left=0 right=0</div>
           </div>
-          <div id="motor-readout">stick (0.00, 0.00) → left=0 right=0</div>
+          <!-- Discrete D-pad — the one-handed phone path. Hold a direction to
+               drive; releasing sends a stop. Reuses sendPwm(), same as the stick. -->
+          <div id="dpad-wrap">
+            <div class="dpad" role="group" aria-label="Drive buttons">
+              <button class="dpad-btn up"    data-drive="fwd"   aria-label="Forward">▲</button>
+              <button class="dpad-btn left"  data-drive="left"  aria-label="Turn left">◀</button>
+              <button class="dpad-btn stop"  data-drive="stop"  aria-label="Stop">■</button>
+              <button class="dpad-btn right" data-drive="right" aria-label="Turn right">▶</button>
+              <button class="dpad-btn down"  data-drive="back"  aria-label="Reverse">▼</button>
+            </div>
+            <div id="dpad-readout">hold a direction to drive</div>
+          </div>
         </div>
         <div id="wire-log" aria-label="Live command and telemetry log"></div>
       </div>
@@ -294,10 +410,6 @@
     </div>
   </section>
   </div>
-
-  <footer>
-    <span id="footer-served-by">Served by the hub</span> · <a href="https://better-robotics.github.io/provision/">set up a device</a>
-  </footer>
   </main>
 
   <script>
@@ -370,7 +482,6 @@ safe-buffer/index.js:
     let hubHost = standalone ? (localStorage.getItem("hubHost") || "") : location.hostname;
     const hostGate = document.getElementById("hub-host-gate");
     if (standalone) {
-      document.getElementById("footer-served-by").textContent = "Standalone copy";
       // Only prompt when there's genuinely no saved host yet — a saved value
       // that's actually wrong re-shows the gate itself, from publicClient's
       // "error" handler below, tied to a real failed connection rather than
@@ -590,8 +701,27 @@ safe-buffer/index.js:
     function selectTarget(id) {
       target = id;
       document.getElementById("joystick-title").textContent = `Driving ${id}`;
-      document.getElementById("joystick-wrap").style.display = "block";
+      applyDriveMode();  // reveal whichever input (joystick / D-pad) is active
     }
+
+    // Drive input mode — the segmented control switches between the analog
+    // joystick and the discrete D-pad. Only reveal an input once a target is
+    // chosen (professor "all" scope hasn't picked a robot before then).
+    let driveMode = "joystick";
+    function applyDriveMode() {
+      const ready = !!target;
+      document.getElementById("joystick-wrap").style.display = ready && driveMode === "joystick" ? "block" : "none";
+      document.getElementById("dpad-wrap").style.display     = ready && driveMode === "dpad"     ? "block" : "none";
+    }
+    document.getElementById("drive-mode").addEventListener("click", (e) => {
+      const seg = e.target.closest("button[data-mode]");
+      if (!seg) return;
+      driveMode = seg.dataset.mode;
+      for (const b of document.querySelectorAll("#drive-mode button"))
+        b.setAttribute("aria-selected", String(b === seg));
+      stopStick();        // releasing the old input must not leave motors latched
+      applyDriveMode();
+    });
 
     // ---- Assign: professor names a board's team, pushed over MQTT as config ----
     // Select-then-act (mirrors the drive panel): the board LIST re-renders on a
@@ -761,6 +891,43 @@ safe-buffer/index.js:
       sendPwm(drawStick(kx, ky));
     });
     pad.addEventListener("blur", () => { kx = 0; ky = 0; stopStick(); });
-  </script>
+
+    // ---- D-pad: hold-to-drive (the "Buttons" mode). Each direction maps to a
+    // left/right motor pair; a spin turns the wheels opposite, forward/back
+    // together. While a button is held we RE-SEND at 120 ms because the firmware
+    // watchdog (pwm.duration_ms = 200) stops the motors if commands lapse — a
+    // single press would otherwise coast to a halt. Release → one stop frame. ----
+    const DPAD = {
+      fwd:   { left:  200, right:  200 },
+      back:  { left: -200, right: -200 },
+      left:  { left: -200, right:  200 },
+      right: { left:  200, right: -200 },
+    };
+    const dpad = document.querySelector(".dpad");
+    const dpadReadout = document.getElementById("dpad-readout");
+    let dpadTimer = null;
+    function dpadStop() {
+      if (dpadTimer) { clearInterval(dpadTimer); dpadTimer = null; }
+      sendPwm({ left: 0, right: 0 });
+      dpadReadout.textContent = "hold a direction to drive";
+      for (const b of dpad.querySelectorAll("button")) b.classList.remove("pressed");
+    }
+    dpad.addEventListener("pointerdown", (e) => {
+      const btn = e.target.closest("button[data-drive]");
+      if (!btn) return;
+      e.preventDefault();
+      const dir = btn.dataset.drive;
+      if (dir === "stop") { dpadStop(); return; }
+      btn.setPointerCapture?.(e.pointerId);
+      const motors = DPAD[dir];
+      btn.classList.add("pressed");
+      dpadReadout.textContent = `${dir} → left=${motors.left} right=${motors.right}`;
+      sendPwm(motors);
+      if (dpadTimer) clearInterval(dpadTimer);
+      dpadTimer = setInterval(() => sendPwm(motors), 120);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((evt) =>
+      dpad.addEventListener(evt, dpadStop));
+</script>
 </body>
 </html>
