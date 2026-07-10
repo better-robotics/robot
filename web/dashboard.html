@@ -227,6 +227,10 @@
     @keyframes reqspin { to { transform: rotate(360deg); } }
     #codes-req-list .codes-row { border-left: 3px solid var(--accent); }
     .req-board { color: var(--ink-muted); font-size: 0.82rem; }
+    /* Join grant: a signed-in team's one-tap approval of a knock on its own
+       name (another browser, an AI bridge pairing from its chat). */
+    #join-req { display: none; border-left: 3px solid var(--accent); margin-top: 0.6rem; }
+    .pair-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.15em; }
     #codes-share { margin-top: 0.8rem; }
     #codes-qr svg { width: 11rem; height: 11rem; background: #fff; padding: 0.5rem; border-radius: 8px; }
     .btn-drive.driving { background: var(--accent); color: var(--accent-ink); }
@@ -470,6 +474,12 @@
     </div>
     <p id="gate-error">Wrong code, or the hub isn't accepting drive connections.</p>
     <p id="identity-bar">Signed in as <b id="identity-name"></b><button id="logout-btn">Log out</button></p>
+    <div id="join-req" class="codes-row">
+      <span id="join-req-text"></span>
+      <span class="spacer"></span>
+      <button id="join-approve">Approve</button>
+      <button id="join-deny" title="Dismiss this request">&#10005;</button>
+    </div>
 
     <div id="drive-panel">
       <p id="scope-label"></p>
@@ -3519,7 +3529,7 @@ safe-buffer/index.js:
       try { driveClient.end(true); } catch {}
       driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
       localStorage.removeItem("hubCred");
-      for (const id of ["drive-panel", "assign", "codes", "identity-bar"])
+      for (const id of ["drive-panel", "assign", "codes", "identity-bar", "join-req"])
         document.getElementById(id).style.display = "none";
       document.getElementById("code-gate").style.display = "";
       document.getElementById("code-input").value = "";
@@ -3541,6 +3551,7 @@ safe-buffer/index.js:
       clearInterval(reqTimer); reqTimer = null;
       localStorage.removeItem("hubReqToken"); localStorage.removeItem("hubReqName");
       localStorage.removeItem("hubReqBoard");
+      localStorage.removeItem("hubReqPair"); localStorage.removeItem("hubReqJoin");
       reqStatus(msg || "", cls);
     }
     async function pollRequest() {
@@ -3560,7 +3571,13 @@ safe-buffer/index.js:
       } // "waiting" → keep polling
     }
     function startRequestWait(name) {
-      reqStatus(`Waiting for the professor to approve “${name}”… keep this page open.`, "waiting");
+      // The pairing code is the human match: the approving screen shows the
+      // same four characters, so a knock can't be blind-approved for someone else.
+      const pair = localStorage.getItem("hubReqPair");
+      const who = localStorage.getItem("hubReqJoin")
+        ? `${name}'s signed-in screen` : "the professor";
+      reqStatus(`Waiting for ${who} to approve “${name}”…`
+        + (pair ? ` Your pairing code is ${pair}.` : "") + " Keep this page open.", "waiting");
       document.getElementById("req-access").style.display = "none";
       if (!reqTimer) reqTimer = setInterval(pollRequest, 3000);
       pollRequest();
@@ -3583,6 +3600,8 @@ safe-buffer/index.js:
       localStorage.setItem("hubReqToken", r.token);
       localStorage.setItem("hubReqName", name);
       if (board) localStorage.setItem("hubReqBoard", board);
+      if (r.pair) localStorage.setItem("hubReqPair", r.pair);
+      if (r.join) localStorage.setItem("hubReqJoin", "1");
       startRequestWait(name);
       return null;
     }
@@ -3597,6 +3616,48 @@ safe-buffer/index.js:
     document.getElementById("req-name").addEventListener("keydown", e => {
       if (e.key === "Enter") sendRequest();
     });
+
+    // ---- Join requests, team side: while signed in, watch the public request
+    // list for a knock on OUR name (a second browser, or an AI bridge pairing
+    // from its chat) and offer a one-tap grant. Granting re-shares this
+    // session's own code (/codes/grant authenticates with it) — nothing is
+    // minted, the rover's credential is untouched. The pairing code shown must
+    // match the requester's screen; that comparison is the whole check.
+    let joinShown = null; // pair currently offered, or "hold" during the post-answer beat
+    async function watchJoinRequests() {
+      const box = document.getElementById("join-req");
+      if (joinShown === "hold") return;
+      if (!codesApi || !myCred || myCred.user === "professor") {
+        box.style.display = "none"; joinShown = null; return;
+      }
+      let r;
+      try { r = await (await fetch("/codes/requests")).json(); } catch { return; }
+      const mine = r.requests.find(q => q.join && q.name === myCred.user);
+      if (!mine) { box.style.display = "none"; joinShown = null; return; }
+      if (joinShown === mine.pair) return;
+      joinShown = mine.pair;
+      document.getElementById("join-req-text").innerHTML =
+        `Someone — your own AI, maybe — asks to join as <b>${esc(myCred.user)}</b>. ` +
+        `Approve only if their screen shows the pairing code <b class="pair-code">${esc(mine.pair)}</b>.`;
+      box.querySelectorAll("button").forEach(b => b.style.display = "");
+      box.style.display = "flex";
+    }
+    setInterval(watchJoinRequests, 4000);
+    async function answerJoin(endpoint, doneMsg) {
+      const box = document.getElementById("join-req");
+      let r;
+      try { r = await (await fetch(endpoint, { method: "POST",
+        body: JSON.stringify({ auth: myCred.pass, name: myCred.user }) })).json(); }
+      catch { r = { error: "the hub didn't answer" }; }
+      document.getElementById("join-req-text").textContent = r.ok ? doneMsg : r.error;
+      box.querySelectorAll("button").forEach(b => b.style.display = "none");
+      joinShown = "hold";
+      setTimeout(() => { box.style.display = "none"; joinShown = null; }, 5000);
+    }
+    document.getElementById("join-approve").addEventListener("click", () =>
+      answerJoin("/codes/grant", "Granted — they're in, with this team's scope."));
+    document.getElementById("join-deny").addEventListener("click", () =>
+      answerJoin("/codes/deny", "Dismissed."));
 
     // ---- Inline claim on the pool row: Claim swaps the button for a name
     // field IN the row; Request knocks with the board attached; the row shows
@@ -3670,9 +3731,11 @@ safe-buffer/index.js:
         document.getElementById("codes-req-list").innerHTML = r.requests
           .map(q => `<div class="codes-row"><b>${esc(q.name)}</b>
              ${q.board ? `<span class="req-board">claims ${esc(q.board)}</span>` : ""}
+             ${q.join ? `<span class="req-board">rejoin — the team grants it from its own signed-in screen</span>` : ""}
+             ${q.pair ? `<span class="req-board">pair <span class="pair-code">${esc(q.pair)}</span></span>` : ""}
              <span class="spacer"></span>
              ${q.board ? `<button data-blinkreq="${esc(q.board)}" title="Blink the claimed board">&#128161;</button>` : ""}
-             <button data-approve="${esc(q.name)}">Approve</button>
+             ${q.join ? "" : `<button data-approve="${esc(q.name)}">Approve</button>`}
              <button data-denyreq="${esc(q.name)}">&#10005;</button></div>`).join("");
       } catch { /* not hub-served */ }
     }
