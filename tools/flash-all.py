@@ -9,11 +9,14 @@ CP210x, CH340, Espressif native USB-CDC) — a hub's USB-gadget console or
 any other unrelated serial device on the bus reports a different vendor ID
 and gets skipped instead of getting an esptool sync thrown at it.
 
-VID→env is a clean 1:1 here (unlike workbench's board picker, which has to
-disambiguate CP210x between two boards): this fleet's esp32dev is FTDI and
-esp32cam is CP210x, so vendor ID alone picks the right env. CH340 has no env
-in this repo's platformio.ini (no CH340 board in the fleet) — matched but
-unmapped ports are reported, not guessed at.
+VID→env is a *best-effort guess*, not a guarantee: it's 1:1 only while each VID
+maps to one board. It stops being 1:1 the moment two boards share a bridge chip
+— e.g. a plain rover on a CP2102 adapter (same VID as the CAM). For that case
+HARDWARE_SPECIFIC envs (esp32cam, whose -DHAS_CAMERA=1 mutes a non-camera board)
+refuse to auto-flash on a VID collision and are reported for explicit by-port
+flashing, rather than guessed at. CH340 has no env in this repo's platformio.ini
+(no CH340 board in the fleet) — matched but unmapped ports are likewise reported,
+not guessed at.
 
 Usage:
     tools/flash-all.py              # flash every ESP32 found
@@ -35,6 +38,16 @@ VID_TO_ENV = {
 }
 VID_NAME = {0x0403: "FT232R", 0x10c4: "CP2102", 0x1a86: "CH340", 0x303a: "USB-CDC/JTAG"}
 ESP_USB_VIDS = set(VID_NAME)  # includes 0x1a86 (CH340) even with no env mapped
+
+# Envs whose build hard-codes a specific board's hardware, so flashing one onto
+# the WRONG board breaks it rather than merely losing a feature: esp32cam ships
+# -DHAS_CAMERA=1, which disables motors + the button (camera.c owns those pins).
+# The VID→env map is a *guess* — safe only when the VID uniquely identifies the
+# board. It stopped being safe once a plain rover joined the bench on a CP2102
+# adapter (same VID as the CAM): two 0x10c4 ports, and we can't tell which is the
+# camera. So we refuse to auto-guess these envs on a VID collision and make the
+# operator flash them by port, instead of silently muting a motor rover.
+HARDWARE_SPECIFIC = {"esp32cam"}
 
 
 def main():
@@ -60,6 +73,25 @@ def main():
         sys.exit("no flashable ESP32 boards found on USB")
 
     plan = [(p, VID_TO_ENV[p.vid]) for p in matched]
+
+    # A hardware-specific env with >1 candidate port is an unresolved guess —
+    # drop those ports from the auto plan and tell the operator to flash by port.
+    from collections import Counter
+    env_counts = Counter(env for _, env in plan)
+    ambiguous = {env for env in HARDWARE_SPECIFIC if env_counts.get(env, 0) > 1}
+    if ambiguous:
+        for env in sorted(ambiguous):
+            devs = [p.device for p, e in plan if e == env]
+            print(f"AMBIGUOUS: {len(devs)} ports map to {env} ({', '.join(devs)}) — "
+                  f"can't tell which is the real board. Flash it explicitly:\n"
+                  f"    pio run -e {env} -t upload --upload-port <the-right-port>\n"
+                  f"    pio run -e <other-env> -t upload --upload-port <the-other-port>",
+                  flush=True)
+        plan = [(p, env) for p, env in plan if env not in ambiguous]
+
+    if not plan:
+        sys.exit("nothing left to auto-flash (all candidates were ambiguous)")
+
     print(f"found {len(plan)} board(s):", flush=True)
     for p, env in plan:
         print(f"  {p.device} (vid=0x{p.vid:04x} {VID_NAME[p.vid]}) -> {env}", flush=True)
