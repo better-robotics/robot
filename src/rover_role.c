@@ -170,6 +170,15 @@ static bool s_motor_ready = false;   /* false if init failed on a bad pin — dr
 enum { CH_ENA, CH_ENB };   /* two LEDC channels, one per enable/speed pin */
 static esp_timer_handle_t s_motor_watchdog;
 
+/* Safety floor (CONTRACT.md § Safety floor): a non-zero drive ALWAYS self-
+ * expires. Without the clamp, duration_ms<=0 skips the watchdog arm (motors
+ * run until the next command — forever, if none comes) and an oversized value
+ * defeats it in practice. 4000 matches workbench's LLM_MAX_DURATION_MS, so a
+ * single command from any client is bounded the same everywhere; a sustained
+ * drive is a refreshing command stream, the human-joystick shape. */
+#define PWM_DEFAULT_DURATION_MS 400
+#define PWM_MAX_DURATION_MS    4000
+
 static void motor_speed(int ch, int duty) {
     ledc_set_duty(LEDC_LOW_SPEED_MODE, ch, duty < 0 ? 0 : duty > 255 ? 255 : duty);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, ch);
@@ -253,9 +262,13 @@ static void motor_apply(const char *json, int len) {
     }
     int left  = json_int(root, "left_motor",  0);
     int right = json_int(root, "right_motor", 0);
-    int ms    = json_int(root, "duration_ms", 400);
+    int ms    = json_int(root, "duration_ms", PWM_DEFAULT_DURATION_MS);
     cJSON_Delete(root);
 
+    if (left || right) {                              /* zero drive = stop; no timer needed */
+        if (ms <= 0) ms = PWM_DEFAULT_DURATION_MS;
+        else if (ms > PWM_MAX_DURATION_MS) ms = PWM_MAX_DURATION_MS;
+    }
     s_last_drive_us = esp_timer_get_time();           /* hub_watch skips its scan while driving */
     motor_drive(left, right);
     esp_timer_stop(s_motor_watchdog);                 /* no-op if not armed */
