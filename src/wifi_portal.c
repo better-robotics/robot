@@ -57,15 +57,21 @@ static const char PAGE[] =
 "try{let r=await fetch('/wifi/scan');let a=await r.json();"
 "if(!a.length){d.innerHTML='<p class=s>no networks found \\u2014 try again</p>';return}"
 "d.innerHTML='';a.forEach(n=>{let b=document.createElement('button');b.type='button';"
-"b.innerHTML='<span>'+n.ssid+(n.open?'':' \\uD83D\\uDD12')+'</span><span class=s>'+n.rssi+' dBm</span>';"
+/* textContent, NOT innerHTML: an SSID is attacker-controllable (any nearby AP can
+ * name itself with markup), so it must never be parsed as HTML. */
+"let s1=document.createElement('span');s1.textContent=n.ssid+(n.open?'':' \\uD83D\\uDD12');"
+"let s2=document.createElement('span');s2.className='s';s2.textContent=n.rssi+' dBm';"
+"b.append(s1,s2);"
 "b.onclick=()=>{document.getElementById('ssid').value=n.ssid;document.getElementById('pass').focus()};"
 "d.appendChild(b)})}catch(e){d.innerHTML='<p class=s>scan failed \\u2014 try again</p>'}}"
 "async function save(e){e.preventDefault();let m=document.getElementById('msg');m.textContent='saving\\u2026';"
 "let f=new URLSearchParams(new FormData(e.target));"
 "try{await fetch('/wifi/save',{method:'POST',body:f});"
-"m.innerHTML='<b>Saved.</b> The rover is restarting to join <b>'+document.getElementById('ssid').value+"
-"'</b>. Reconnect your device to that network, then open <b>rover.local</b>.'}"
-"catch(x){m.innerHTML='<b>Saved.</b> The rover is restarting.'}return false}"
+/* textContent again: the ssid value is device-derived, so echo it as text, never HTML. */
+"let nm=document.createElement('b');nm.textContent=document.getElementById('ssid').value;"
+"m.textContent='Saved. The rover is restarting to join ';m.appendChild(nm);"
+"m.append('. Reconnect your device to that network, then open rover.local.')}"
+"catch(x){m.textContent='Saved. The rover is restarting.'}return false}"
 "</script></body></html>";
 
 static esp_err_t page_get(httpd_req_t *req)
@@ -96,11 +102,15 @@ static esp_err_t scan_get(httpd_req_t *req)
     size_t off = 0;
     off += snprintf(json + off, cap - off, "[");
     for (int i = 0; i < n; i++) {
-        /* ssid is from a scan (device-supplied) — escape " and \\ so it can't break the JSON. */
+        /* ssid is from a scan (device-supplied, attacker-controllable). Escape " and
+         * \\ and DROP control bytes (<0x20): raw control chars are invalid JSON (would
+         * break JSON.parse) and defense-in-depth against injection — the page renders
+         * SSIDs with textContent, so legal high/UTF-8 bytes pass through safely. */
         char esc[65]; size_t e = 0;
-        for (const char *p = aps[i].ssid; *p && e < sizeof esc - 2; p++) {
+        for (const unsigned char *p = (const unsigned char *)aps[i].ssid; *p && e < sizeof esc - 2; p++) {
+            if (*p < 0x20) continue;
             if (*p == '"' || *p == '\\') esc[e++] = '\\';
-            esc[e++] = *p;
+            esc[e++] = (char)*p;
         }
         esc[e] = 0;
         off += snprintf(json + off, cap - off, "%s{\"ssid\":\"%s\",\"rssi\":%d,\"open\":%s}",
