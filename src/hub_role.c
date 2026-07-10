@@ -223,7 +223,21 @@ static bool sta_join(const char *ssid, const char *pass)
     strncpy((char *)sta.sta.ssid, ssid, sizeof(sta.sta.ssid) - 1);
     strncpy((char *)sta.sta.password, pass, sizeof(sta.sta.password) - 1);
     sta.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta));
+    /* Never ESP_ERROR_CHECK here: if the auto-reconnect handler left an attempt
+     * in flight (dead AP), set_config returns ESP_ERR_WIFI_STATE — abort()ing on
+     * it crash-rebooted every rover whose hub vanished (robot#1, caught in the
+     * 2026-07-10 AP-bounce test). Abort the attempt and retry once instead. */
+    esp_err_t e = esp_wifi_set_config(WIFI_IF_STA, &sta);
+    if (e == ESP_ERR_WIFI_STATE) {
+        s_want_connect = false;
+        esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(200));
+        e = esp_wifi_set_config(WIFI_IF_STA, &sta);
+    }
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "sta_join '%s': set_config failed (%s)", ssid, esp_err_to_name(e));
+        return false;   /* caller's loop re-evaluates; the AP stays up regardless */
+    }
     s_want_connect = true;
     esp_wifi_connect();
     for (int i = 0; i < 120 && !s_sta_got_ip; i++) vTaskDelay(pdMS_TO_TICKS(250));
@@ -264,7 +278,15 @@ static bool scan_for_hub(char out[33])
 #define HUB_SCAN_TRIES 3
 static bool discover_hub(char out[33])
 {
-    s_want_connect = false;   /* don't let a reconnect fire mid-scan ("scan not allowed") */
+    /* Quiesce the STA leg first. Clearing the gate only stops FUTURE reconnects;
+     * an attempt already in flight (the handler redialing a vanished AP) keeps
+     * the driver in "connecting", where every scan is refused ("scan not
+     * allowed") — so a rover whose hub died could never SEE the hub coming back
+     * (robot#1, 2026-07-10 AP-bounce test). Disconnect aborts the attempt; on an
+     * idle STA it's a harmless no-op. */
+    s_want_connect = false;
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(200));   /* let the driver settle before scanning */
     ESP_LOGI(TAG, "scanning for an open hub-* network");
     for (int t = 0; t < HUB_SCAN_TRIES; t++) {
         if (scan_for_hub(out)) return true;
