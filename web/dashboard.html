@@ -3164,7 +3164,9 @@ safe-buffer/index.js:
           actions.push(`<button class="btn-drive${target === id ? " driving" : ""}" data-robot="${esc(id)}">${target === id ? "Driving" : "Drive"}</button>`);
         return `<div class="robot${offline ? " offline" : ""}">
           <h2><span class="dot"></span>${esc(id)}${offline ? '<span class="offline-label">offline</span>' : ""}</h2>
-          <div class="hw">${esc(sys.hw || "unknown board")}</div>
+          <!-- The board id stays visible after assignment: it's the physical
+               handle — the rover's own Wi-Fi name, the Blink/assign target. -->
+          <div class="hw">${sys.board ? `${esc(sys.board)} · ` : ""}${esc(sys.hw || "unknown board")}</div>
           <dl>
             <dt>uptime</dt><dd>${sys.uptime_ms != null ? fmtUptime(sys.uptime_ms) : "—"}</dd>
             <dt>free heap</dt><dd>${sys.free_heap != null ? Math.round(sys.free_heap / 1024) + " KB" : "—"}</dd>
