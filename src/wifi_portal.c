@@ -68,10 +68,13 @@ static const char PAGE[] =
 "let f=new URLSearchParams(new FormData(e.target));"
 "try{await fetch('/wifi/save',{method:'POST',body:f});"
 /* textContent again: the ssid value is device-derived, so echo it as text, never HTML. */
+/* The rover stays your access point (Pi model): its STA leg is only the internet
+ * uplink, so the student keeps their device on the rover's OWN Wi-Fi throughout. */
 "let nm=document.createElement('b');nm.textContent=document.getElementById('ssid').value;"
-"m.textContent='Saved. The rover is restarting to join ';m.appendChild(nm);"
-"m.append('. Reconnect your device to that network, then open rover.local.')}"
-"catch(x){m.textContent='Saved. The rover is restarting.'}return false}"
+"m.textContent='Saved. The rover is restarting to use ';m.appendChild(nm);"
+"m.append(' for internet \\u2014 it stays your Wi-Fi. Keep this device on the rover\\u2019s network "
+"(it reappears with the same name in ~10s), then reopen rover.local.')}"
+"catch(x){m.textContent='Saved. The rover is restarting \\u2014 stay on its Wi-Fi and reopen rover.local.'}return false}"
 "</script></body></html>";
 
 static esp_err_t page_get(httpd_req_t *req)
