@@ -37,7 +37,7 @@ static const char PAGE[] =
 "<title>Rover Wi-Fi</title><style>"
 "body{font:16px system-ui,sans-serif;max-width:26rem;margin:2rem auto;padding:0 1rem;"
 "background:#111;color:#eee}h1{font-size:1.3rem}"
-"input,button{font:inherit;width:100%;box-sizing:border-box;padding:.6rem;margin:.3rem 0;"
+"input,button,select{font:inherit;width:100%;box-sizing:border-box;padding:.6rem;margin:.3rem 0;"
 "border-radius:.5rem;border:1px solid #444;background:#1c1c1c;color:#eee}"
 "button{background:#2563eb;border:0;cursor:pointer}button:active{background:#1d4ed8}"
 "#nets button{background:#1c1c1c;border:1px solid #333;text-align:left;display:flex;justify-content:space-between}"
@@ -52,6 +52,16 @@ static const char PAGE[] =
 "<input id=pass name=pass type=password placeholder=\"Password (blank if open)\">"
 "<button type=submit>Save &amp; restart</button></form>"
 "<div id=msg></div>"
+"<hr style=\"border-color:#333;margin:1.5rem 0\">"
+"<h1>Board role</h1>"
+"<p class=s>What this board is. Changing it restarts the board.</p>"
+"<select id=role>"
+"<option value=auto>Normal rover &#8212; drives; hosts itself at home</option>"
+"<option value=hub>Classroom hub &#8212; hosts the class, no driving</option>"
+"<option value=rover>Rover only &#8212; always joins a hub</option>"
+"</select>"
+"<button onclick=setrole()>Apply role &amp; restart</button>"
+"<div id=rmsg></div>"
 "<script>"
 "async function scan(){let d=document.getElementById('nets');d.innerHTML='<p class=s>scanning\\u2026</p>';"
 "try{let r=await fetch('/wifi/scan');let a=await r.json();"
@@ -75,6 +85,15 @@ static const char PAGE[] =
 "m.append(' for internet \\u2014 it stays your Wi-Fi. Keep this device on the rover\\u2019s network "
 "(it reappears with the same name in ~10s), then reopen rover.local.')}"
 "catch(x){m.textContent='Saved. The rover is restarting \\u2014 stay on its Wi-Fi and reopen rover.local.'}return false}"
+/* Reflect the board's current role in the select on load. */
+"fetch('/wifi/role').then(r=>r.json()).then(j=>{document.getElementById('role').value=j.role}).catch(()=>{});"
+"async function setrole(){let rm=document.getElementById('rmsg');rm.textContent='applying\\u2026';"
+"let v=document.getElementById('role').value;let f=new URLSearchParams();f.append('role',v);"
+"try{await fetch('/wifi/role',{method:'POST',body:f});"
+"rm.textContent=v=='hub'?'Now the classroom hub. It restarts and appears as an open hub-\\u2026 network (hub.local); rovers auto-join it.':"
+"v=='rover'?'Rover-only. Restarting \\u2014 it will keep looking for a hub to join.':"
+"'Normal rover. Restarting \\u2014 stay on its Wi-Fi and reopen rover.local.'}"
+"catch(x){rm.textContent='Applied \\u2014 restarting\\u2026'}}"
 "</script></body></html>";
 
 static esp_err_t page_get(httpd_req_t *req)
@@ -161,7 +180,7 @@ static void reboot_task(void *arg)
 {
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(1500));   /* let the HTTP response flush + socket close */
-    ESP_LOGW(TAG, "config-apply restart — joining the newly-saved network");
+    ESP_LOGW(TAG, "config-apply restart (new Wi-Fi or role)");
     esp_restart();
 }
 
@@ -201,6 +220,57 @@ static esp_err_t save_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* ── Board role (#2 tier-2 designate) ─────────────────────────────────────────
+ * role_pref selects the boot dispatch (main.c): auto/rover → board_run, hub →
+ * hub_role_run. Exposing it here is what lets a professor turn any board into the
+ * classroom hub — and back — without reflashing. The hub ALSO serves this panel
+ * (hub_role_run calls wifi_portal_start), so designating HUB isn't a one-way trip. */
+static const char *role_str(rover_role_pref_t r)
+{
+    return r == ROLE_HUB ? "hub" : r == ROLE_ROVER ? "rover" : "auto";
+}
+
+static esp_err_t role_get(httpd_req_t *req)
+{
+    char j[32];
+    snprintf(j, sizeof j, "{\"role\":\"%s\"}", role_str(rover_config_load_role_pref()));
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, j);
+}
+
+static esp_err_t role_post(httpd_req_t *req)
+{
+    char body[64];
+    int total = 0;
+    while (total < (int)sizeof body - 1) {
+        int r = httpd_req_recv(req, body + total, sizeof body - 1 - total);
+        if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (r <= 0) break;
+        total += r;
+    }
+    body[total] = 0;
+
+    char role[8];
+    if (!form_field(body, "role", role, sizeof role)) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return httpd_resp_sendstr(req, "missing role");
+    }
+    rover_role_pref_t rp = strcmp(role, "hub")   == 0 ? ROLE_HUB
+                         : strcmp(role, "rover") == 0 ? ROLE_ROVER
+                         : ROLE_AUTO;   /* unknown → the safe default */
+    esp_err_t e = rover_config_set_role_pref(rp);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "rover_config_set_role_pref failed: %s", esp_err_to_name(e));
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    ESP_LOGW(TAG, "role set to '%s' — restarting into the new dispatch", role_str(rp));
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "ok");
+    xTaskCreate(reboot_task, "role-reboot", 2048, NULL, 5, NULL);
+    return ESP_OK;
+}
+
 void wifi_portal_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
@@ -218,12 +288,16 @@ void wifi_portal_start(void)
     httpd_uri_t u_page  = { .uri = "/wifi",      .method = HTTP_GET,  .handler = page_get };
     httpd_uri_t u_scan  = { .uri = "/wifi/scan", .method = HTTP_GET,  .handler = scan_get };
     httpd_uri_t u_save  = { .uri = "/wifi/save", .method = HTTP_POST, .handler = save_post };
+    httpd_uri_t u_rget  = { .uri = "/wifi/role", .method = HTTP_GET,  .handler = role_get };
+    httpd_uri_t u_rpost = { .uri = "/wifi/role", .method = HTTP_POST, .handler = role_post };
     httpd_uri_t u_root  = { .uri = "/",          .method = HTTP_GET,  .handler = root_redirect };
     httpd_register_uri_handler(s_http, &u_page);
     httpd_register_uri_handler(s_http, &u_scan);
     httpd_register_uri_handler(s_http, &u_save);
+    httpd_register_uri_handler(s_http, &u_rget);
+    httpd_register_uri_handler(s_http, &u_rpost);
     httpd_register_uri_handler(s_http, &u_root);
-    ESP_LOGI(TAG, "Wi-Fi config panel at http://rover.local/wifi (192.168.99.1)");
+    ESP_LOGI(TAG, "config panel on :80 (/wifi — Wi-Fi + board role)");
 }
 
 httpd_handle_t wifi_portal_httpd(void)

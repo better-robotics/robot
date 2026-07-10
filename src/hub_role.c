@@ -472,10 +472,26 @@ void hub_role_run(void)
     wifi_apsta_up(ap_ssid, "hub", false);     /* AP stays 192.168.4.1 — boards join THIS;
                                                * mDNS → hub.local (matches the Pi) */
 
-    /* Fixed venue uplink from the gitignored creds header — fire-and-forget: the
-     * broker below must come up NOW (the classroom works offline), so we don't
-     * block on the join; the event handler reconnects and NAT arms if it lands. */
-    wifi_config_t sta = { .sta = { .ssid = STA_SSID, .password = STA_PASS } };
+    /* The config panel runs here too (hub.local/wifi): so designating a board as
+     * HUB isn't a one-way trip (flip role back to auto), and the professor sets the
+     * venue uplink below at runtime. Must start BEFORE start_ws_mqtt_bridge so the
+     * dashboard registers onto this shared :80 instead of opening its own. */
+    wifi_portal_start();
+
+    /* Venue uplink: a stored network (set from the panel) wins; else the gitignored
+     * compile-time creds. Fire-and-forget — the broker must come up NOW (the
+     * classroom works offline), so we don't block on the join; the event handler
+     * reconnects and NAT arms if it lands. */
+    char ssid[33], pass[65], loc[65];
+    rover_config_load(ssid, pass, loc);
+    wifi_config_t sta = {0};   /* zero-init: unused tail stays NUL, no terminator needed */
+    const char *up_ssid = ssid[0] ? ssid : STA_SSID;
+    const char *up_pass = ssid[0] ? pass : STA_PASS;
+    size_t sl = strnlen(up_ssid, sizeof sta.sta.ssid);
+    size_t pl = strnlen(up_pass, sizeof sta.sta.password);
+    memcpy(sta.sta.ssid, up_ssid, sl);
+    memcpy(sta.sta.password, up_pass, pl);
+    ESP_LOGI(TAG, "hub uplink: %s '%s'", ssid[0] ? "stored" : "compile-time", up_ssid);
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta));
     s_want_connect = true;
     esp_wifi_connect();
