@@ -441,6 +441,9 @@
       <input id="assign-team" placeholder="team (e.g. team3)" autocomplete="off">
       <input id="assign-pass" type="password" placeholder="team password" autocomplete="off">
       <input id="assign-name" placeholder="name — optional" autocomplete="off">
+      <!-- Rogue-hub guard, TOFU at assignment time: lock the board to one exact
+           hub SSID so a student's own hub-XXXX can't absorb it. "-" clears. -->
+      <input id="assign-hub" placeholder='hub pin — optional (e.g. hub-a045; "-" clears)' autocomplete="off">
       <details id="assign-pins-wrap">
         <summary>Motor pins — only for a custom-wired chassis</summary>
         <p class="pins-help">Leave blank to keep the rover's current wiring. GPIO numbers, 0–33.</p>
@@ -900,6 +903,11 @@ safe-buffer/index.js:
       const cfg = { target: assignTarget.board, team };
       if (pass) cfg.pass = pass;
       if (name) cfg.name = name;
+      // Hub pin: empty = leave as-is, "-" = clear (sends ""), else set. The
+      // rover refuses a non-hub-* value, so a typo can't strand the board.
+      const hubPin = document.getElementById("assign-hub").value.trim();
+      if (hubPin === "-") cfg.hub = "";
+      else if (hubPin) cfg.hub = hubPin;
       // Motor pins: only the fields actually filled (the firmware seeds the rest
       // from the rover's current wiring). Out-of-range is refused rover-side.
       const pins = {};
@@ -918,7 +926,7 @@ safe-buffer/index.js:
       logLine("out", `${topic} ${JSON.stringify(cfg)}`);
       status.textContent = `Sent — ${assignTarget.board} → ${team}${cfg.pins ? " (+ motor pins)" : ""}. It reboots and reappears under ${team} in a few seconds.`;
       status.className = "assign-ok";
-      ["assign-team", "assign-pass", "assign-name",
+      ["assign-team", "assign-pass", "assign-name", "assign-hub",
        "pin-ena", "pin-in1", "pin-in2", "pin-enb", "pin-in3", "pin-in4"]
         .forEach(i => document.getElementById(i).value = "");
     });

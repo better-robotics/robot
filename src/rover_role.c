@@ -282,6 +282,21 @@ static void config_apply(const char *json, int len) {
         changed = true;
     }
 
+    /* Optional "hub" pin — lock this board to one exact hub SSID (rogue-hub
+     * guard, TOFU at assignment time). "" clears; a non-hub-* value is refused
+     * (it would admit nothing and strand the board off every hub). */
+    const cJSON *hub = cJSON_GetObjectItemCaseSensitive(root, "hub");
+    if (cJSON_IsString(hub)) {
+        if (rover_config_set_hub_pin(hub->valuestring) == ESP_OK) {
+            ESP_LOGW(TAG, "hub pin %s%s", hub->valuestring[0] ? "set: " : "cleared",
+                     hub->valuestring);
+            changed = true;
+        } else {
+            ESP_LOGW(TAG, "config: hub pin '%s' refused (must be hub-* or empty)",
+                     hub->valuestring);
+        }
+    }
+
     /* Optional {"pins":{ena,in1,in2,enb,in3,in4}} — a student's chassis wiring.
      * Seed with current pins so a partial object only overrides what it names;
      * set_motor_pins rejects out-of-range and won't persist a boot-loop pin. */

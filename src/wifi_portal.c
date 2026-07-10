@@ -149,6 +149,7 @@ static const char PAGE[] =
 "'self-hosted \\u00b7 no internet uplink (drives fine offline)'):"
 "j.state=='remote'?'on '+j.uplink+(j.ip?' ('+j.ip+')':''):"
 "'looking for a network\\u2026';"
+"if(j.pin)t+=' \\u00b7 pinned to '+j.pin;"
 "document.getElementById('bst').textContent=t;"
 "let g=document.getElementById('bgo');g.textContent='';"
 "if(j.dash&&document.documentElement.className!='embed'){"

@@ -83,6 +83,19 @@ void board_net_state_set(board_net_state_t st, const char *uplink_ssid, const ch
     snprintf(s_dash, sizeof s_dash, "%s", dash ? dash : "");
 }
 
+/* SSIDs are user/venue-supplied — escape " and \ , drop control bytes (same
+ * rule as the scan list; the pages render them with textContent). */
+static void json_esc_ssid(char *dst, size_t cap, const char *src)
+{
+    size_t e = 0;
+    for (const unsigned char *p = (const unsigned char *)src; *p && e < cap - 2; p++) {
+        if (*p < 0x20) continue;
+        if (*p == '"' || *p == '\\') dst[e++] = '\\';
+        dst[e++] = (char)*p;
+    }
+    dst[e] = 0;
+}
+
 int board_status_json(char *buf, size_t len)
 {
     static const char *st_str[] = { "searching", "hub", "remote", "local" };
@@ -92,18 +105,13 @@ int board_status_json(char *buf, size_t len)
         snprintf(ip, sizeof ip, IPSTR, IP2STR(&ipi.ip));
     rover_role_pref_t rp = rover_config_load_role_pref();
     const char *role = rp == ROLE_HUB ? "hub" : rp == ROLE_ROVER ? "rover" : "auto";
-    /* The uplink SSID is user/venue-supplied — escape " and \ , drop control bytes
-     * (same rule as the scan list; the pages render it with textContent). */
-    char esc[65]; size_t e = 0;
-    for (const unsigned char *p = (const unsigned char *)s_uplink_ssid; *p && e < sizeof esc - 2; p++) {
-        if (*p < 0x20) continue;
-        if (*p == '"' || *p == '\\') esc[e++] = '\\';
-        esc[e++] = (char)*p;
-    }
-    esc[e] = 0;
+    char esc[65], pin[33], pesc[65];
+    json_esc_ssid(esc, sizeof esc, s_uplink_ssid);
+    rover_config_load_hub_pin(pin);   /* surfaced so "did the pin apply" is visible */
+    json_esc_ssid(pesc, sizeof pesc, pin);
     return snprintf(buf, len,
-        "{\"state\":\"%s\",\"board\":\"%s\",\"role\":\"%s\",\"uplink\":\"%s\",\"ip\":\"%s\",\"dash\":\"%s\"}",
-        st_str[s_net_state], s_board_id, role, esc, ip, s_dash);
+        "{\"state\":\"%s\",\"board\":\"%s\",\"role\":\"%s\",\"uplink\":\"%s\",\"ip\":\"%s\",\"pin\":\"%s\",\"dash\":\"%s\"}",
+        st_str[s_net_state], s_board_id, role, esc, ip, pesc, s_dash);
 }
 
 /* Session auth: whole-session accept/reject, the only gate this broker offers (no
@@ -287,9 +295,11 @@ static bool sta_join(const char *ssid, const char *pass)
 }
 
 /* Zero-touch onboarding: an OPEN network named hub-* is the classroom
- * convention, so its existence is all the config a rover needs; strongest wins. */
-/* One active scan; returns the strongest open hub-* found (or false). */
-static bool scan_for_hub(char out[33])
+ * convention, so its existence is all the config a rover needs; strongest wins.
+ * A hub PIN (NVS, rover_config_set_hub_pin) narrows admission to one exact SSID
+ * (rover_hub_admits) — the rogue-hub guard. */
+/* One active scan; returns the strongest admissible hub found (or false). */
+static bool scan_for_hub(char out[33], const char *pin)
 {
     if (esp_wifi_scan_start(NULL, true) != ESP_OK) return false;
     uint16_t n = 0;
@@ -301,7 +311,7 @@ static bool scan_for_hub(char out[33])
     int best = -1;
     for (int i = 0; i < n; i++)
         if (ap[i].authmode == WIFI_AUTH_OPEN &&
-            strncmp((const char *)ap[i].ssid, HUB_SSID_PREFIX, sizeof HUB_SSID_PREFIX - 1) == 0 &&
+            rover_hub_admits((const char *)ap[i].ssid, pin) &&
             (best < 0 || ap[i].rssi > ap[best].rssi))
             best = i;
     if (best >= 0) {
@@ -328,9 +338,12 @@ static bool discover_hub(char out[33])
     s_want_connect = false;
     esp_wifi_disconnect();
     vTaskDelay(pdMS_TO_TICKS(200));   /* let the driver settle before scanning */
-    ESP_LOGI(TAG, "scanning for an open hub-* network");
+    char pin[33];
+    rover_config_load_hub_pin(pin);
+    if (pin[0]) ESP_LOGI(TAG, "scanning for pinned hub '%s' (foreign hub-* ignored)", pin);
+    else        ESP_LOGI(TAG, "scanning for an open hub-* network");
     for (int t = 0; t < HUB_SCAN_TRIES; t++) {
-        if (scan_for_hub(out)) return true;
+        if (scan_for_hub(out, pin)) return true;
     }
     return false;
 }
@@ -408,12 +421,13 @@ static bool sees_hub_to_yield_to(const uint8_t self_bssid[6])
     if (!ap) return false;
     uint16_t n = HUB_SCAN_MAX_AP;
     bool yield = false;
+    char pin[33];
+    rover_config_load_hub_pin(pin);   /* a pinned island yields ONLY to its own hub */
     if (esp_wifi_scan_get_ap_records(&n, ap) == ESP_OK) {
         for (int i = 0; i < n; i++) {
             const char *ss = (const char *)ap[i].ssid;
             if (memcmp(ap[i].bssid, self_bssid, 6) == 0) continue;   /* our own AP beacon */
-            if (ap[i].authmode == WIFI_AUTH_OPEN &&
-                strncmp(ss, HUB_SSID_PREFIX, sizeof HUB_SSID_PREFIX - 1) == 0) {
+            if (ap[i].authmode == WIFI_AUTH_OPEN && rover_hub_admits(ss, pin)) {
                 ESP_LOGW(TAG, "yield: hub '%s' present — stepping down (a real hub is preferred)", ss);
                 yield = true;
                 break;

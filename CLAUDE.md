@@ -121,7 +121,9 @@ compile-time `unassigned` pool credential (professor-drivable only — no
 student holds it) until the dashboard assigns one. Discovery results
 are never persisted — and **a hub in range wins over the stored network** (the
 classroom IS the venue; fixed 2026-07-10 — stored-first made a home-configured
-board reboot-loop off `hub_watch` instead of ever joining a classroom hub). Only
+board reboot-loop off `hub_watch` instead of ever joining a classroom hub). A
+stored **hub pin** narrows "a hub" to one exact SSID (`rover_hub_admits` —
+discovery AND hub-watch), so a pinned board never joins a foreign `hub-*`. Only
 when no `hub-*` is found does the stored ssid join, and a stored locator rides
 only its own stored network (half-stale config isn't trusted by halves).
 
@@ -209,8 +211,10 @@ correct code.
   No faked IMU. `synthetic:false`.
 - **NVS namespace `"rover"`** — keys: `ssid`/`pass`/`locator` (network),
   `user`/`mpass`/`name` (post-join team identity), `mpins` (6-byte motor-pin
-  blob, a custom-wired chassis), `role` (boot role, § Identity). All optional —
-  absent falls back to the compile-time / AUTO default.
+  blob, a custom-wired chassis), `role` (boot role, § Identity), `hubpin`
+  (optional exact-SSID hub lock — rogue-hub guard, set via cmd/config
+  `{"hub":…}`, `rover_hub_admits`). All optional — absent falls back to the
+  compile-time / AUTO default.
 
 ## Status
 **v6 (unified image) — builds green 2026-07-09; hub role not yet hardware-run.**

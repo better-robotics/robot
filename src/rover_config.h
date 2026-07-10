@@ -33,6 +33,15 @@ esp_err_t rover_config_set_identity(const char *user, const char *pass, const ch
 bool rover_config_load_motor_pins(int pins[6]);
 esp_err_t rover_config_set_motor_pins(const int pins[6]);
 
+/* Hub pin (optional, rogue-hub guard): when set, discovery and hub-watch admit
+ * ONLY this exact hub SSID (rover_hub_admits) — a pinned board never joins a
+ * foreign hub-*, so a student raising their own hub-XXXX can't absorb it.
+ * Trust-on-first-use: assigned post-join via cmd/config {"hub":"hub-a045"},
+ * cleared with {"hub":""}. Unset/"" = any open hub-*. set REJECTS a value that
+ * isn't "" or hub-* (≤32 chars) so a typo can't silently strand the board. */
+void rover_config_load_hub_pin(char pin[33]);
+esp_err_t rover_config_set_hub_pin(const char *pin);
+
 /* Boot role for the unified image. The dispatcher (main.c) reads this to pick
  * board_run (AUTO/ROVER, always-APSTA) vs hub_role_run (HUB, tier-2 professor
  * hub). AUTO is the default: the board may become its own island if no hub is

@@ -3,6 +3,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "provisioning_util.h"
+#include "roles.h"   /* HUB_SSID_PREFIX — hub-pin plausibility check */
 
 #define NS "rover"
 
@@ -91,6 +92,29 @@ esp_err_t rover_config_set_motor_pins(const int pins[6]) {
     nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
     if (e != ESP_OK) return e;
     e = nvs_set_blob(h, "mpins", raw, sizeof raw);
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+    return e;
+}
+
+void rover_config_load_hub_pin(char pin[33]) {
+    pin[0] = 0;
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return;
+    get_str(h, "hubpin", pin, 33);
+    nvs_close(h);
+}
+
+esp_err_t rover_config_set_hub_pin(const char *pin) {
+    if (!pin) return ESP_ERR_INVALID_ARG;
+    // "" clears; anything else must be a plausible hub SSID — a non-hub-* pin
+    // would admit nothing and silently strand the board off every hub.
+    if (pin[0] && (strlen(pin) > 32 ||
+                   strncmp(pin, HUB_SSID_PREFIX, sizeof HUB_SSID_PREFIX - 1) != 0))
+        return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+    e = nvs_set_str(h, "hubpin", pin);
     if (e == ESP_OK) e = nvs_commit(h);
     nvs_close(h);
     return e;
