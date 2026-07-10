@@ -42,4 +42,12 @@ void rover_button_start(void);
 typedef struct { char ssid[33]; signed char rssi; bool open; } board_ap_t;
 int board_wifi_scan(board_ap_t *out, int max);
 
+/* Camera (camera.c). Inits the OV2640 and serves MJPEG at :81/stream — a no-op
+ * unless built with HAS_CAMERA (the esp32cam board). Call after Wi-Fi is up
+ * (connection-first: camera fits in what memory is left, or fails loudly).
+ * camera_running() reports whether init succeeded, so sys telemetry advertises
+ * the stream only when it's actually live. */
+void camera_start(void);
+bool camera_running(void);
+
 #endif

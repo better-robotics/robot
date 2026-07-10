@@ -7,3 +7,12 @@
 dependencies:
   espressif/mosquitto: "*"
   espressif/mdns: "*"
+  ## Camera (esp32cam board only). TARGET-GATED: esp32-camera compiles only on
+  ## chips with the I2S/LCD_CAM peripheral — pulling it on the C3 (no camera HW)
+  ## breaks the build. The rule keeps it out of esp32c3; the other ESP32 boards
+  ## pull it but never reference it (HAS_CAMERA is esp32cam-only), so --gc-sections
+  ## drops it from their binaries. Actual init/stream lives in camera.c (#ifdef).
+  espressif/esp32-camera:
+    version: "*"
+    rules:
+      - if: "target == esp32"

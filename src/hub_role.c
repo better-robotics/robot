@@ -402,6 +402,12 @@ void board_run(bool self_broker_ok)
      * dashboard onto this same :80 handle. */
     wifi_portal_start();
 
+    /* Camera (esp32cam only; a no-op elsewhere). After Wi-Fi so it fits in what
+     * memory is left, and after the portal so :80 is already claimed — the camera
+     * takes :81. Init failure is non-fatal; sys advertises the stream only if it's
+     * actually up (camera_running). */
+    camera_start();
+
     bool broker_started = false;
     for (;;) {
         char ssid[33], pass[65], loc[65];

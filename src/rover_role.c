@@ -79,7 +79,14 @@ static void button_task(void *p) {
 /* Start the recover button (hold to reboot). Called by board_run (hub_role.c),
  * which owns the Wi-Fi bring-up; this file is just the drive client now. */
 void rover_button_start(void) {
+#ifdef HAS_CAMERA
+    /* GPIO0 (BUTTON_GPIO, the classic BOOT pin) is the camera XCLK on the esp32cam.
+     * The running 20 MHz clock reads as a held button and reboot-loops the board.
+     * The AI-Thinker CAM has no user button anyway — skip it; recover via reflash. */
+    ESP_LOGI(TAG, "recover button disabled (GPIO0 is the camera XCLK on this board)");
+#else
     xTaskCreate(button_task, "button", 2048, NULL, 5, NULL);
+#endif
 }
 
 /* ── the esp-mqtt drive client ───────────────────────────────────────────── */
@@ -176,6 +183,14 @@ static void motor_stop(void *unused) { (void)unused; motor_drive(0, 0); }
  * permanent boot loop. On failure the motors stay a no-op (s_motor_ready=false)
  * and the rover still boots, connects, and reports — recoverable by re-config. */
 static void motor_init(void) {
+#ifdef HAS_CAMERA
+    /* The AI-Thinker CAM is pin-starved — the OV3660 claims ~16 GPIOs and the XCLK
+     * uses LEDC_TIMER_0, the same timer the motor PWM reconfigures. Initing motors
+     * here reprograms that timer (killing the camera clock) and can stomp camera
+     * GPIOs. The CAM is a camera platform, not a drive platform — skip motors. */
+    ESP_LOGI(TAG, "motors disabled on the camera board (pins + LEDC belong to the OV3660)");
+    return;
+#endif
     gpio_config_t dirs = {
         .pin_bit_mask = (1ULL << s_pin_in1) | (1ULL << s_pin_in2) |
                         (1ULL << s_pin_in3) | (1ULL << s_pin_in4),
@@ -387,18 +402,33 @@ void rover_client_run(const char *broker_uri) {
     snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);
     ESP_LOGI(TAG, "publishing %s every 2 s", key);
 
-    char buf[192];
+    char buf[256];
     int down = 0;   /* consecutive 2 s ticks with no live session — dead → return */
     for (;;) {
         if (s_mqtt_up) {
             down = 0;
             int64_t up_ms = esp_timer_get_time() / 1000;
             uint32_t heap = esp_get_free_heap_size();
+            /* STA IP so the dashboard can reach this rover's camera (:81/stream) and
+             * link to it directly; empty until the uplink has a lease. */
+            char ip[16] = "";
+            esp_netif_ip_info_t ipi;
+            esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+            if (sta && esp_netif_get_ip_info(sta, &ipi) == ESP_OK && ipi.ip.addr) {
+                snprintf(ip, sizeof ip, IPSTR, IP2STR(&ipi.ip));   /* classroom: STA on the hub subnet */
+            } else {
+                /* Island (no uplink): reachable at our own AP address instead, so a
+                 * self-served dashboard can still load this board's camera. */
+                esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+                if (ap && esp_netif_get_ip_info(ap, &ipi) == ESP_OK && ipi.ip.addr)
+                    snprintf(ip, sizeof ip, IPSTR, IP2STR(&ipi.ip));
+            }
             /* board id is metadata in the payload, not the topic (id == team). */
             snprintf(buf, sizeof buf,
                      "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
-                     "\",\"board\":\"%s\",\"synthetic\":false}",
-                     (long long)up_ms, (unsigned)heap, s_id);
+                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"cam\":%s,\"synthetic\":false}",
+                     (long long)up_ms, (unsigned)heap, s_id, ip,
+                     camera_running() ? "true" : "false");
             if (esp_mqtt_client_publish(cli, key, buf, 0, 0, 0) >= 0)
                 ESP_LOGI(TAG, "pub %s", buf);
             else

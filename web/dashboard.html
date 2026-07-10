@@ -64,6 +64,13 @@
     }
     .robot.offline { opacity: 0.55; }
     .robot h2 { font-size: 1.05rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+    /* Live camera feed (esp32cam board) — MJPEG <img> straight off the rover's
+       :81/stream. 4:3 to match the OV2640; object-fit:cover so it fills the card
+       width cleanly on any viewport. Black backdrop while the first frame loads. */
+    .robot .cam {
+      width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
+      border-radius: 6px; margin: 0.6rem 0; background: #000; display: block;
+    }
     .offline-label {
       color: var(--warn); font-size: 0.7rem; font-weight: 600;
       text-transform: uppercase; letter-spacing: 0.04em; margin-left: auto;
@@ -487,6 +494,9 @@ safe-buffer/index.js:
         return `<div class="robot${offline ? " offline" : ""}">
           <h2><span class="dot"></span>${esc(id)}${offline ? '<span class="offline-label">offline</span>' : ""}</h2>
           <div class="hw">${esc(sys.hw || "unknown board")}</div>
+          ${sys.cam && sys.ip && !offline
+            ? `<img class="cam" src="http://${esc(sys.ip)}:81/stream" alt="${esc(id)} camera" loading="lazy" onerror="this.style.display='none'">`
+            : ""}
           <dl>
             <dt>uptime</dt><dd>${sys.uptime_ms != null ? fmtUptime(sys.uptime_ms) : "—"}</dd>
             <dt>free heap</dt><dd>${sys.free_heap != null ? Math.round(sys.free_heap / 1024) + " KB" : "—"}</dd>
