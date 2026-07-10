@@ -198,8 +198,8 @@
     .chip { padding: 0.45rem 0.9rem; border-radius: 999px; border: 1px solid var(--border, #444);
             background: transparent; color: inherit; cursor: pointer; font-size: 0.9rem; }
     .chip[aria-pressed="true"] { background: #2563eb; border-color: #2563eb; color: #fff; }
-    .gate-row { display: flex; gap: 0.5rem; }
-    .gate-row input { flex: 1; min-width: 0; }
+    .gate-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .gate-row input { flex: 1 1 11rem; min-width: 0; }
     #identity-bar { display: none; font-size: 0.9rem; opacity: 0.9; }
     #identity-bar button { margin-left: 0.75rem; padding: 0.2rem 0.7rem; border-radius: 6px;
             border: 1px solid var(--border, #444); background: transparent; color: inherit; cursor: pointer; }
@@ -312,14 +312,13 @@
 
     /* Pool / collision cards: per-board rows (keyed by hardware id) instead of
        one card flapping last-writer-wins between boards sharing an identity. */
-    .pool-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem;
-      padding: 0.5rem 0.65rem;
+    .pool-row { padding: 0.5rem 0.65rem;
       background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
-    .pool-row .b { font-weight: 600; font-size: 0.92rem; white-space: nowrap; }
-    .pool-row .meta { color: var(--ink-muted); font-size: 0.8rem; flex: 1 1 auto;
-      min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .pool-row .spacer { flex: 1; }
-    .pool-row .btn-tile { margin: 0; }
+    .pool-id { display: flex; align-items: baseline; gap: 0.55rem; flex-wrap: wrap; }
+    .pool-id .b { font-weight: 600; font-size: 0.92rem; white-space: nowrap; }
+    .pool-id .meta { color: var(--ink-muted); font-size: 0.8rem; }
+    .pool-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .pool-actions .btn-tile { margin: 0; }
     .pool-note { color: var(--ink-muted); font-size: 0.85rem; margin-top: 0.45rem; }
     .warn-note { color: var(--warn-ink); font-size: 0.85rem; margin-top: 0.45rem; }
     .robot.collision { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
@@ -3053,11 +3052,11 @@ safe-buffer/index.js:
                   : "Fresh boards land here — a professor assigns them to teams.")
           : `${mem.length} boards are sharing this team — every drive command moves all of them. Split them in Assign.`;
       const rows = mem.map(m => `<div class="pool-row">
-          <span class="b">${esc(m.board)}</span>
-          <span class="meta">${esc(m.sys.hw || "")}${m.sys.uptime_ms != null ? " · up " + fmtUptime(m.sys.uptime_ms) : ""}</span>
-          <span class="spacer"></span>
-          ${prof ? `<button class="btn-tile" data-blink="${esc(m.board)}" data-bteam="${esc(id)}">💡 Blink</button>
-                    <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button>` : ""}
+          <div class="pool-id"><span class="b">${esc(m.board)}</span>
+            <span class="meta">${esc(m.sys.hw || "")}${m.sys.uptime_ms != null ? " · up " + fmtUptime(m.sys.uptime_ms) : ""}</span></div>
+          ${prof ? `<div class="pool-actions">
+            <button class="btn-tile" data-blink="${esc(m.board)}" data-bteam="${esc(id)}">💡 Blink</button>
+            <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button></div>` : ""}
         </div>`).join("");
       return `<div class="robot${offline ? " offline" : ""}${isPool ? "" : " collision"}">
         <h2><span class="dot"></span>${isPool ? `Unassigned rovers${mem.length ? ` (${mem.length})` : ""}` : esc(id)}
