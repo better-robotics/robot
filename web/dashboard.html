@@ -337,7 +337,7 @@
     .pool-id .b { font-weight: 600; font-size: 0.92rem; white-space: nowrap; }
     .pool-id .meta { color: var(--ink-muted); font-size: 0.8rem; }
     .pool-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; align-items: center; }
-    .pool-actions .btn-tile { margin: 0; }
+    .pool-actions .btn-tile, .pool-actions .btn-drive { margin: 0; }
     /* Inline claim: the name field lives in the rover's own row. */
     .pool-actions .claim-name { flex: 1 1 8rem; min-width: 0; padding: 0.4rem 0.7rem; min-height: 2.2rem; }
     .claim-wait { color: var(--ink-muted); font-size: 0.85rem; }
@@ -3112,7 +3112,9 @@ safe-buffer/index.js:
             <span class="meta">${esc(m.sys.hw || "")}${m.sys.uptime_ms != null ? " · up " + fmtUptime(m.sys.uptime_ms) : ""}</span></div>
           ${prof ? `<div class="pool-actions">
             <button class="btn-tile" data-blink="${esc(m.board)}" data-bteam="${esc(id)}">💡 Blink</button>
-            <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button></div>`
+            <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button>
+            <button class="btn-drive${target === id && targetBoard === m.board ? " driving" : ""}"
+              data-robot="${esc(id)}" data-board="${esc(m.board)}">${target === id && targetBoard === m.board ? "Driving" : "Drive"}</button></div>`
           : !claimable ? ""
           : claimingBoard === m.board ? `<div class="pool-actions">
             <input class="claim-name" placeholder="team name" value="${esc(claimDraft)}" autocomplete="off">
@@ -3128,7 +3130,6 @@ safe-buffer/index.js:
           ${offline ? '<span class="offline-label">offline</span>' : ""}</h2>
         ${note ? `<div class="${isPool ? "pool-note" : "warn-note"}">${isPool ? "" : "⚠ "}${note}</div>` : ""}
         ${rows || `<div class="pool-note">nothing online here — last seen ${fmtUptime(ageMs)} ago</div>`}
-        ${prof && mem.length ? `<div class="card-actions"><button class="btn-drive${target === id ? " driving" : ""}" data-robot="${esc(id)}">${target === id ? "Driving" : "Drive"}${mem.length > 1 ? " all " + mem.length : ""}</button></div>` : ""}
       </div>`;
     }
 
@@ -3230,7 +3231,7 @@ safe-buffer/index.js:
     // "Code" input is `username:password` (professor's username is always
     // "professor"; a team's username is always its robot id) — see
     // classroom.example.json5.
-    let driveClient = null, myScope = null, target = null, dragging = false, lastSend = 0;
+    let driveClient = null, myScope = null, target = null, targetBoard = null, dragging = false, lastSend = 0;
     const MAX_LOG = 60;
 
     function logLine(dir, text) {
@@ -3263,16 +3264,21 @@ safe-buffer/index.js:
       renderBoards(); // and the professor-only board list, for the same reason
     }
 
-    function selectTarget(id) {
+    function selectTarget(id, board) {
       target = id;
-      document.getElementById("joystick-title").textContent = `Driving ${id}`;
+      // Per-board drive (professor, pool/collision rows): the pwm messages
+      // carry this board id and the firmware ignores commands addressed
+      // elsewhere. Null = whole-team drive, the normal single-rover case.
+      targetBoard = board || null;
+      const label = board ? `${board} (${id})` : id;
+      document.getElementById("joystick-title").textContent = `Driving ${label}`;
       applyDriveMode();  // reveal whichever input (joystick / D-pad) is active
       if (myScope && myScope.scope === "all") {
         // The Drive tap happened on a card below; the pad appeared up here —
         // bring it to the finger (the Assign flow's own pattern), and retire
         // the now-stale "pick a robot" instruction.
         document.getElementById("scope-label").textContent =
-          `Driving ${id} — tap Drive on another robot to switch.`;
+          `Driving ${label} — tap Drive on another robot to switch.`;
         document.getElementById("drive").scrollIntoView({ behavior: "smooth", block: "center" });
         renderRobots(); // repaint cards so the chosen one shows its Driving state
       }
@@ -3511,7 +3517,7 @@ safe-buffer/index.js:
 
     document.getElementById("logout-btn").addEventListener("click", () => {
       try { driveClient.end(true); } catch {}
-      driveClient = null; myCred = null; myScope = null; target = null;
+      driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
       localStorage.removeItem("hubCred");
       for (const id of ["drive-panel", "assign", "codes", "identity-bar"])
         document.getElementById(id).style.display = "none";
@@ -3754,7 +3760,7 @@ safe-buffer/index.js:
       const cls = e.target.closest("[data-claimsend]");
       if (cam) openCamera(cam.dataset.id, cam.dataset.camIp);
       else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp);
-      else if (drv) selectTarget(drv.dataset.robot);
+      else if (drv) selectTarget(drv.dataset.robot, drv.dataset.board);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.bteam);
       else if (asg) preselectAssign(asg.dataset.assign, asg.dataset.bteam, true);
       else if (clm) {
@@ -3873,6 +3879,9 @@ safe-buffer/index.js:
         left_motor: Math.round(left), right_motor: Math.round(right),
         duration_ms: 200, // watchdog: firmware stops the motors if commands lapse
       };
+      // Per-board drive: pool/collision boards share one pwm topic, so the
+      // firmware filters on this optional board id (same as cmd/config).
+      if (targetBoard) pwm.target = targetBoard;
       driveClient.publish(`robots/${robot}/pwm`, JSON.stringify(pwm));
       logLine("out", `robots/${robot}/pwm ${JSON.stringify(pwm)}`);
     }
