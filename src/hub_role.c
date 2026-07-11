@@ -124,9 +124,10 @@ static int connect_cb(const char *client_id, const char *username,
         { "professor",  "change-me" },
         { "team1",      "change-me-team1" },
         { "team2",      "change-me-team2" },
-        /* Fresh boards' pool identity (rover_role.c MQTT_USER default): no
-         * student holds this credential, so only the professor drives the pool. */
-        { "unassigned", "unassigned-secret" },
+        /* Fresh boards' pool identity — the same macros the rover client dials
+         * with (roles.h), so rotating the build flag can't lock an island's
+         * rover out of its own broker. No student holds this credential. */
+        { MQTT_USER, MQTT_PASS },
     };
     const char *cid = client_id ? client_id : "(none)";
     /* DEMO-ONLY: allow anonymous (no username) so the dashboard's credential-free

@@ -35,12 +35,20 @@ void rover_button_start(void);
  * only looks for a late-booting hub when idle, never mid-drive. */
 int64_t rover_ms_since_drive(void);
 
-/* SSID classification shared by discovery and Pi-watch (hub_role.c). Any open
- * "hub-*" is a hub to join; "hub-pi-*" additionally marks the Pi, which a self-
- * hub (island) board ALWAYS yields to (the Pi is the preferred hub; peer ESP
- * islands are left alone). */
+/* SSID classification shared by discovery and hub-watch (hub_role.c): any open
+ * "hub-*" is a hub to join (peer islands advertise rover-<id>, never hub-*). */
 #define HUB_SSID_PREFIX     "hub-"
-#define HUB_PI_SSID_PREFIX  "hub-pi-"
+
+/* Fresh boards' pool identity, normally set per-env via -DMQTT_USER/-DMQTT_PASS
+ * (platformio.ini). Shared here so the on-chip broker's credential table
+ * (hub_role.c) admits the same pool identity the rover client (rover_role.c)
+ * dials with — rotating the build flag rotates both sides of an island. */
+#ifndef MQTT_USER
+#define MQTT_USER "unassigned"
+#endif
+#ifndef MQTT_PASS
+#define MQTT_PASS "unassigned-secret"
+#endif
 
 /* Board network state, published by hub_role.c at each broker decision and served
  * as JSON by GET /wifi/status (wifi_portal.c). The landing page at / and the

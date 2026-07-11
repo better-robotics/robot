@@ -102,12 +102,6 @@ void rover_button_start(void) {
  * team1's drive commands with a student-known credential. `unassigned` has no
  * student credential, so only the professor (robots/# rw) can drive the pool;
  * the real team is assigned post-join over robots/<id>/cmd/config. */
-#ifndef MQTT_USER
-#define MQTT_USER "unassigned"
-#endif
-#ifndef MQTT_PASS
-#define MQTT_PASS "unassigned-secret"
-#endif
 /* Identity is NVS-backed: a team assigned post-join (robots/<id>/cmd/config)
  * overrides these compile-time defaults. s_topic_id tracks s_user so the
  * publish/subscribe topics follow a reassignment after the next boot. */
@@ -440,9 +434,12 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
             config_apply(e->data, e->data_len);
         } else if (e->topic_len >= 9 && memcmp(e->topic + e->topic_len - 9, "/identify", 9) == 0) {
             identify_apply(e->data, e->data_len);
-        } else {                                       /* remaining sub: reprovision */
+        } else if (e->topic_len >= 12 && memcmp(e->topic + e->topic_len - 12, "/reprovision", 12) == 0) {
             ESP_LOGW(TAG, "reprovision command — rebooting");
             esp_restart();
+        } else {
+            /* A future subscription without a branch here must never reboot the board. */
+            ESP_LOGW(TAG, "unhandled message on %.*s — ignoring", e->topic_len, e->topic);
         }
         break;
     default:

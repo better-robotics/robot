@@ -33,22 +33,6 @@ esp_err_t rover_config_set_wifi(const char *ssid, const char *pass) {
     return e;
 }
 
-esp_err_t rover_config_set_locator(const char *locator) {
-    if (!rover_validate_locator(locator)) return ESP_ERR_INVALID_ARG;
-    nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
-    if (e != ESP_OK) return e;
-    e = nvs_set_str(h, "locator", locator);
-    if (e == ESP_OK) e = nvs_commit(h);
-    nvs_close(h);
-    return e;
-}
-
-bool rover_config_is_complete(void) {
-    char s[33], p[65], l[65];
-    rover_config_load(s, p, l);
-    return s[0] != 0;
-}
-
 void rover_config_load_identity(char user[33], char pass[65], char name[33]) {
     user[0] = pass[0] = name[0] = 0;
     nvs_handle_t h;

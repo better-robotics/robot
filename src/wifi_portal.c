@@ -318,17 +318,23 @@ static void reboot_task(void *arg)
     esp_restart();
 }
 
-static esp_err_t save_post(httpd_req_t *req)
+/* Drain a small form POST into buf (cap includes the NUL terminator). */
+static void read_form_body(httpd_req_t *req, char *buf, size_t cap)
 {
-    char body[256];
     int total = 0;
-    while (total < (int)sizeof body - 1) {
-        int r = httpd_req_recv(req, body + total, sizeof body - 1 - total);
+    while (total < (int)cap - 1) {
+        int r = httpd_req_recv(req, buf + total, cap - 1 - total);
         if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
         if (r <= 0) break;
         total += r;
     }
-    body[total] = 0;
+    buf[total] = 0;
+}
+
+static esp_err_t save_post(httpd_req_t *req)
+{
+    char body[256];
+    read_form_body(req, body, sizeof body);
 
     char ssid[33], pass[65];
     if (!form_field(body, "ssid", ssid, sizeof ssid) || !ssid[0]) {
@@ -375,14 +381,7 @@ static esp_err_t role_get(httpd_req_t *req)
 static esp_err_t role_post(httpd_req_t *req)
 {
     char body[64];
-    int total = 0;
-    while (total < (int)sizeof body - 1) {
-        int r = httpd_req_recv(req, body + total, sizeof body - 1 - total);
-        if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
-        if (r <= 0) break;
-        total += r;
-    }
-    body[total] = 0;
+    read_form_body(req, body, sizeof body);
 
     char role[8];
     if (!form_field(body, "role", role, sizeof role)) {

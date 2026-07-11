@@ -74,10 +74,6 @@
     /* Centered reading column; the fleet is a card grid, so width buys
        cards-per-row while prose blocks cap themselves for readability. */
     main { max-width: 60rem; margin: 0 auto; padding: 1.75rem 1.25rem 4rem; }
-    .lede {
-      max-width: 40rem; font-size: 1.6rem; line-height: 1.2; font-weight: 700;
-      letter-spacing: -0.02em; color: var(--ink); margin: 0.25rem 0 1.75rem;
-    }
     a { color: var(--link); text-decoration: none; }
     a:hover { text-decoration: underline; }
     .hint { color: var(--ink-faint); font-size: 0.85rem; }
@@ -111,12 +107,6 @@
     .robot h2 {
       font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em;
       display: flex; align-items: center; gap: 0.55rem;
-    }
-    /* Live MJPEG feed (esp32cam) straight off the rover's :81/stream. 4:3 to
-       match the OV-series sensor; cover so it fills the card cleanly. */
-    .robot .cam {
-      width: 100%; aspect-ratio: 4 / 3; object-fit: cover;
-      border-radius: var(--radius); margin: 0.7rem 0; background: #000; display: block;
     }
     .offline-label {
       color: var(--warn-ink); font-size: 0.75rem; font-weight: 700;
@@ -250,7 +240,9 @@
     #req-access a { color: var(--link); }
     #req-form { display: none; flex-basis: 100%; }
     #req-status { display: none; flex-basis: 100%; font-size: 0.9rem; margin: 0.3rem 0 0; }
-    #req-status.waiting::before { content: ""; display: inline-block; width: 0.65rem; height: 0.65rem;
+    /* Shared waiting spinner — also on .claim-wait in the pool rows. */
+    #req-status.waiting::before, .claim-wait::before {
+      content: ""; display: inline-block; width: 0.65rem; height: 0.65rem;
       margin-right: 0.45rem; border-radius: 50%; border: 2px solid var(--accent);
       border-top-color: transparent; animation: reqspin 0.9s linear infinite; vertical-align: -0.05rem; }
     @keyframes reqspin { to { transform: rotate(360deg); } }
@@ -390,9 +382,6 @@
     /* Inline claim: the name field lives in the rover's own row. */
     .pool-actions .claim-name { flex: 1 1 8rem; min-width: 0; padding: 0.4rem 0.7rem; min-height: 2.2rem; }
     .claim-wait { color: var(--ink-muted); font-size: 0.85rem; }
-    .claim-wait::before { content: ""; display: inline-block; width: 0.6rem; height: 0.6rem;
-      margin-right: 0.4rem; border-radius: 50%; border: 2px solid var(--accent);
-      border-top-color: transparent; animation: reqspin 0.9s linear infinite; vertical-align: -0.05rem; }
     .claim-err { color: var(--danger-text); font-size: 0.85rem; flex-basis: 100%; }
     .pool-note { color: var(--ink-muted); font-size: 0.85rem; margin-top: 0.45rem; }
     .warn-note { color: var(--warn-ink); font-size: 0.85rem; margin-top: 0.45rem; }
@@ -437,7 +426,6 @@
     /* Phone: single column, full-width controls, comfortable spacing. */
     @media (max-width: 32rem) {
       main { padding: 1.25rem 1rem 4rem; }
-      .lede { font-size: 1.35rem; }
       #robots { grid-template-columns: 1fr; }
       /* auto-fit's 24rem min track (#controls) exceeds a phone's width and would
          force a horizontal scroll — collapse to one column below 32rem. */
@@ -493,7 +481,7 @@
     </div>
   </div>
   <p id="empty">No rovers yet — power one on near the hub and it appears here within seconds.
-    <span class="hint">New board with no firmware? <a href="https://better-robotics.github.io/flash/">Flash it over USB</a>.</span></p>
+    <span class="hint">New board with no firmware? <a href="https://better-robotics.github.io/">Flash it over USB</a>.</span></p>
   <div id="robots"></div>
 
   <div id="controls">
@@ -3304,7 +3292,9 @@ safe-buffer/index.js:
 
     if (!standalone) {
       refreshUplink();
-      setInterval(refreshUplink, 2000);
+      // 10 s, not the fleet's 2 s clock: the uplink pill changes on a minutes
+      // scale — the offline banner may appear up to 10 s late, an accepted trade.
+      setInterval(refreshUplink, 10000);
       initWifiSetup();
     }
     // The 2 s clock is the ONLY painter (message handlers just update the Maps):
@@ -3534,6 +3524,16 @@ safe-buffer/index.js:
       logLine("out", `${topic} ${payload}`);
     }
 
+    // Authenticated POST to a hubd /codes/* endpoint — this session's code is
+    // the auth. Resolves to the parsed verdict; a transport failure resolves to
+    // { error: errMsg } so every call site renders one shape either way.
+    async function codesPost(path, extra, errMsg = "The hub didn't answer — try again.") {
+      try {
+        return await (await fetch(path, { method: "POST", signal: AbortSignal.timeout(4000),
+          body: JSON.stringify({ auth: myCred.pass, ...extra }) })).json();
+      } catch { return { error: errMsg }; }
+    }
+
     // One listener for the whole roster: board chips open the repair form,
     // Rotate…/✕ are the team-row code actions (rendered only when /codes exists).
     document.getElementById("team-roster").addEventListener("click", async (e) => {
@@ -3553,11 +3553,7 @@ safe-buffer/index.js:
         document.getElementById("codes-pass").focus({ preventScroll: true });
       } else if (del && confirm(`Delete ${del.dataset.delcode}? Its rover and browsers lose access.`)) {
         const status = document.getElementById("teams-status");
-        let r;
-        try {
-          r = await (await fetch("/codes/del", { method: "POST", signal: AbortSignal.timeout(4000),
-            body: JSON.stringify({ auth: myCred.pass, user: del.dataset.delcode }) })).json();
-        } catch { r = { error: "The hub didn't answer — try again." }; }
+        const r = await codesPost("/codes/del", { user: del.dataset.delcode });
         status.textContent = r.ok ? `Deleted ${del.dataset.delcode}.` : r.error;
         status.className = r.ok ? "assign-ok" : "assign-err";
         loadCodes();
@@ -3638,6 +3634,10 @@ safe-buffer/index.js:
     let myCred = null;   // {user, pass} after a successful connect
     let knownTeams = []; // /codes/list usernames, when hub-served by the Pi
     let codesApi = false;
+    // The one /codes/list reader: updates the shared state (codesApi,
+    // knownTeams) + the gate presentation, and returns the parsed response so
+    // loadCodes() can layer its professor-panel presentation on top.
+    // Returns undefined when the serving host has no /codes API.
     async function refreshKnownTeams() {
       try {
         const r = await (await fetch("/codes/list")).json();
@@ -3653,6 +3653,7 @@ safe-buffer/index.js:
             document.getElementById("manual-gate").style.display = "none";
         }
         renderChips();
+        return r;
       } catch { /* no /codes API here */ }
     }
     let lastChipsHtml = "";
@@ -3943,14 +3944,12 @@ safe-buffer/index.js:
     // identities managed in place via hubd /codes/* (mosquitto_passwd + SIGHUP
     // behind it). Off the hub the fetch fails and the roster stays fleet-only.
     async function loadCodes() {
-      try {
-        const r = await (await fetch("/codes/list")).json();
-        codesApi = true;
-        knownTeams = r.users.filter(u => u !== "unassigned");
+      const r = await refreshKnownTeams();
+      if (r) {
         document.getElementById("codes-nag").style.display = r.placeholders ? "block" : "none";
         document.getElementById("codes-form").style.display = "flex";
         renderRoster();
-      } catch { /* not hub-served */ }
+      }
       loadRequests();
     }
     // The only moment a plaintext code exists in this panel — mint the sign-in
@@ -4018,11 +4017,8 @@ safe-buffer/index.js:
         const rec = boards.get(blq.dataset.blinkreq);
         blinkBoard(blq.dataset.blinkreq, rec ? rec.team : "unassigned");
       } else if (app) {
-        let r;
-        try {
-          r = await (await fetch("/codes/approve", { method: "POST", signal: AbortSignal.timeout(4000),
-            body: JSON.stringify({ auth: myCred.pass, name: app.dataset.approve }) })).json();
-        } catch { r = { error: "The hub didn't answer — the request is still waiting." }; }
+        const r = await codesPost("/codes/approve", { name: app.dataset.approve },
+          "The hub didn't answer — the request is still waiting.");
         if (r.ok && r.board) {
           // The claim's second half: push the freshly minted credential to the
           // claimed rover over this professor session — same cmd/config the
@@ -4052,11 +4048,7 @@ safe-buffer/index.js:
         loadCodes();
       } else if (den) {
         if (!confirm(`Dismiss the request from ${den.dataset.denyreq}?`)) return;
-        let r;
-        try {
-          r = await (await fetch("/codes/deny", { method: "POST", signal: AbortSignal.timeout(4000),
-            body: JSON.stringify({ auth: myCred.pass, name: den.dataset.denyreq }) })).json();
-        } catch { r = { error: "The hub didn't answer — try again." }; }
+        const r = await codesPost("/codes/deny", { name: den.dataset.denyreq });
         status.textContent = r.ok ? `Request from ${den.dataset.denyreq} dismissed.` : r.error;
         status.className = r.ok ? "assign-ok" : "assign-err";
         loadRequests();
@@ -4072,11 +4064,7 @@ safe-buffer/index.js:
       if (knownTeams.includes(user) &&
           !confirm(`${user} already has a code — this rotates it, and their rover and signed-in phones lose access until you re-share. Continue?`)) return;
       share.style.display = "none";
-      let r;
-      try {
-        r = await (await fetch("/codes/set", { method: "POST", signal: AbortSignal.timeout(4000),
-          body: JSON.stringify({ auth: myCred.pass, user, pass }) })).json();
-      } catch { r = { error: "The hub didn't answer — try again." }; }
+      const r = await codesPost("/codes/set", { user, pass });
       status.textContent = r.ok ? `${user} is set.` : r.error;
       status.className = r.ok ? "assign-ok" : "assign-err";
       if (!r.ok) return;

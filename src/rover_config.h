@@ -14,8 +14,6 @@
  * network gateway. */
 void rover_config_load(char ssid[33], char pass[65], char locator[65]);
 esp_err_t rover_config_set_wifi(const char *ssid, const char *pass);
-esp_err_t rover_config_set_locator(const char *locator);
-bool rover_config_is_complete(void);   /* = ssid set; everything else is derivable */
 
 /* MQTT identity, assigned post-join over robots/<id>/cmd/config and persisted.
  * Unset → the compile-time MQTT_USER/PASS defaults; name is a human label (""

@@ -217,10 +217,18 @@ static esp_err_t fleet_handler(httpd_req_t *req)
     const char *ssid = "";
     if (esp_wifi_get_config(WIFI_IF_AP, &apcfg) == ESP_OK)
         ssid = (const char *)apcfg.ap.ssid;
-    char body[160];
+    /* The locator is this board's own broker at its live AP address — derived
+     * like the SSID above, never hardcoded (CONTRACT § Discovery): a hub AP
+     * sits on 192.168.4.1 but an island board's AP is relocated to .99.1. */
+    char locator[48] = "";
+    esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    esp_netif_ip_info_t apip;
+    if (ap && esp_netif_get_ip_info(ap, &apip) == ESP_OK && apip.ip.addr)
+        snprintf(locator, sizeof locator, "mqtt://" IPSTR ":1883", IP2STR(&apip.ip));
+    char body[192];
     snprintf(body, sizeof body,
-             "{\"uplink\":\"%s\",\"locator\":\"mqtt://192.168.4.1:1883\","
-             "\"ssid\":\"%s\",\"host\":\"esp32\"}", uplink, ssid);
+             "{\"uplink\":\"%s\",\"locator\":\"%s\","
+             "\"ssid\":\"%s\",\"host\":\"esp32\"}", uplink, locator, ssid);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_sendstr(req, body);
@@ -259,7 +267,7 @@ void start_ws_mqtt_bridge(void)
         httpd_uri_t fleet = { .uri = "/fleet", .method = HTTP_GET, .handler = fleet_handler };
         httpd_register_uri_handler(page_srv, &page);
         httpd_register_uri_handler(page_srv, &fleet);
-        ESP_LOGI(TAG, "dashboard served at http://192.168.4.1/ (port 80)");
+        ESP_LOGI(TAG, "dashboard served at / on :80 (this board's AP address)");
     }
 
     /* Instance 2 — the WS<->TCP bridge, on :9001. */
