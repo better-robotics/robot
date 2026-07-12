@@ -435,6 +435,7 @@
       aspect-ratio: 4 / 3; object-fit: contain; }
     #modal-body iframe.cfg-frame { width: 100%; height: min(72vh, 40rem); border: 0; display: block; background: var(--bg); }
     #modal-body .modal-note { padding: 1.25rem; color: var(--ink-muted); font-size: 0.9rem; line-height: 1.5; }
+    #modal-body .assign-sheet { padding: 1rem 1.25rem 1.25rem; }
     /* Chip popover — the menu-bar-extra pattern: chrome-invoked controls answer
        AT the corner they were invoked from (account menu, Wi-Fi list), keeping
        spatial continuity. The centered modal stays reserved for deep content
@@ -489,6 +490,7 @@
     <p>Signed in as <b id="identity-name"></b></p>
     <p class="hint" id="id-menu-scope"></p>
     <p class="hint" id="id-menu-conn" role="status"></p>
+    <button id="menu-teams" class="btn-tile" style="display:none">Teams &amp; codes ↓</button>
     <button id="logout-btn" class="btn-tile">Log out &amp; switch</button>
   </div>
   <main>
@@ -3466,6 +3468,9 @@ safe-buffer/index.js:
       document.getElementById("id-chip").classList.add("show");
       document.getElementById("id-menu-scope").textContent = myScope.scope === "all"
         ? "Professor — full fleet control." : `Team scope — drives ${myScope.robot} only.`;
+      // Professor shortcut into the fleet-admin workspace — navigation in the
+      // menu (HIG-fine), never the workspace itself in the popover.
+      document.getElementById("menu-teams").style.display = myScope.scope === "all" ? "" : "none";
       document.getElementById("drive-panel").style.display = "block";
       applyDriveMode(); // panel just appeared: sync the mode switch to the no-target state
       document.getElementById("scope-label").textContent = myScope.scope === "all"
@@ -3573,12 +3578,30 @@ safe-buffer/index.js:
     // since those rows live up in the fleet grid).
     function preselectAssign(board, team, scroll) {
       assignTarget = { board, team };
-      document.getElementById("assign-form").style.display = "flex";
+      const form = document.getElementById("assign-form");
+      form.style.display = "flex";
       document.getElementById("assign-selected").textContent =
         `Assigning ${board} — currently ${team}.`;
       document.getElementById("teams-status").textContent = "";
       renderRoster();
-      if (scroll) document.getElementById("assign-form").scrollIntoView({ behavior: SCROLL, block: "center" });
+      if (scroll) {
+        // Fleet-card invocation: the form comes to the tap as a modal sheet
+        // (deep task, deep container) instead of long-scrolling to the Teams
+        // workspace. #teams-status rides along — Assign writes its outcome
+        // there. From the roster (scroll=false) the form stays in place: the
+        // tap happened inside Teams already.
+        const status = document.getElementById("teams-status");
+        const home = form.parentNode;
+        const wrap = document.createElement("div");
+        wrap.className = "assign-sheet";
+        wrap.append(form, status);
+        openModal(`Assign ${board}`, wrap);
+        modalRestore = () => {
+          const share = document.getElementById("codes-share");
+          home.insertBefore(form, share);
+          home.insertBefore(status, share);
+        };
+      }
       document.getElementById("assign-team").focus({ preventScroll: scroll });
     }
 
@@ -3902,6 +3925,11 @@ safe-buffer/index.js:
       closeChipPop();
     });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeChipPop(); });
+
+    document.getElementById("menu-teams").addEventListener("click", () => {
+      closeChipPop();
+      document.getElementById("teams").scrollIntoView({ behavior: SCROLL, block: "start" });
+    });
 
     // Identity chip → the account menu, at the corner it was invoked from.
     document.getElementById("id-chip").addEventListener("click", () => {
@@ -4277,7 +4305,12 @@ safe-buffer/index.js:
     const modalTitle = document.getElementById("modal-title");
     const modalBody = document.getElementById("modal-body");
     let modalInvoker = null; // where focus returns when the sheet closes
+    // A caller that MOVED live nodes into the sheet (the assign form) sets this
+    // to put them back — run on close AND when another modal takes the body
+    // over, so replaceChildren never silently discards a wired-up node.
+    let modalRestore = null;
     function openModal(title, node) {
+      modalRestore?.(); modalRestore = null;
       modalTitle.textContent = title;
       modalBody.replaceChildren(node);
       modal.hidden = false;
@@ -4286,6 +4319,7 @@ safe-buffer/index.js:
     }
     function closeModal() {
       modal.hidden = true;
+      modalRestore?.(); modalRestore = null;
       modalBody.replaceChildren(); // drop the <img>/<iframe> so its connection closes
       modalInvoker?.focus?.();
       modalInvoker = null;
