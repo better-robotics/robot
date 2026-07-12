@@ -335,15 +335,24 @@
     .wire-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;
       font-size: 0.8rem; color: var(--ink-muted); }
     .wire-head .spacer { flex: 1; }
-    #wire-pause { cursor: pointer; font-size: 0.78rem; padding: 0.2rem 0.7rem; border-radius: var(--radius-sm);
+    #wire-pause, #wire-beacons { cursor: pointer; font-size: 0.78rem; padding: 0.2rem 0.7rem; border-radius: var(--radius-sm);
       border: 1px solid var(--border-strong); background: transparent; color: var(--ink-muted); }
-    #wire-pause[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
-    #wire-log {
+    #wire-pause[aria-pressed="true"], #wire-beacons[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
+    #wire-filter { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong); background: var(--inset); color: var(--ink); max-width: 9rem; }
+    /* The log gets the grid's full width — it's the verbose surface. */
+    .wire-wrap { grid-column: 1 / -1; }
+    #wire-log, #tel-feed {
       height: 11rem; overflow-y: auto; background: var(--inset);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
       padding: 0.6rem 0.8rem; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
       font-size: 0.76rem; line-height: 1.65;
     }
+    /* Telemetry sheet: the rendered sys — any key the firmware adds shows up. */
+    #tel-facts { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.9rem;
+      font-size: 0.85rem; margin-bottom: 0.7rem; }
+    #tel-facts dt { color: var(--ink-muted); }
+    #tel-feed { height: 9rem; }
     .log-line { white-space: pre-wrap; word-break: break-all; }
     .log-out { color: var(--link); }
     .log-in { color: var(--success); }
@@ -604,6 +613,8 @@
         <div class="wire-wrap">
           <div class="wire-head"><span>Wire log — <span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></span>
             <span class="spacer"></span>
+            <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
+            <button id="wire-beacons" aria-pressed="false" title="sys beacons are most of the traffic — shown only on demand">Beacons</button>
             <button id="wire-pause" aria-pressed="false">Pause</button></div>
           <div id="wire-log" role="log" tabindex="0" aria-label="Live command and telemetry log"></div>
         </div>
@@ -3321,6 +3332,7 @@ safe-buffer/index.js:
           <div class="pool-id"><span class="b">${esc(m.board)}</span>
             <span class="meta">${esc(m.sys.hw || "")}${m.sys.uptime_ms != null ? " · up " + fmtUptime(m.sys.uptime_ms) : ""}</span></div>
           ${prof ? `<div class="pool-actions">
+            <button class="btn-tile" data-tel="${esc(id)}" data-tel-board="${esc(m.board)}">📈 Log</button>
             <button class="btn-tile" data-blink="${esc(m.board)}" data-bteam="${esc(id)}">💡 Blink</button>
             <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button>
             ${isPool ? "" : `<button class="btn-tile" data-unassign="${esc(m.board)}" data-uteam="${esc(id)}">Unassign</button>`}
@@ -3382,6 +3394,7 @@ safe-buffer/index.js:
         // down and reconnected on every 2s re-render, so the camera + config open
         // in the static modal instead (see openCamera / openConfig).
         const actions = [];
+        actions.push(`<button class="btn-tile" data-tel="${esc(id)}">📈 Log</button>`);
         if (!offline && sys.cam && sys.ip)
           actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(id)}" data-board="${esc(sys.board || "")}">📷 Camera</button>`);
         if (!offline && sys.ip)
@@ -3441,6 +3454,7 @@ safe-buffer/index.js:
         title.textContent = stale ? `${base} — offline?` : base;
       }
       renderRobots(); renderChips(); watchAssign(); syncPinsPanel(false);
+      syncWireFilter(); telemetrySync?.();
     }, 2000);
 
     // Anonymous mqtt.js connection, scoped by Mosquitto's ACL to read-only
@@ -3492,14 +3506,33 @@ safe-buffer/index.js:
     const MAX_LOG = 60;
 
     let wirePaused = false;
+    // Bus-view filters: beacons hidden by DEFAULT — at N rovers the sys
+    // beacons are ~90% of volume and drown the command traffic the log
+    // exists to teach; the rendered per-rover Telemetry view is where sys
+    // belongs. Team filter narrows to one subtree.
+    let wireHideBeacons = true, wireTeam = "";
+    const lineHidden = l =>
+      (wireHideBeacons && l.classList.contains("log-beacon")) ||
+      (wireTeam && l.dataset.team !== wireTeam);
+    function applyWireFilters() {
+      for (const l of document.querySelectorAll("#wire-log .log-line"))
+        l.style.display = lineHidden(l) ? "none" : "";
+    }
+    // Telemetry modal tap: when open, lines for its team also feed the sheet.
+    let telemetryHook = null;
     function logLine(dir, text) {
+      if (telemetryHook) telemetryHook(dir, text);
       if (wirePaused) return; // paused = freeze what's on screen for reading
       const log = document.getElementById("wire-log");
       // Respect a reader who scrolled up: only auto-follow from the bottom.
       const following = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
       const line = document.createElement("div");
       line.className = `log-line log-${dir}`;
+      const team = text.startsWith("robots/") ? text.split("/")[1] : "";
+      line.dataset.team = team;
+      if (dir === "in" && text.split(" ")[0].endsWith("/sys")) line.classList.add("log-beacon");
       line.textContent = `${dir === "out" ? "→" : "←"} ${text}`;
+      if (lineHidden(line)) line.style.display = "none";
       log.appendChild(line);
       while (log.children.length > MAX_LOG) log.removeChild(log.firstChild);
       if (following) log.scrollTop = log.scrollHeight;
@@ -3509,6 +3542,30 @@ safe-buffer/index.js:
       e.target.setAttribute("aria-pressed", String(wirePaused));
       e.target.textContent = wirePaused ? "Resume" : "Pause";
     });
+    document.getElementById("wire-beacons").addEventListener("click", (e) => {
+      wireHideBeacons = !wireHideBeacons;
+      e.target.setAttribute("aria-pressed", String(!wireHideBeacons));
+      applyWireFilters();
+    });
+    document.getElementById("wire-filter").addEventListener("change", (e) => {
+      wireTeam = e.target.value;
+      applyWireFilters();
+    });
+    // Keep the rover filter's options tracking the live fleet — but never
+    // under the user's open dropdown, and only when the set actually changed.
+    function syncWireFilter() {
+      const sel = document.getElementById("wire-filter");
+      if (document.activeElement === sel) return;
+      const teams = [...robots.keys()].sort();
+      const want = teams.join("|");
+      if (sel.dataset.have === want) return;
+      sel.dataset.have = want;
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">all rovers</option>' +
+        teams.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+      sel.value = teams.includes(cur) ? cur : "";
+      if (sel.value !== cur) { wireTeam = sel.value; applyWireFilters(); }
+    }
 
     function onScope(username) {
       myScope = username === "professor" ? { scope: "all" } : { scope: "one", robot: username };
@@ -4503,9 +4560,11 @@ safe-buffer/index.js:
       const una = e.target.closest("[data-unassign]");
       const rot = e.target.closest("[data-rotate]");
       const del = e.target.closest("[data-delcode]");
+      const tel = e.target.closest("[data-tel]");
       const clm = e.target.closest("[data-claim]");
       const cls = e.target.closest("[data-claimsend]");
       if (cam) openCamera(cam.dataset.id, cam.dataset.camIp, cam.dataset.board);
+      else if (tel) openTelemetry(tel.dataset.tel, tel.dataset.telBoard);
       else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp, cfg.dataset.board);
       else if (drv) selectTarget(drv.dataset.robot, drv.dataset.board);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.bteam);
@@ -4570,6 +4629,54 @@ safe-buffer/index.js:
               location.hostname === "rover.local")
         ? location.hostname : ip;
     }
+    // Per-rover observability: the rendered sys (uptime, heap, ip, pins — any
+    // key the firmware adds auto-renders, so future sensors appear the day
+    // they ship) plus a live feed filtered to this team. Observability is a
+    // property of the ROVER, so it lives on the card like Camera; the wire
+    // log stays the whole-bus tap.
+    let telemetrySync = null;
+    function openTelemetry(team, board) {
+      const wrap = document.createElement("div");
+      wrap.className = "assign-sheet";
+      const facts = document.createElement("dl");
+      facts.id = "tel-facts";
+      const feedHead = document.createElement("p");
+      feedHead.className = "hint";
+      feedHead.textContent = `Live traffic on robots/${team}/# — what this session's subscription carries.`;
+      const feed = document.createElement("div");
+      feed.id = "tel-feed";
+      wrap.append(facts, feedHead, feed);
+      const render = () => {
+        const rec = board ? boards.get(board) : robots.get(team);
+        const sys = rec?.sys;
+        if (!sys) { facts.innerHTML = "<dt>status</dt><dd>no beacon received yet</dd>"; return; }
+        const rows = [];
+        for (const [k, v] of Object.entries(sys)) {
+          if (k === "synthetic") continue;
+          const val = k === "uptime_ms" ? fmtUptime(v)
+            : k === "free_heap" ? Math.round(v / 1024) + " KB"
+            : typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
+          rows.push(`<dt>${esc(k.replace(/_ms$/, "").replace(/_/g, " "))}</dt><dd>${esc(val)}</dd>`);
+        }
+        const fresh = Date.now() - rec.seenAt < 10000;
+        rows.push(`<dt>last seen</dt><dd>${fresh ? "now" : fmtUptime(Date.now() - rec.seenAt) + " ago"}</dd>`);
+        facts.innerHTML = rows.join("");
+      };
+      render();
+      telemetrySync = render;                 // the 2 s tick keeps the facts live
+      telemetryHook = (dir, text) => {        // logLine feeds team-matching lines
+        if (!text.startsWith(`robots/${team}/`)) return;
+        const line = document.createElement("div");
+        line.className = `log-line log-${dir}`;
+        line.textContent = `${dir === "out" ? "→" : "←"} ${text}`;
+        feed.appendChild(line);
+        while (feed.children.length > 40) feed.removeChild(feed.firstChild);
+        feed.scrollTop = feed.scrollHeight;
+      };
+      openModal(`${board || team} — telemetry`, wrap);
+      modalRestore = () => { telemetryHook = null; telemetrySync = null; };
+    }
+
     function openCamera(id, ip, board) {
       const img = document.createElement("img");
       img.className = "cam-full";
