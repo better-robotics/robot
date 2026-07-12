@@ -55,6 +55,18 @@ esp_err_t rover_config_set_identity(const char *user, const char *pass, const ch
     return e;
 }
 
+esp_err_t rover_config_clear_identity(void) {
+    nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+    /* erase_key on an absent key is fine — a fresh board reprovisions cleanly */
+    nvs_erase_key(h, "user");
+    nvs_erase_key(h, "mpass");
+    nvs_erase_key(h, "name");
+    e = nvs_commit(h);
+    nvs_close(h);
+    return e;
+}
+
 // Stored as one 6-byte blob under "mpins" — GPIO numbers fit in a byte and the
 // set is atomic (all six or none).
 bool rover_config_load_motor_pins(int pins[6]) {

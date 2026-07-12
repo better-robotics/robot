@@ -21,6 +21,10 @@ esp_err_t rover_config_set_wifi(const char *ssid, const char *pass);
  * instead of a compile-time flag or BLE onboarding. */
 void rover_config_load_identity(char user[33], char pass[65], char name[33]);
 esp_err_t rover_config_set_identity(const char *user, const char *pass, const char *name);
+/* Reprovision: erase the stored identity — the board boots back into the
+ * unassigned pool. Wi-Fi, motor pins and the hub pin survive: venue and
+ * hardware facts, not identity. */
+esp_err_t rover_config_clear_identity(void);
 
 /* Motor drive pins, assigned post-join like the team — a student wires their own
  * chassis, so the pinout can't be a compile-time constant. Order is fixed:

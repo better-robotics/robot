@@ -111,6 +111,12 @@ static char s_name[33] = "";
 static const char *s_topic_id = s_user;
 
 static volatile bool s_mqtt_up = false;   /* live session; drives dead-session self-heal */
+/* Credential-orphan escape (see rover_client_run): consecutive CONNACK
+ * not-authorized rejections, and whether this session runs on the pool
+ * credential instead of the stored team. RAM-only — a reboot retries the
+ * stored identity from scratch. */
+static volatile int s_auth_rejections = 0;
+static bool s_cred_fallback = false;
 static volatile int64_t s_last_drive_us = INT64_MIN;  /* esp_timer time of the last pwm; hub_watch reads it */
 
 int64_t rover_ms_since_drive(void) {
@@ -398,6 +404,25 @@ static void identify_apply(const char *json, int len) {
     xTaskCreate(blink_task, "blink", 2048, NULL, 4, NULL);
 }
 
+/* Reprovision: authorized identity destruction. It arrives on this board's own
+ * team topic (the professor, or the team's dashboard deleting the team), so
+ * clearing NVS is correct here — unlike a rejected login, which is ambiguous
+ * evidence and never wipes (the identity may be valid on the board's own hub).
+ * Optional {"target":"rover-xxxx"} narrows a team-wide publish to one board,
+ * the same filter cmd/config uses; no/unparseable payload = the whole team. */
+static void reprovision_apply(const char *json, int len) {
+    cJSON *root = cJSON_ParseWithLength(json, len);
+    if (root) {
+        const cJSON *target = cJSON_GetObjectItemCaseSensitive(root, "target");
+        bool mine = !cJSON_IsString(target) || strcmp(target->valuestring, s_id) == 0;
+        cJSON_Delete(root);
+        if (!mine) return;
+    }
+    ESP_LOGW(TAG, "reprovision — clearing team identity, rebooting into the pool");
+    rover_config_clear_identity();
+    esp_restart();
+}
+
 /* Four subscriptions: robots/<id>/pwm (drive), /cmd/config (post-join team
  * assignment), /cmd/identify (blink to find the physical board), /cmd/reprovision
  * (the BOOT button's remote twin). Routed by topic suffix; topic/data arrive
@@ -408,6 +433,10 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     switch ((esp_mqtt_event_id_t)id) {
     case MQTT_EVENT_CONNECTED: {
         s_mqtt_up = true;
+        /* A clean connect under the STORED identity proves it valid — reset the
+         * rejection count. Under fallback the count stays: the stored team is
+         * still unknown here, and only a reboot (reassignment reboots) retries it. */
+        if (!s_cred_fallback) s_auth_rejections = 0;
         led_set(true);          /* reached the broker — visible "live" signal */
         char t[64];
         snprintf(t, sizeof t, "robots/%s/pwm", s_topic_id);
@@ -435,12 +464,19 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
         } else if (e->topic_len >= 9 && memcmp(e->topic + e->topic_len - 9, "/identify", 9) == 0) {
             identify_apply(e->data, e->data_len);
         } else if (e->topic_len >= 12 && memcmp(e->topic + e->topic_len - 12, "/reprovision", 12) == 0) {
-            ESP_LOGW(TAG, "reprovision command — rebooting");
-            esp_restart();
+            reprovision_apply(e->data, e->data_len);
         } else {
             /* A future subscription without a branch here must never reboot the board. */
             ESP_LOGW(TAG, "unhandled message on %.*s — ignoring", e->topic_len, e->topic);
         }
+        break;
+    case MQTT_EVENT_ERROR:
+        /* Only CONNACK 0x05 counts: "not authorized" is the one signal that
+         * separates a bad credential from an unreachable broker. */
+        if (e->error_handle
+            && e->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED
+            && e->error_handle->connect_return_code == MQTT_CONNECTION_REFUSE_NOT_AUTHORIZED)
+            s_auth_rejections++;
         break;
     default:
         break;
@@ -466,6 +502,21 @@ void rover_client_run(const char *broker_uri) {
         strncpy(s_user, cu, sizeof s_user - 1);
         strncpy(s_pass, cp, sizeof s_pass - 1);
         strncpy(s_name, cn, sizeof s_name - 1);
+    }
+    /* Credential-orphan escape: repeated not-authorized CONNACKs mean THIS
+     * broker doesn't know the stored team (deleted, or the hub was re-imaged —
+     * the bench scar 2026-07-12: a board orphaned this way retried forever and
+     * even reflashing didn't help, since identity lives in NVS). Fall back to
+     * the compile-time pool credential for this session — never wipe NVS on a
+     * rejection (it's evidence, not a command; the identity may be valid on
+     * the board's own hub). The board reappears in the dashboard's pool and
+     * reassignment (cmd/config) overwrites the stale identity properly. */
+    if (s_auth_rejections >= 2 && strcmp(s_user, MQTT_USER) != 0) {
+        ESP_LOGW(TAG, "'%s' rejected %dx by this broker — driving as '%s' (stored identity kept)",
+                 s_user, s_auth_rejections, MQTT_USER);
+        s_cred_fallback = true;
+        strncpy(s_user, MQTT_USER, sizeof s_user - 1);
+        strncpy(s_pass, MQTT_PASS, sizeof s_pass - 1);
     }
     led_set(false);   /* start dark; MQTT CONNECTED lights it */
     ESP_LOGI(TAG, "rover client: id %s as '%s'%s%s → %s", s_id, s_user,
