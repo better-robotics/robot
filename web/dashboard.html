@@ -640,7 +640,7 @@
       <label class="field">Team
         <input id="assign-team" placeholder="team3"
                autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off"></label>
-      <label class="field">Team code — needed to move it there
+      <label class="field">Team code — blank rotates it &amp; mints a new sign-in card
         <input id="assign-pass" type="password" placeholder="" autocomplete="off"></label>
       <label class="field">Display name — optional
         <input id="assign-name" placeholder="shown on its card" autocomplete="off"></label>
@@ -3284,17 +3284,20 @@ safe-buffer/index.js:
     // Per-team code actions, in the card header — the old roster's Rotate/✕,
     // now living where the team lives. Professor + hub-served (/codes) only.
     // Rotate also mints a code for a live-but-codeless team (set = rotate).
-    function teamOps(id) {
+    // ✕ exists ONLY on robot-less teams (the rmdir rule: detach, then delete)
+    // — wherever it's visible it can mean exactly one thing, and a fast tap
+    // can't nuke a code while meaning "swap the robot".
+    function teamOps(id, deletable) {
       if (!codesApi || !myScope || myScope.scope !== "all" || id === "unassigned") return "";
       return `<span class="team-ops">
         <button data-rotate="${esc(id)}" aria-label="Rotate ${esc(id)}'s code">Rotate…</button>
-        ${knownTeams.includes(id) ? `<button data-delcode="${esc(id)}" aria-label="Delete team ${esc(id)}">&#10005;</button>` : ""}</span>`;
+        ${deletable && knownTeams.includes(id) ? `<button data-delcode="${esc(id)}" aria-label="Delete team ${esc(id)}">&#10005;</button>` : ""}</span>`;
     }
     // A team whose code exists but whose robot is silent — the class exists
     // while the cabinet is closed; code hygiene must not wait for power-on.
     function teamOnlyCard(id) {
       return `<div class="robot offline team-only">
-        <h2><span class="dot"></span>${esc(id)}${teamOps(id)}</h2>
+        <h2><span class="dot"></span>${esc(id)}${teamOps(id, true)}</h2>
         <div class="hw">no rover on the air</div>
         <div class="remedy">assign one from the unassigned pool, or power its rover on</div>
       </div>`;
@@ -3596,8 +3599,17 @@ safe-buffer/index.js:
       document.getElementById("codes-pass").focus({ preventScroll: true });
     }
     async function delTeam(t) {
-      if (!confirm(`Delete ${t}? Its rover and browsers lose access.`)) return;
       const status = document.getElementById("teams-status");
+      // The ✕ only renders on robot-less cards, but a robot can rejoin while
+      // the confirm sits open — re-check the live map at act time.
+      const occupied = [...boards.values()].some(rec =>
+        rec.team === t && Date.now() - rec.seenAt < 10000);
+      if (occupied) {
+        status.textContent = `${t} has a rover attached — Unassign it first, then delete.`;
+        status.className = "assign-err";
+        return;
+      }
+      if (!confirm(`Delete ${t}? Its sign-in code stops working.`)) return;
       // Tell the team's boards FIRST, while they can still hear it — once the
       // credential is gone they can never authenticate to be told. They clear
       // their stored identity and reboot into the pool. Boards offline at this
@@ -3695,17 +3707,28 @@ safe-buffer/index.js:
 
     // One listener for the whole roster: board chips open the repair form,
     // Rotate…/✕ are the team-row code actions (rendered only when /codes exists).
-    document.getElementById("assign-btn").addEventListener("click", () => {
+    document.getElementById("assign-btn").addEventListener("click", async () => {
       const status = document.getElementById("teams-status");
       const setErr = m => { status.textContent = m; status.className = "assign-err"; };
       if (!assignTarget) return setErr("Pick a board first.");
       if (!driveClient || !driveClient.connected) return setErr("Connect as professor first.");
-      const team = document.getElementById("assign-team").value.trim();
-      const pass = document.getElementById("assign-pass").value;
+      const team = document.getElementById("assign-team").value.trim().toLowerCase();
+      let pass = document.getElementById("assign-pass").value;
       const name = document.getElementById("assign-name").value.trim();
       if (!team) return setErr("A team is required.");
-      const cfg = { target: assignTarget.board, team };
-      if (pass) cfg.pass = pass;
+      // Blank code = rotate & send: codes are shown once at mint and never
+      // again, so "move this robot to blue" used to be a memory test. Same
+      // meaning blank already has at mint. The share card re-mints so the
+      // team's people get their new sign-in immediately. (A blank pass SENT
+      // would store an empty credential on the board — never useful.)
+      if (!pass) {
+        if (!codesApi) return setErr("Enter the team's code — this copy can't mint one.");
+        const r = await codesPost("/codes/set", { user: team, pass: "" });
+        if (!r.ok) return setErr(r.error);
+        pass = r.pass;
+        mintShareCard(team, pass);
+      }
+      const cfg = { target: assignTarget.board, team, pass };
       if (name) cfg.name = name;
       // Hub pin: empty = leave as-is, "-" = clear (sends ""), else set. The
       // rover refuses a non-hub-* value, so a typo can't strand the board.
