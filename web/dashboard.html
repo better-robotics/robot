@@ -3289,6 +3289,25 @@ safe-buffer/index.js:
     // flaps between boards. Blink = robots/<team>/cmd/identify targeted by
     // board id; Assign preselects the board in the assign panel. Both are
     // professor actions (the pool's credential is deliberately not a student's).
+    // Per-team code actions, in the card header — the old roster's Rotate/✕,
+    // now living where the team lives. Professor + hub-served (/codes) only.
+    // Rotate also mints a code for a live-but-codeless team (set = rotate).
+    function teamOps(id) {
+      if (!codesApi || !myScope || myScope.scope !== "all" || id === "unassigned") return "";
+      return `<span class="team-ops">
+        <button data-rotate="${esc(id)}" aria-label="Rotate ${esc(id)}'s code">Rotate…</button>
+        ${knownTeams.includes(id) ? `<button data-delcode="${esc(id)}" aria-label="Delete team ${esc(id)}">&#10005;</button>` : ""}</span>`;
+    }
+    // A team whose code exists but whose robot is silent — the class exists
+    // while the cabinet is closed; code hygiene must not wait for power-on.
+    function teamOnlyCard(id) {
+      return `<div class="robot offline team-only">
+        <h2><span class="dot"></span>${esc(id)}${teamOps(id)}</h2>
+        <div class="hw">no rover on the air</div>
+        <div class="remedy">assign one from the unassigned pool, or power its rover on</div>
+      </div>`;
+    }
+
     function memberCard(id, mem, offline, ageMs) {
       const isPool = id === "unassigned";
       const prof = myScope && myScope.scope === "all";
@@ -3325,7 +3344,7 @@ safe-buffer/index.js:
         </div>`).join("");
       return `<div class="robot${offline ? " offline" : ""}${isPool ? "" : " collision"}">
         <h2><span class="dot"></span>${isPool ? `Unassigned rovers${mem.length ? ` (${mem.length})` : ""}` : esc(id)}
-          ${offline ? '<span class="offline-label">offline</span>' : ""}</h2>
+          ${offline ? '<span class="offline-label">offline</span>' : ""}${isPool ? "" : teamOps(id)}</h2>
         ${note ? `<div class="${isPool ? "pool-note" : "warn-note"}">${isPool ? "" : "⚠ "}${note}</div>` : ""}
         ${rows || `<div class="pool-note">nothing online here — last seen ${fmtUptime(ageMs)} ago</div>`}
       </div>`;
@@ -3337,7 +3356,14 @@ safe-buffer/index.js:
       // typing — hold the repaint while an input inside the cards has focus.
       const active = document.activeElement;
       if (active && active.tagName === "INPUT" && document.getElementById("robots").contains(active)) return;
-      const ids = [...robots.keys()].sort();
+      const ids = [...robots.keys()];
+      // The grid is the CLASS, not just the airwaves: the professor also sees
+      // teams whose code exists but whose robot is silent — rotating a code at
+      // 7am with the cabinet still closed needs the team present as a card.
+      if (myScope && myScope.scope === "all")
+        for (const t of knownTeams)
+          if (t !== "professor" && !robots.has(t)) ids.push(t);
+      ids.sort();
       // A team-scoped viewer's own rover leads the demoted grid — right under
       // their pad; the rest of the class follows alphabetically (stable sort).
       if (myScope && myScope.scope === "one")
@@ -3351,6 +3377,7 @@ safe-buffer/index.js:
         members.get(rec.team).push({ board: b, sys: rec.sys });
       }
       const html = ids.map(id => {
+        if (!robots.has(id)) return teamOnlyCard(id);
         const { sys, seenAt } = robots.get(id);
         const ageMs = Date.now() - seenAt;
         const offline = ageMs > 10000;  /* robots publish every 2 s */
@@ -3364,12 +3391,15 @@ safe-buffer/index.js:
           actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(id)}" data-board="${esc(sys.board || "")}">📷 Camera</button>`);
         if (!offline && sys.ip)
           actions.push(`<button class="btn-tile" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(id)}" data-board="${esc(sys.board || "")}">⚙ Wi-Fi &amp; role</button>`);
-        if (myScope && myScope.scope === "all" && !offline && sys.board)
+        if (myScope && myScope.scope === "all" && !offline && sys.board) {
+          actions.push(`<button class="btn-tile" data-blink="${esc(sys.board)}" data-bteam="${esc(id)}">💡 Blink</button>`);
+          actions.push(`<button class="btn-tile" data-assign="${esc(sys.board)}" data-bteam="${esc(id)}">Assign…</button>`);
           actions.push(`<button class="btn-tile" data-unassign="${esc(sys.board)}" data-uteam="${esc(id)}">Unassign</button>`);
+        }
         if (myScope && myScope.scope === "all")
           actions.push(`<button class="btn-drive${target === id ? " driving" : ""}" data-robot="${esc(id)}">${target === id ? "Driving" : "Drive"}</button>`);
         return `<div class="robot${offline ? " offline" : ""}">
-          <h2><span class="dot"></span>${esc(id)}${offline ? '<span class="offline-label">offline</span>' : ""}</h2>
+          <h2><span class="dot"></span>${esc(id)}${offline ? '<span class="offline-label">offline</span>' : ""}${teamOps(id)}</h2>
           <!-- The board id stays visible after assignment: it's the physical
                handle — the rover's own Wi-Fi name, the Blink/assign target. -->
           <div class="hw">${sys.board ? `${esc(sys.board)} · ` : ""}${esc(sys.hw || "unknown board")}</div>
@@ -3415,7 +3445,7 @@ safe-buffer/index.js:
         const base = title.textContent.replace(/ — offline\?$/, "");
         title.textContent = stale ? `${base} — offline?` : base;
       }
-      renderRobots(); renderRoster(); renderChips(); watchAssign(); syncPinsPanel(false);
+      renderRobots(); renderChips(); watchAssign(); syncPinsPanel(false);
     }, 2000);
 
     // Anonymous mqtt.js connection, scoped by Mosquitto's ACL to read-only
@@ -3512,7 +3542,6 @@ safe-buffer/index.js:
         if (!standalone) loadCodes(); // code actions + requests join the roster when /codes exists
       }
       renderRobots(); // re-render cards now that scope is known (adds Drive buttons for "all")
-      renderRoster(); // and the professor-only team roster, for the same reason
     }
 
     function selectTarget(id, board) {
@@ -3563,49 +3592,37 @@ safe-buffer/index.js:
     // a half-typed credential.
     let assignTarget = null; // { board, team } — the board's *current* team
 
-    let lastRosterHtml = "";
-    function renderRoster() {
-      if (!myScope || myScope.scope !== "all") return;
-      const list = document.getElementById("team-roster");
-      const byTeam = new Map();
-      for (const [b, rec] of boards) {
-        if (!byTeam.has(rec.team)) byTeam.set(rec.team, []);
-        byTeam.get(rec.team).push(b);
+    // The roster dissolved into the fleet grid (a team is a card; robots
+    // attach to teams) — these are its code actions, now invoked from the
+    // card headers via the #robots delegation.
+    function rotateTeam(t) {
+      document.getElementById("codes-user").value = t;
+      const status = document.getElementById("teams-status");
+      status.textContent = `Rotating ${t} — enter a new code, or leave blank to auto-generate.`;
+      status.className = "";
+      document.getElementById("codes-form").scrollIntoView({ behavior: SCROLL, block: "center" });
+      document.getElementById("codes-pass").focus({ preventScroll: true });
+    }
+    async function delTeam(t) {
+      if (!confirm(`Delete ${t}? Its rover and browsers lose access.`)) return;
+      const status = document.getElementById("teams-status");
+      // Tell the team's boards FIRST, while they can still hear it — once the
+      // credential is gone they can never authenticate to be told. They clear
+      // their stored identity and reboot into the pool. Boards offline at this
+      // moment are caught by the firmware's not-authorized fallback instead.
+      if (driveClient && driveClient.connected) {
+        const topic = `robots/${t}/cmd/reprovision`;
+        driveClient.publish(topic, "{}", { qos: 1, retain: false });
+        logLine("out", `${topic} {}`);
       }
-      // Teams alphabetical, professor last (no rovers). The pool is NOT
-      // repeated here — unassigned boards already have their own card (with
-      // Blink/Assign/Drive) up in the fleet grid; listing them twice gave the
-      // same rovers two different interaction models.
-      const teams = [...new Set([...knownTeams, ...byTeam.keys()])]
-        .filter(t => t !== "unassigned" && t !== "professor").sort();
-      if (knownTeams.includes("professor")) teams.push("professor");
-      if (!teams.length) { list.innerHTML = '<p class="assign-empty">No teams or rovers yet.</p>'; lastRosterHtml = ""; return; }
-      const rosterHtml = teams.map(t => {
-        const chips = (byTeam.get(t) || []).sort().map(b => {
-          const offline = Date.now() - boards.get(b).seenAt > 10000;
-          const sel = assignTarget && assignTarget.board === b ? " selected" : "";
-          return `<button class="board${sel}${offline ? " offline" : ""}" data-board="${esc(b)}"
-            data-team="${esc(t)}"${offline ? " disabled" : ""}>
-            <span class="dot"></span>${esc(b)}
-            ${offline ? '<span class="offline-label">offline</span>' : ""}
-          </button>`;
-        }).join("");
-        const managed = codesApi && t !== "unassigned"; // broker identity with a rotatable code
-        return `<div class="team-row">
-          <div class="codes-row"><b>${esc(t)}</b><span class="spacer"></span>
-            ${managed ? `<button data-rotate="${esc(t)}" aria-label="Rotate ${esc(t)}'s code">Rotate…</button>` : ""}
-            ${managed && t !== "professor" ? `<button data-delcode="${esc(t)}" aria-label="Delete team ${esc(t)}">&#10005;</button>` : ""}</div>
-          ${chips ? `<div class="team-boards">${chips}</div>` : ""}</div>`;
-      }).join("");
-      if (rosterHtml !== lastRosterHtml) {
-        lastRosterHtml = rosterHtml;
-        list.innerHTML = rosterHtml;
-      }
+      const r = await codesPost("/codes/del", { user: t });
+      status.textContent = r.ok ? `Deleted ${t}.` : r.error;
+      status.className = r.ok ? "assign-ok" : "assign-err";
+      loadCodes();
     }
 
-    // Select a board for repair/move — from a roster chip, or preselected by a
-    // pool/collision row's "Assign…" (which also scrolls the form into view,
-    // since those rows live up in the fleet grid).
+    // Select a board for repair/move — preselected by a card's "Assign…"
+    // (pool row, collision row, or an assigned rover's own card).
     function preselectAssign(board, team, scroll) {
       assignTarget = { board, team };
       syncPinsPanel(true);   // hard seed: pin fields take this board's live map
@@ -3614,7 +3631,6 @@ safe-buffer/index.js:
       document.getElementById("assign-selected").textContent =
         `Assigning ${board} — currently ${team}.`;
       document.getElementById("teams-status").textContent = "";
-      renderRoster();
       if (scroll) {
         // Fleet-card invocation: the form comes to the tap as a modal sheet
         // (deep task, deep container) instead of long-scrolling to the Teams
@@ -3683,39 +3699,6 @@ safe-buffer/index.js:
 
     // One listener for the whole roster: board chips open the repair form,
     // Rotate…/✕ are the team-row code actions (rendered only when /codes exists).
-    document.getElementById("team-roster").addEventListener("click", async (e) => {
-      const chip = e.target.closest(".board");
-      const rot = e.target.closest("[data-rotate]");
-      const del = e.target.closest("[data-delcode]");
-      if (chip) {
-        if (!chip.disabled) preselectAssign(chip.dataset.board, chip.dataset.team, false);
-      } else if (rot) {
-        // The codes form may be off-screen — a tap that "does nothing" reads
-        // as broken. Bring it to the finger and say what's staged.
-        document.getElementById("codes-user").value = rot.dataset.rotate;
-        const status = document.getElementById("teams-status");
-        status.textContent = `Rotating ${rot.dataset.rotate} — enter a new code, or leave blank to auto-generate.`;
-        status.className = "";
-        document.getElementById("codes-form").scrollIntoView({ behavior: SCROLL, block: "center" });
-        document.getElementById("codes-pass").focus({ preventScroll: true });
-      } else if (del && confirm(`Delete ${del.dataset.delcode}? Its rover and browsers lose access.`)) {
-        const status = document.getElementById("teams-status");
-        // Tell the team's boards FIRST, while they can still hear it — once the
-        // credential is gone they can never authenticate to be told. They clear
-        // their stored identity and reboot into the pool. Boards offline at this
-        // moment are caught by the firmware's not-authorized fallback instead.
-        if (driveClient && driveClient.connected) {
-          const topic = `robots/${del.dataset.delcode}/cmd/reprovision`;
-          driveClient.publish(topic, "{}", { qos: 1, retain: false });
-          logLine("out", `${topic} {}`);
-        }
-        const r = await codesPost("/codes/del", { user: del.dataset.delcode });
-        status.textContent = r.ok ? `Deleted ${del.dataset.delcode}.` : r.error;
-        status.className = r.ok ? "assign-ok" : "assign-err";
-        loadCodes();
-      }
-    });
-
     document.getElementById("assign-btn").addEventListener("click", () => {
       const status = document.getElementById("teams-status");
       const setErr = m => { status.textContent = m; status.className = "assign-err"; };
@@ -4108,7 +4091,7 @@ safe-buffer/index.js:
       document.getElementById("code-gate").style.display = "";
       document.getElementById("code-input").value = "";
       if (codesApi) { document.getElementById("req-access").style.display = "block"; refreshKnownTeams(); }
-      renderChips(); renderRobots(); renderRoster();
+      renderChips(); renderRobots();
     });
 
     // Chip popover: one mechanism for everything the topbar chips open. A
@@ -4333,7 +4316,7 @@ safe-buffer/index.js:
       if (r) {
         document.getElementById("codes-nag").style.display = r.placeholders ? "block" : "none";
         document.getElementById("codes-form").style.display = "flex";
-        renderRoster();
+        renderRobots();   // knownTeams changed — silent-team cards join/leave the grid
       }
       loadRequests();
     }
@@ -4494,6 +4477,8 @@ safe-buffer/index.js:
       const blk = e.target.closest("[data-blink]");
       const asg = e.target.closest("[data-assign]");
       const una = e.target.closest("[data-unassign]");
+      const rot = e.target.closest("[data-rotate]");
+      const del = e.target.closest("[data-delcode]");
       const clm = e.target.closest("[data-claim]");
       const cls = e.target.closest("[data-claimsend]");
       if (cam) openCamera(cam.dataset.id, cam.dataset.camIp, cam.dataset.board);
@@ -4501,6 +4486,8 @@ safe-buffer/index.js:
       else if (drv) selectTarget(drv.dataset.robot, drv.dataset.board);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.bteam);
       else if (una) unassignBoard(una.dataset.unassign, una.dataset.uteam);
+      else if (rot) rotateTeam(rot.dataset.rotate);
+      else if (del) delTeam(del.dataset.delcode);
       else if (asg) preselectAssign(asg.dataset.assign, asg.dataset.bteam, true);
       else if (clm) {
         claimingBoard = clm.dataset.claim; claimDraft = ""; claimErr = "";
