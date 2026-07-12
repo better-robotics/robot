@@ -69,6 +69,39 @@ static esp_err_t stream_handler(httpd_req_t *req)
     return res;
 }
 
+/* Post-mortem when the sensor probe fails: scan the SCCB bus ourselves and log
+ * who ACKs. Splits the two field failures apart — no ACK at all = ribbon cable
+ * unseated / sensor unpowered; an ACK the driver still rejected = sensor answered
+ * with a garbage or unknown PID (marginal supply, or a sensor variant missing
+ * from sdkconfig). The driver logs neither case distinctly. */
+#include "driver/i2c_master.h"
+static void sccb_postmortem(void)
+{
+    i2c_master_bus_config_t bc = {
+        .i2c_port = -1,                /* any free controller — the driver's own is gone after deinit */
+        .sda_io_num = SIOD_GPIO, .scl_io_num = SIOC_GPIO,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
+    };
+    i2c_master_bus_handle_t bus = NULL;
+    if (i2c_new_master_bus(&bc, &bus) != ESP_OK) {
+        ESP_LOGW(TAG, "postmortem: SCCB pins still held, can't scan");
+        return;
+    }
+    int acks = 0;
+    for (uint8_t a = 0x08; a <= 0x77; a++) {
+        if (i2c_master_probe(bus, a, 50) == ESP_OK) {
+            ESP_LOGW(TAG, "postmortem: device ACKs at 0x%02x%s", a,
+                     a == 0x30 ? " (OV2640 range)" : a == 0x3c ? " (OV3660/OV5640 range)" : "");
+            acks++;
+        }
+    }
+    if (!acks)
+        ESP_LOGW(TAG, "postmortem: NOTHING on the SCCB bus — check the camera ribbon cable / module power");
+    i2c_del_master_bus(bus);
+}
+
 /* A bare / on :81 → /stream, so http://<rover>:81 typed by hand also lands on the feed. */
 static esp_err_t root_handler(httpd_req_t *req)
 {
@@ -125,6 +158,7 @@ void camera_start(void)
         /* Connection-first: a camera that can't fit its buffers must not take the
          * board down — log loudly and run without it (sys.cam stays false). */
         ESP_LOGE(TAG, "esp_camera_init failed: %s — running without a camera", esp_err_to_name(e));
+        sccb_postmortem();
         return;
     }
 
