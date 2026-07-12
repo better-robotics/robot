@@ -551,9 +551,19 @@ void rover_client_run(const char *broker_uri) {
 
     /* First connect gates everything: it proves both reachability AND that the
      * team credential was accepted (a bad password disconnects here, never
-     * reaching s_mqtt_up). No connect in 10 s → dead → caller retries. */
+     * reaching s_mqtt_up). No connect in 10 s → dead → caller retries.
+     * MUST stop+destroy on this exit: a returned-but-alive client keeps
+     * auto-reconnecting forever — each pass leaked one zombie retrying the
+     * dead credential, their DISCONNECTED events flipped the shared s_mqtt_up
+     * under the NEXT session (20 s flap), and the heap bled until the board
+     * crashed off the air (bench 2026-07-12, rover-e348/b79c). */
     for (int i = 0; i < 40 && !s_mqtt_up; i++) vTaskDelay(pdMS_TO_TICKS(250));
-    if (!s_mqtt_up) { ESP_LOGE(TAG, "broker unreachable or credential rejected"); return; }
+    if (!s_mqtt_up) {
+        ESP_LOGE(TAG, "broker unreachable or credential rejected");
+        esp_mqtt_client_stop(cli);
+        esp_mqtt_client_destroy(cli);
+        return;
+    }
 
     char key[48];
     snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);

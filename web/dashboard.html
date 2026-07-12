@@ -109,15 +109,6 @@
        banner stops being the loudest element on the page. */
     .notice.ok { background: var(--surface); border-color: var(--border-default); }
 
-    /* Scope-driven reading order. Default (professor, anonymous): survey the
-       fleet, then drive, then administer — the room seen from the front. A
-       team-scoped student's world is ONE rover: their pad leads and the fleet
-       follows (cold-pass audit 2026-07-12 — both passes converged on exactly
-       this reorder, scope-keyed because fleet-first stays right for claim/
-       onboarding and the professor). */
-    body.scope-one main { display: flex; flex-direction: column; }
-    body.scope-one #robots { order: 2; }
-
     /* Fleet grid — auto-fill so cards reflow from a phone's single column up to
        the desktop's multi-column without a media query per breakpoint. */
     #robots {
@@ -209,6 +200,7 @@
       color: var(--accent-ink); background: var(--accent); transition: transform 0.08s ease, filter 0.15s ease;
     }
     #connect-btn:hover, #assign-btn:hover, #codes-add:hover, #req-send:hover { filter: brightness(1.08); }
+    #assign-btn:disabled { opacity: 0.55; cursor: default; filter: none; }
     button:active { transform: scale(0.97); }
     /* Tinted (secondary) button — accent text on a soft accent wash.
        .btn-accent is the generic tint; .btn-drive is ONLY the drive-target
@@ -3638,15 +3630,19 @@ safe-buffer/index.js:
         // there. From the roster (scroll=false) the form stays in place: the
         // tap happened inside Teams already.
         const status = document.getElementById("teams-status");
-        const home = form.parentNode;
         const wrap = document.createElement("div");
         wrap.className = "assign-sheet";
         wrap.append(form, status);
         openModal(`Assign ${board}`, wrap);
+        // Anchor the restore to #codes-share's REAL position — never to the
+        // form's parent at open time: opening a second sheet over a first
+        // captured the first sheet's (soon-detached) wrapper as "home", and
+        // the restore's insertBefore threw, killing the tap handler (bench
+        // 2026-07-12 — consecutive Assign… taps read as a dead button).
         modalRestore = () => {
           const share = document.getElementById("codes-share");
-          home.insertBefore(form, share);
-          home.insertBefore(status, share);
+          share.parentNode.insertBefore(form, share);
+          share.parentNode.insertBefore(status, share);
         };
       }
       document.getElementById("assign-team").focus({ preventScroll: scroll });
@@ -3743,6 +3739,7 @@ safe-buffer/index.js:
                         baseUptime: boards.get(assignTarget.board)?.sys?.uptime_ms ?? 0,
                         sentAt: Date.now() };
       document.getElementById("assign-btn").disabled = true;
+      document.getElementById("assign-btn").textContent = "Assigning…";  // disabled alone had no visible state
       status.textContent = `Sent — waiting for ${assignTarget.board} to reboot into ${team}…`;
       status.className = "";
       // Pin fields are NOT cleared: they display the rover's live map, and
@@ -3778,6 +3775,7 @@ safe-buffer/index.js:
       const settle = (msg, cls) => {
         status.textContent = msg; status.className = cls;
         document.getElementById("assign-btn").disabled = false;
+        document.getElementById("assign-btn").textContent = "Assign";
         assignPending = null;
       };
       const rec = boards.get(assignPending.board);
@@ -4216,7 +4214,7 @@ safe-buffer/index.js:
       return null;
     }
     async function sendRequest() {
-      const name = document.getElementById("req-name").value.trim();
+      const name = document.getElementById("req-name").value.trim().toLowerCase();
       if (!name) return reqStatus("Enter your team name first.", "assign-err");
       const fail = await knock(name);
       if (fail) return reqStatus(fail, "assign-err");
@@ -4281,7 +4279,10 @@ safe-buffer/index.js:
     let claimDraft = "";      // its input value, preserved across repaints
     let claimErr = "";        // inline error, rendered under the field
     async function sendClaim(board) {
-      const name = claimDraft.trim();
+      // Lowercase silently: names are broker usernames (lowercase-only), and
+      // phone keyboards capitalize despite autocapitalize="none" (bench
+      // 2026-07-12: "Jonas" bounced with the format error).
+      const name = claimDraft.trim().toLowerCase();
       if (!name) { claimErr = "Enter your team name first."; renderRobots(); return; }
       claimErr = "";
       const fail = await knock(name, board);
