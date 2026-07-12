@@ -490,7 +490,6 @@
     <p>Signed in as <b id="identity-name"></b></p>
     <p class="hint" id="id-menu-scope"></p>
     <p class="hint" id="id-menu-conn" role="status"></p>
-    <button id="menu-teams" class="btn-tile" style="display:none">Teams &amp; codes ↓</button>
     <button id="logout-btn" class="btn-tile">Log out &amp; switch</button>
   </div>
   <main>
@@ -3468,9 +3467,6 @@ safe-buffer/index.js:
       document.getElementById("id-chip").classList.add("show");
       document.getElementById("id-menu-scope").textContent = myScope.scope === "all"
         ? "Professor — full fleet control." : `Team scope — drives ${myScope.robot} only.`;
-      // Professor shortcut into the fleet-admin workspace — navigation in the
-      // menu (HIG-fine), never the workspace itself in the popover.
-      document.getElementById("menu-teams").style.display = myScope.scope === "all" ? "" : "none";
       document.getElementById("drive-panel").style.display = "block";
       applyDriveMode(); // panel just appeared: sync the mode switch to the no-target state
       document.getElementById("scope-label").textContent = myScope.scope === "all"
@@ -3925,11 +3921,6 @@ safe-buffer/index.js:
       closeChipPop();
     });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeChipPop(); });
-
-    document.getElementById("menu-teams").addEventListener("click", () => {
-      closeChipPop();
-      document.getElementById("teams").scrollIntoView({ behavior: SCROLL, block: "start" });
-    });
 
     // Identity chip → the account menu, at the corner it was invoked from.
     document.getElementById("id-chip").addEventListener("click", () => {
