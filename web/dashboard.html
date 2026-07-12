@@ -3,7 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; worker-src blob:">
+  <!-- frame/img/connect allow http: — the per-board modals (Wi-Fi panel iframe,
+       :81/stream camera, reachability probe) talk plain http to dynamic private
+       board IPs, which 'self' can't express (CSP has no CIDR). Verified 2026-07-12:
+       under default-src 'self' every cross-host board modal was CSP-blocked. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data: http:; connect-src 'self' http: ws: wss:; frame-src 'self' http:; worker-src blob:">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNTYgMjU2IiB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiI+CiAgPGRlZnM+CiAgICA8IS0tIFN1YnRsZSB2ZXJ0aWNhbCBncmFkaWVudCDigJQgQXBwbGUgaWNvbnMgcmFyZWx5IHVzZSBhIGZsYXQgZmlsbC4gLS0+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnTGlnaHQiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjZmZmZmZmIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2VjZWVmMSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmdEYXJrIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzIzMjYyYSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMxNDE3MWEiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8IS0tIGlPUyBjb250aW51b3VzLWNvcm5lciBzcXVpcmNsZSAobuKJiDUgc3VwZXJlbGxpcHNlIGFwcHJveGltYXRpb24KICAgICAgICAgdmlhIGFzeW1tZXRyaWMgY3ViaWMgYmV6aWVyczsgfjIyJSByYWRpdXMsIDAuNiBzbW9vdGhuZXNzIGZhY3RvcikuIC0tPgogICAgPGNsaXBQYXRoIGlkPSJpY29uU2hhcGUiPgogICAgICA8cGF0aCBkPSJNIDkyLjE2MDAwMDAwMDAwMDAxIDAgTCAxNjMuODM5OTk5OTk5OTk5OTcgMCBDIDIyMS40NCAwIDI1NiAzNC41NiAyNTYgOTIuMTYwMDAwMDAwMDAwMDEgTCAyNTYgMTYzLjgzOTk5OTk5OTk5OTk3IEMgMjU2IDIyMS40NCAyMjEuNDQgMjU2IDE2My44Mzk5OTk5OTk5OTk5NyAyNTYgTCA5Mi4xNjAwMDAwMDAwMDAwMSAyNTYgQyAzNC41NiAyNTYgMCAyMjEuNDQgMCAxNjMuODM5OTk5OTk5OTk5OTcgTCAwIDkyLjE2MDAwMDAwMDAwMDAxIEMgMCAzNC41NiAzNC41NiAwIDkyLjE2MDAwMDAwMDAwMDAxIDAgWiIvPgogICAgPC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPHN0eWxlPgogICAgLmJnIHsgZmlsbDogdXJsKCNiZ0xpZ2h0KTsgfQogICAgLmIgIHsgZmlsbDogIzAxMjE2OTsgfQogICAgLnIgIHsgZmlsbDogIzZlNmU3MzsgfQogICAgQG1lZGlhIChwcmVmZXJzLWNvbG9yLXNjaGVtZTogZGFyaykgewogICAgICAuYmcgeyBmaWxsOiB1cmwoI2JnRGFyayk7IH0KICAgICAgLmIgIHsgZmlsbDogIzA1NzdCMTsgfQogICAgICAuciAgeyBmaWxsOiAjYWRiNWJkOyB9CiAgICB9CiAgPC9zdHlsZT4KICA8ZyBjbGlwLXBhdGg9InVybCgjaWNvblNoYXBlKSI+CiAgICA8cGF0aCBjbGFzcz0iYmciIGQ9Ik0gOTIuMTYwMDAwMDAwMDAwMDEgMCBMIDE2My44Mzk5OTk5OTk5OTk5NyAwIEMgMjIxLjQ0IDAgMjU2IDM0LjU2IDI1NiA5Mi4xNjAwMDAwMDAwMDAwMSBMIDI1NiAxNjMuODM5OTk5OTk5OTk5OTcgQyAyNTYgMjIxLjQ0IDIyMS40NCAyNTYgMTYzLjgzOTk5OTk5OTk5OTk3IDI1NiBMIDkyLjE2MDAwMDAwMDAwMDAxIDI1NiBDIDM0LjU2IDI1NiAwIDIyMS40NCAwIDE2My44Mzk5OTk5OTk5OTk5NyBMIDAgOTIuMTYwMDAwMDAwMDAwMDEgQyAwIDM0LjU2IDM0LjU2IDAgOTIuMTYwMDAwMDAwMDAwMDEgMCBaIi8+CiAgICA8IS0tIEJSIGxldHRlcmZvcm1zIOKAlCBleHRyYWN0ZWQgZnJvbSBTRiBQcm8gYXQgdGhlIERpc3BsYXkgb3B0aWNhbC1zaXplCiAgICAgICAgIHZhcmlhbnQgKG9wc3o9OTYpLCBCIGF0IHdlaWdodCA4MDAsIFIgYXQgd2VpZ2h0IDQwMC4gVGhlIHdpZGUKICAgICAgICAgd2VpZ2h0IGdhcCAodnMgdGhlIHByZXZpb3VzIDcwMC81MDApIG1ha2VzIHRoZSBwcmltYXJ5L3N1cHBvcnRpbmcKICAgICAgICAgaGllcmFyY2h5IHVubWlzdGFrYWJsZSBhdCBmYXZpY29uIHNpemUuIEVtYmVkZGVkIGFzIHBhdGhzIHNvCiAgICAgICAgIHJlbmRlcmluZyBpcyBpZGVudGljYWwgb24gZXZlcnkgT1MuIC0tPgogICAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNDguNTc5IDE3NC4wODApIHNjYWxlKDAuMDYzODY3IC0wLjA2Mzg2NykiPgogICAgICA8cGF0aCBjbGFzcz0iYiIgZD0iTTI1Ny4zMzE2NjUwMzkwNjI1IDBWMjAyLjY2NDAwMTQ2NDg0Mzc1SDY3My42NjU3MTA0NDkyMTg4UTgxNC4zMzM2NzkxOTkyMTg4IDIwMi42NjQwMDE0NjQ4NDM3NSA4ODguNTAwOTc2NTYyNSAyNTkuMTY0NDg5NzQ2MDkzNzVROTYyLjY2ODI3MzkyNTc4MTIgMzE1LjY2NDk3ODAyNzM0Mzc1IDk2Mi42NjgyNzM5MjU3ODEyIDQyMy42NjU5NTQ1ODk4NDM3NVY0MjUuNjY1OTU0NTg5ODQzNzVROTYyLjY2ODI3MzkyNTc4MTIgNDk4IDkyOC41MDEzMTIyNTU4NTk0IDU0Ny4wMDA0MjcyNDYwOTM4UTg5NC4zMzQzNTA1ODU5Mzc1IDU5Ni4wMDA4NTQ0OTIxODc1IDgyNi44MzM3NDAyMzQzNzUgNjIwLjY2NzcyNDYwOTM3NVE3NTkuMzMzMTI5ODgyODEyNSA2NDUuMzM0NTk0NzI2NTYyNSA2NTkuMzMyMjE0MzU1NDY4OCA2NDUuMzM0NTk0NzI2NTYyNUgyNTcuMzMxNjY1MDM5MDYyNVY4MzMuNjY1ODkzNTU0Njg3NUg2MTguNjY0OTE2OTkyMTg3NVE3NTYuOTk5NTcyNzUzOTA2MiA4MzMuNjY1ODkzNTU0Njg3NSA4MjkuNjY2OTYxNjY5OTIxOSA4ODguNDk5NjY0MzA2NjQwNlE5MDIuMzM0MzUwNTg1OTM3NSA5NDMuMzMzNDM1MDU4NTkzOCA5MDIuMzM0MzUwNTg1OTM3NSAxMDQ0LjY2NzcyNDYwOTM3NVYxMDQ2LjY2NzcyNDYwOTM3NVE5MDIuMzM0MzUwNTg1OTM3NSAxMTM5LjY2ODU3OTEwMTU2MjUgODM5LjMzMzg2MjMwNDY4NzUgMTE5MC4wMDIyODg4MTgzNTk0UTc3Ni4zMzMzNzQwMjM0Mzc1IDEyNDAuMzM1OTk4NTM1MTU2MiA2NjEuOTk5MDIzNDM3NSAxMjQwLjMzNTk5ODUzNTE1NjJIMjU3LjMzMTY2NTAzOTA2MjVWMTQ0M0g3MjcuNjY0MTg0NTcwMzEyNVE4NTkuOTk3MDA5Mjc3MzQzOCAxNDQzIDk1Ny4xNjM0MjE2MzA4NTk0IDEzOTguNDk5OTY5NDgyNDIxOVExMDU0LjMyOTgzMzk4NDM3NSAxMzUzLjk5OTkzODk2NDg0MzggMTEwNy42NjMwODU5Mzc1IDEyNzIuODMzMjgyNDcwNzAzMVExMTYwLjk5NjMzNzg5MDYyNSAxMTkxLjY2NjYyNTk3NjU2MjUgMTE2MC45OTYzMzc4OTA2MjUgMTA4MS42NjY3NDgwNDY4NzVWMTA3OS42NjY3NDgwNDY4NzVRMTE2MC45OTYzMzc4OTA2MjUgMTAwMS42NjY5MzExNTIzNDM4IDExMjUuMzI5NzcyOTQ5MjE4OCA5MzQuMDAwMjQ0MTQwNjI1UTEwODkuNjYzMjA4MDA3ODEyNSA4NjYuMzMzNTU3MTI4OTA2MiAxMDI3LjgzMDA0NzYwNzQyMTkgODIxLjE2NjgwOTA4MjAzMTJROTY1Ljk5Njg4NzIwNzAzMTIgNzc2LjAwMDA2MTAzNTE1NjIgODg3Ljk5NzA3MDMxMjUgNzY1LjAwMDA2MTAzNTE1NjJWNzU5LjY2NjgwOTA4MjAzMTJROTg5LjY2Mzg3OTM5NDUzMTIgNzUwLjk5OTkzODk2NDg0MzggMTA2Ni44MzA0MTM4MTgzNTk0IDcwMy45OTk4Nzc5Mjk2ODc1UTExNDMuOTk2OTQ4MjQyMTg3NSA2NTYuOTk5ODE2ODk0NTMxMiAxMTg2Ljk5Njc2NTEzNjcxODggNTgxLjQ5OTgxNjg5NDUzMTJRMTIyOS45OTY1ODIwMzEyNSA1MDUuOTk5ODE2ODk0NTMxMjUgMTIyOS45OTY1ODIwMzEyNSA0MTAuNjY2NDQyODcxMDkzNzVWNDA4LjY2NjQ0Mjg3MTA5Mzc1UTEyMjkuOTk2NTgyMDMxMjUgMjgyLjMzMzA2ODg0NzY1NjI1IDExNjkuOTk2NjczNTgzOTg0NCAxOTAuODMzMTI5ODgyODEyNVExMTA5Ljk5Njc2NTEzNjcxODggOTkuMzMzMTkwOTE3OTY4NzUgOTk5LjMzMDIwMDE5NTMxMjUgNDkuNjY2NTk1NDU4OTg0Mzc1UTg4OC42NjM2MzUyNTM5MDYyIDAgNzM0LjMzMDMyMjI2NTYyNSAwWk0xMjYuNjY3NDgwNDY4NzUgMFYxNDQzSDM4Ny45OTU4NDk2MDkzNzVWMFoiLz4KICAgIDwvZz4KICAgIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEyNS40ODAgMTc0LjA4MCkgc2NhbGUoMC4wNjM4NjcgLTAuMDYzODY3KSI+CiAgICAgIDxwYXRoIGNsYXNzPSJyIiBkPSJNMTI2LjY2NzQ4MDQ2ODc1IDBWMTQ0M0g3MDMuOTk4NTk2MTkxNDA2MlE4NTguNjY0MzA2NjQwNjI1IDE0NDMgOTcwLjE2MzgxODM1OTM3NSAxMzg4LjMzMzQwNDU0MTAxNTZRMTA4MS42NjMzMzAwNzgxMjUgMTMzMy42NjY4MDkwODIwMzEyIDExNDEuNjYzMTQ2OTcyNjU2MiAxMjMyLjY2NzA4Mzc0MDIzNDRRMTIwMS42NjI5NjM4NjcxODc1IDExMzEuNjY3MzU4Mzk4NDM3NSAxMjAxLjY2Mjk2Mzg2NzE4NzUgOTkxLjY2Nzk2ODc1Vjk4OS42Njc5Njg3NVExMjAxLjY2Mjk2Mzg2NzE4NzUgODQ0LjY2NzY2MzU3NDIxODggMTEyOC44MjkzNDU3MDMxMjUgNzM0LjMzNDM4MTEwMzUxNTZRMTA1NS45OTU3Mjc1MzkwNjI1IDYyNC4wMDEwOTg2MzI4MTI1IDkzMC45OTUxMTcxODc1IDU3OC4zMzQ1OTQ3MjY1NjI1TDEyNDQuOTk2MzM3ODkwNjI1IDBIOTQ2LjMzNTAyMTk3MjY1NjJMNjY0LjMzMzM3NDAyMzQzNzUgNTM4LjY2ODY0MDEzNjcxODhRNjYxLjAwMDA2MTAzNTE1NjIgNTM4LjY2ODY0MDEzNjcxODggNjU3LjY2Njc3ODU2NDQ1MzEgNTM4LjY2ODY0MDEzNjcxODhRNjU0LjMzMzQ5NjA5Mzc1IDUzOC42Njg2NDAxMzY3MTg4IDY1MC42NjY4NzAxMTcxODc1IDUzOC42Njg2NDAxMzY3MTg4SDM4Ny45OTU4NDk2MDkzNzVWMFpNMzg3Ljk5NTg0OTYwOTM3NSA3NDQuMzMyNDU4NDk2MDkzOEg2NzYuOTk5MjY3NTc4MTI1UTc5OC4zMzM2NzkxOTkyMTg4IDc0NC4zMzI0NTg0OTYwOTM4IDg2Ni4wMDA4MjM5NzQ2MDk0IDgwOC42NjYyNTk3NjU2MjVROTMzLjY2Nzk2ODc1IDg3My4wMDAwNjEwMzUxNTYyIDkzMy42Njc5Njg3NSA5ODguMDAxMTU5NjY3OTY4OFY5OTAuMDAxMTU5NjY3OTY4OFE5MzMuNjY3OTY4NzUgMTEwMi4zMzU1MTAyNTM5MDYyIDg2My4wMDA3NjI5Mzk0NTMxIDExNjcuMTY5MzExNTIzNDM3NVE3OTIuMzMzNTU3MTI4OTA2MiAxMjMyLjAwMzExMjc5Mjk2ODggNjcxLjY2NTc3MTQ4NDM3NSAxMjMyLjAwMzExMjc5Mjk2ODhIMzg3Ljk5NTg0OTYwOTM3NVoiLz4KICAgIDwvZz4KICA8L2c+Cjwvc3ZnPgo=">
   <title>Better Robotics — Dashboard</title>
   <style>
@@ -163,7 +167,7 @@
     input, button { font: inherit; }
     #code-gate { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     #code-input, #assign-form input, .pins-grid input, #hub-host-input, #wifi-pass,
-    #codes-user, #codes-pass, #req-name, .claim-name {
+    #codes-user, #codes-pass, #req-name, .claim-name, .copy-fallback {
       background: var(--inset); color: var(--ink);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
       padding: 0.6rem 0.85rem; min-height: var(--tap);
@@ -253,6 +257,7 @@
     #join-req { display: none; border-left: 3px solid var(--accent); margin-top: 0.6rem; }
     .pair-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.15em; }
     #codes-share { margin-top: 0.8rem; }
+    .copy-fallback { display: block; width: 100%; margin: 0.5rem 0; }
     #codes-qr svg { width: 11rem; height: 11rem; background: #fff; padding: 0.5rem; border-radius: 8px; }
     .btn-drive.driving { background: var(--accent); color: var(--accent-ink); }
     /* Orientation buttons publish immediately (unlike the fields above, which
@@ -3263,9 +3268,9 @@ safe-buffer/index.js:
         // in the static modal instead (see openCamera / openConfig).
         const actions = [];
         if (!offline && sys.cam && sys.ip)
-          actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(id)}">📷 Camera</button>`);
+          actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(id)}" data-board="${esc(sys.board || "")}">📷 Camera</button>`);
         if (!offline && sys.ip)
-          actions.push(`<button class="btn-tile" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(id)}">⚙ Wi-Fi &amp; role</button>`);
+          actions.push(`<button class="btn-tile" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(id)}" data-board="${esc(sys.board || "")}">⚙ Wi-Fi &amp; role</button>`);
         if (myScope && myScope.scope === "all")
           actions.push(`<button class="btn-drive${target === id ? " driving" : ""}" data-robot="${esc(id)}">${target === id ? "Driving" : "Drive"}</button>`);
         return `<div class="robot${offline ? " offline" : ""}">
@@ -3962,8 +3967,35 @@ safe-buffer/index.js:
         `${user}'s sign-in card — scan to sign in as ${user}.`;
       document.getElementById("codes-qr").innerHTML = qr.createSvgTag(4, 8);
       share.style.display = "block";
+      share.querySelector(".copy-fallback")?.remove();   // a re-mint must not keep the previous link
       const copyBtn = document.getElementById("codes-copy");
-      copyBtn.onclick = () => { navigator.clipboard.writeText(link); copyBtn.textContent = "Copied"; };
+      // navigator.clipboard exists only in secure contexts, and this dashboard is
+      // deliberately plain-http (hub.local) — so try it, fall back to the
+      // execCommand path, and failing both show the link to copy by hand.
+      copyBtn.onclick = async () => {
+        let ok = false;
+        try { await navigator.clipboard.writeText(link); ok = true; } catch (_) {}
+        if (!ok) {
+          const ta = document.createElement("textarea");
+          ta.value = link;
+          ta.setAttribute("readonly", "");
+          ta.style.cssText = "position:fixed;opacity:0";
+          document.body.append(ta);
+          ta.select();
+          try { ok = document.execCommand("copy"); } catch (_) {}
+          ta.remove();
+        }
+        copyBtn.textContent = ok ? "Copied" : "Couldn't copy — link below:";
+        if (!ok && !share.querySelector(".copy-fallback")) {
+          const inp = document.createElement("input");
+          inp.className = "copy-fallback";
+          inp.readOnly = true;
+          inp.value = link;
+          inp.onclick = () => inp.select();
+          copyBtn.after(inp);
+          inp.select();
+        }
+      };
       copyBtn.textContent = "Copy sign-in link";
     }
     // The card carries a plaintext credential — on a projected dashboard it
@@ -4083,8 +4115,8 @@ safe-buffer/index.js:
       const asg = e.target.closest("[data-assign]");
       const clm = e.target.closest("[data-claim]");
       const cls = e.target.closest("[data-claimsend]");
-      if (cam) openCamera(cam.dataset.id, cam.dataset.camIp);
-      else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp);
+      if (cam) openCamera(cam.dataset.id, cam.dataset.camIp, cam.dataset.board);
+      else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp, cfg.dataset.board);
       else if (drv) selectTarget(drv.dataset.robot, drv.dataset.board);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.bteam);
       else if (asg) preselectAssign(asg.dataset.assign, asg.dataset.bteam, true);
@@ -4139,7 +4171,7 @@ safe-buffer/index.js:
               location.hostname === "rover.local")
         ? location.hostname : ip;
     }
-    function openCamera(id, ip) {
+    function openCamera(id, ip, board) {
       const img = document.createElement("img");
       img.className = "cam-full";
       img.src = `http://${boardHost(ip)}:81/stream`;
@@ -4149,13 +4181,14 @@ safe-buffer/index.js:
         img.style.display = "none";             // a broken <img> is just a black box behind the hint
         const hint = document.createElement("div");
         hint.className = "modal-note";
-        hint.textContent = `Couldn't load the stream — this device may not be able to reach ${ip}. ` +
-                           "If the board sits on an isolated guest/public network, join its own rover-XXXX Wi-Fi first.";
+        hint.textContent = `Couldn't load the stream — this device can't reach ${ip}. ` +
+                           "Boards are reachable only from the classroom Wi-Fi (hub-…) — join it, then retry. " +
+                           `Still nothing? Join the board's own ${board || "rover-…"} Wi-Fi and reopen from rover.local.`;
         modalBody.prepend(hint);
       });
       openModal(`${id} — camera`, img);
     }
-    function openConfig(id, ip) {
+    function openConfig(id, ip, board) {
       // The panel is /wifi, addressed DIRECTLY: `/` is a redirect that drops the
       // ?embed query on a plain board, and on a hub/island board `/` is this very
       // dashboard — iframing it would nest the dashboard inside its own modal.
@@ -4195,8 +4228,13 @@ safe-buffer/index.js:
         const a = document.createElement("a");
         a.href = panel.replace("?embed=1", ""); a.target = "_blank"; a.rel = "noopener";
         a.textContent = "try opening it directly ↗";
-        hint.append(`Still blank? This device may not be able to reach ${ip} — `, a,
-                    ". If that fails too, join the board's own rover-XXXX Wi-Fi first.");
+        // Remedy ladder, most likely first: a viewer on the hub's uplink side
+        // (dashboard loads, but the board's AP-subnet lease is behind the hub's
+        // NAT) fixes it by joining the classroom Wi-Fi; the board's own AP is
+        // the fallback for a board nobody can route to (isolated guest lease).
+        hint.append(`Still blank? This device can't reach ${ip} — `, a,
+                    ". Boards are reachable only from the classroom Wi-Fi (hub-…) — join it, then reopen this. " +
+                    `Still nothing? Join the board's own ${board || "rover-…"} Wi-Fi and open rover.local.`);
         modalBody.prepend(hint);
       };
       const goodPanel = () => {                 // both signals in, either order
