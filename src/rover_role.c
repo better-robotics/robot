@@ -559,7 +559,7 @@ void rover_client_run(const char *broker_uri) {
     snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);
     ESP_LOGI(TAG, "publishing %s every 2 s", key);
 
-    char buf[256];
+    char buf[320];   /* worst-case sys payload with "pins" is ~230 — keep headroom */
     int down = 0;   /* consecutive 2 s ticks with no live session — dead → return */
     for (;;) {
         if (s_mqtt_up) {
@@ -581,11 +581,28 @@ void rover_client_run(const char *broker_uri) {
                     snprintf(ip, sizeof ip, IPSTR, IP2STR(&ipi.ip));
             }
             /* board id is metadata in the payload, not the topic (id == team). */
+#ifdef HAS_CAMERA
+            /* No "pins" on the camera board: motors are structurally disabled
+             * there (motor_init skips), so reporting a map would claim a
+             * capability that doesn't exist. */
             snprintf(buf, sizeof buf,
                      "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
                      "\",\"board\":\"%s\",\"ip\":\"%s\",\"cam\":%s,\"synthetic\":false}",
                      (long long)up_ms, (unsigned)heap, s_id, ip,
                      camera_running() ? "true" : "false");
+#else
+            /* "pins" = the live motor map (NVS-or-default, what motor_init
+             * ran with) — the dashboard's pin editor shows this as truth
+             * instead of blind-writing. Changes only across a reboot, so the
+             * 2 s cadence is effectively instant read-back after a rejoin. */
+            snprintf(buf, sizeof buf,
+                     "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
+                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"cam\":%s,\"synthetic\":false,"
+                     "\"pins\":{\"ena\":%d,\"in1\":%d,\"in2\":%d,\"enb\":%d,\"in3\":%d,\"in4\":%d}}",
+                     (long long)up_ms, (unsigned)heap, s_id, ip,
+                     camera_running() ? "true" : "false",
+                     s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4);
+#endif
             if (esp_mqtt_client_publish(cli, key, buf, 0, 0, 0) >= 0)
                 ESP_LOGI(TAG, "pub %s", buf);
             else

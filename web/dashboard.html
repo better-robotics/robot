@@ -236,7 +236,8 @@
                  background: var(--accent); color: var(--accent-ink); }
     #team-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
     .chip { padding: 0.45rem 0.9rem; border-radius: 999px; border: 1px solid var(--border-strong);
-            background: transparent; color: inherit; cursor: pointer; font-size: 0.9rem; }
+            background: transparent; color: inherit; cursor: pointer; font-size: 0.9rem;
+            min-height: var(--tap); /* full tap target — and level with the gate row's input/button */ }
     .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
     .gate-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
     .gate-row input { flex: 1 1 11rem; min-width: 0; }
@@ -387,6 +388,12 @@
     .pins-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
     .pins-grid label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.72rem; color: var(--ink-muted); }
     .pins-grid input { width: 100%; min-height: 2.4rem; padding: 0.4rem 0.55rem; }
+    /* Staged ≠ live: the field differs from what the rover reports — visible
+       until Apply lands and the returning sys beacon confirms the new map.
+       Id-scoped to outweigh the #assign-form input base rule; the inset ring
+       reads at the grid's 0.5px border weight without shifting layout. */
+    #assign-form .pins-grid input.dirty {
+      border-color: var(--warn-ink); box-shadow: inset 0 0 0 1px var(--warn-ink); }
     #teams-status { font-size: 0.85rem; margin-top: 0.6rem; }
     /* Outcome colors, shared by every status line (#teams-status, #req-status). */
     .assign-ok { color: var(--success); }
@@ -655,9 +662,12 @@
       <label class="field">Lock to hub — optional
         <input id="assign-hub" placeholder='hub-a045 · "-" clears'
                autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off"></label>
+      <!-- Live truth + staged edits: fields show the rover's reported wiring
+           (sys carries "pins"); flips rearrange the FIELDS only. Nothing
+           reaches the rover until Apply sends the whole map in one reboot. -->
       <details id="assign-pins-wrap">
-        <summary>Motor pins — only for a custom-wired chassis</summary>
-        <p class="pins-help">Leave blank to keep the rover's current wiring. GPIO numbers, 0–33.</p>
+        <summary>Motor pins &amp; orientation</summary>
+        <p class="pins-help" id="pins-live-note">Pick a board above to see its live wiring.</p>
         <div class="pins-grid">
           <label>ENA<input id="pin-ena" type="number" min="0" max="33" placeholder="25"></label>
           <label>IN1<input id="pin-in1" type="number" min="0" max="33" placeholder="26"></label>
@@ -666,15 +676,23 @@
           <label>IN3<input id="pin-in3" type="number" min="0" max="33" placeholder="12"></label>
           <label>IN4<input id="pin-in4" type="number" min="0" max="33" placeholder="13"></label>
         </div>
-      </details>
-      <div id="orient-row">
-        <span class="pins-help">Motor orientation — fixes wrong directions without rewiring. Pick a board above first, then:</span>
-        <div class="orient-btns">
-          <button class="btn-tile" data-flip="swap">&#8646; Swap sides</button>
-          <button class="btn-tile" data-flip="left">&#8634; Reverse left</button>
-          <button class="btn-tile" data-flip="right">&#8635; Reverse right</button>
+        <div id="orient-row">
+          <span class="pins-help">Drives the wrong way? Test, then flip — the buttons rearrange
+            the fields above so you can see the change before it&#8217;s applied.</span>
+          <div class="orient-btns">
+            <button class="btn-tile" id="pins-test-fwd">&#9650; Test forward</button>
+            <button class="btn-tile" id="pins-test-spin">&#8634; Test spin-left</button>
+          </div>
+          <div class="orient-btns">
+            <button class="btn-tile" data-flip="swap">&#8646; Swap sides</button>
+            <button class="btn-tile" data-flip="left">&#8634; Reverse left</button>
+            <button class="btn-tile" data-flip="right">&#8635; Reverse right</button>
+          </div>
+          <div class="orient-btns">
+            <button class="btn-tile" id="pins-apply" disabled>Apply pins &#183; reboots the rover</button>
+          </div>
         </div>
-      </div>
+      </details>
       <button id="assign-btn">Assign</button>
     </div>
     <p id="teams-status" role="status" aria-live="polite"></p>
@@ -3401,7 +3419,7 @@ safe-buffer/index.js:
         const base = title.textContent.replace(/ — offline\?$/, "");
         title.textContent = stale ? `${base} — offline?` : base;
       }
-      renderRobots(); renderRoster(); renderChips();
+      renderRobots(); renderRoster(); renderChips(); syncPinsPanel(false);
     }, 2000);
 
     // Anonymous mqtt.js connection, scoped by Mosquitto's ACL to read-only
@@ -3594,6 +3612,7 @@ safe-buffer/index.js:
     // since those rows live up in the fleet grid).
     function preselectAssign(board, team, scroll) {
       assignTarget = { board, team };
+      syncPinsPanel(true);   // hard seed: pin fields take this board's live map
       const form = document.getElementById("assign-form");
       form.style.display = "flex";
       document.getElementById("assign-selected").textContent =
@@ -3718,14 +3737,18 @@ safe-buffer/index.js:
       const hubPin = document.getElementById("assign-hub").value.trim();
       if (hubPin === "-") cfg.hub = "";
       else if (hubPin) cfg.hub = hubPin;
-      // Motor pins: only the fields actually filled (the firmware seeds the rest
-      // from the rover's current wiring). Out-of-range is refused rover-side.
-      const pins = {};
-      for (const k of ["ena", "in1", "in2", "enb", "in3", "in4"]) {
-        const v = document.getElementById("pin-" + k).value.trim();
-        if (v !== "") pins[k] = Number(v);
+      // Motor pins ride along only when the user actually changed them — the
+      // fields auto-fill with the rover's live map, so "filled" no longer
+      // means "intended". A board that doesn't report its map keeps the old
+      // contract: any filled field is sent, blanks stay rover-side.
+      if (pinsStaged && (!pinsLive || !pinsEqual(readPinFields(), pinsLive))) {
+        const pins = {};
+        for (const k of PIN_KEYS) {
+          const v = pinEl(k).value.trim();
+          if (v !== "") pins[k] = Number(v);
+        }
+        if (Object.keys(pins).length) cfg.pins = pins;
       }
-      if (Object.keys(pins).length) cfg.pins = pins;
       // Publish on the board's CURRENT team topic — that's the subtree it's
       // subscribed to — targeted by board id so only that rover acts. Non-
       // retained (QoS 1): the rover is online (its telemetry is why it's listed),
@@ -3736,29 +3759,150 @@ safe-buffer/index.js:
       logLine("out", `${topic} ${JSON.stringify(cfg)}`);
       status.textContent = `Sent — ${assignTarget.board} → ${team}${cfg.pins ? " (+ motor pins)" : ""}. It reboots and reappears under ${team} in a few seconds.`;
       status.className = "assign-ok";
-      ["assign-team", "assign-pass", "assign-name", "assign-hub",
-       "pin-ena", "pin-in1", "pin-in2", "pin-enb", "pin-in3", "pin-in4"]
+      // Pin fields are NOT cleared: they display the rover's live map, and
+      // the 2 s sync repaints them once the reboot lands.
+      ["assign-team", "assign-pass", "assign-name", "assign-hub"]
         .forEach(i => document.getElementById(i).value = "");
     });
 
-    // Motor orientation: wrong directions are a wiring permutation, so the fix
-    // is one config verb, not a rewire — the rover permutes its stored pins
+    // ---- Motor pins panel: live truth, staged edits, one Apply. ----
+    // The rover's sys beacon reports its running map ("pins"); the fields
+    // show it and track it on the 2 s clock. Flip buttons permute the FIELDS
     // (left = swap IN1/IN2, right = swap IN3/IN4, swap = exchange the sides)
-    // and re-inits the motors. Immediate, per-board, persists in NVS.
-    document.querySelector("#orient-row .orient-btns").addEventListener("click", (e) => {
+    // so the user sees the change before anything is sent. Apply publishes
+    // the whole map as one absolute cmd/config write — one reboot, and it
+    // sidesteps the firmware's pins+flip same-message ordering hazard by
+    // never using the flip verb. The returning beacon confirms: fields match
+    // live again and the dirty highlight clears itself.
+    const PIN_KEYS = ["ena", "in1", "in2", "enb", "in3", "in4"];
+    const pinEl = k => document.getElementById("pin-" + k);
+    let pinsLive = null;    // last sys-reported map for the selected board
+    let pinsStaged = false; // user touched the fields since the last seed
+
+    function readPinFields() {
+      const out = {};
+      for (const k of PIN_KEYS) {
+        const v = pinEl(k).value.trim();
+        if (v === "" || !Number.isInteger(Number(v))) return null;
+        out[k] = Number(v);
+      }
+      return out;
+    }
+    const pinsEqual = (a, b) => !!a && !!b && PIN_KEYS.every(k => a[k] === b[k]);
+
+    // Seed/refresh the panel. hard=true (board just selected) overwrites the
+    // fields unconditionally; on the 2 s clock a user mid-edit is left alone —
+    // live truth only flows into fields the user isn't claiming.
+    function syncPinsPanel(hard) {
+      if (!assignTarget) return;
+      const note = document.getElementById("pins-live-note");
+      pinsLive = boards.get(assignTarget.board)?.sys?.pins || null;
+      if (hard) pinsStaged = false;
+      if (!pinsLive) {
+        note.textContent = `${assignTarget.board} doesn't report its wiring (older firmware) — ` +
+          "filled fields are sent as-is, blank keeps the rover's current value.";
+        if (hard) PIN_KEYS.forEach(k => { pinEl(k).value = ""; pinEl(k).classList.remove("dirty"); });
+        updatePinButtons();
+        return;
+      }
+      note.textContent = `Live wiring reported by ${assignTarget.board}. Edit or flip, then Apply.`;
+      if (!pinsStaged) {
+        PIN_KEYS.forEach(k => { pinEl(k).value = pinsLive[k]; });
+      } else if (pinsEqual(readPinFields(), pinsLive)) {
+        // Either the reboot landed or the user reverted their edits — same
+        // observable state, so the copy claims only what's true in both.
+        pinsStaged = false;
+        const status = document.getElementById("teams-status");
+        status.textContent = `Fields match ${assignTarget.board}'s live wiring.`;
+        status.className = "assign-ok";
+      }
+      PIN_KEYS.forEach(k => pinEl(k).classList.toggle("dirty",
+        pinsStaged && Number(pinEl(k).value) !== pinsLive[k]));
+      updatePinButtons();
+    }
+
+    // Apply arms only on a complete staged map that differs from live; Test
+    // drives the LIVE config, so staged edits gate it — the pulse must never
+    // look like a test of numbers that aren't on the rover yet.
+    function updatePinButtons() {
+      const fields = readPinFields();
+      const changed = pinsLive ? !pinsEqual(fields, pinsLive) : true;
+      document.getElementById("pins-apply").disabled = !(pinsStaged && fields && changed);
+      // Gate Test only when we KNOW the fields diverge from the rover's live
+      // map. Old-firmware boards report no map — there's no truth to compare,
+      // so their Test never locks.
+      const gate = !!pinsLive && pinsStaged && changed;
+      for (const id of ["pins-test-fwd", "pins-test-spin"]) {
+        const b = document.getElementById(id);
+        b.disabled = gate;
+        b.title = gate ? "Apply the staged pins first — Test drives what's on the rover now." : "";
+      }
+    }
+
+    PIN_KEYS.forEach(k => pinEl(k).addEventListener("input", () => {
+      pinsStaged = true;
+      syncPinsPanel(false);
+    }));
+
+    document.querySelector("#orient-row .orient-btns + .orient-btns").addEventListener("click", (e) => {
       const b = e.target.closest("[data-flip]");
       if (!b) return;
+      const p = readPinFields();
+      if (!p) {
+        const status = document.getElementById("teams-status");
+        status.textContent = "Fill all six pins first (pick a board that's online to auto-fill them).";
+        status.className = "assign-err";
+        return;
+      }
+      if (b.dataset.flip === "left")  [p.in1, p.in2] = [p.in2, p.in1];
+      if (b.dataset.flip === "right") [p.in3, p.in4] = [p.in4, p.in3];
+      if (b.dataset.flip === "swap")  [p.ena, p.in1, p.in2, p.enb, p.in3, p.in4] =
+                                      [p.enb, p.in3, p.in4, p.ena, p.in1, p.in2];
+      PIN_KEYS.forEach(k => { pinEl(k).value = p[k]; });
+      pinsStaged = true;
+      syncPinsPanel(false);
+    });
+
+    document.getElementById("pins-apply").addEventListener("click", () => {
       const status = document.getElementById("teams-status");
       const setErr = m => { status.textContent = m; status.className = "assign-err"; };
       if (!assignTarget) return setErr("Pick a board first.");
       if (!driveClient || !driveClient.connected) return setErr("Connect as professor first.");
+      const pins = readPinFields();
+      if (!pins) return setErr("All six pins are needed to apply.");
+      // Board-aware range guard: the C3 exposes GPIO 0–21; firmware would
+      // refuse or fail motor_init on a larger number, which reads as a dead
+      // Apply. Classic ESP32 boards get the firmware's own 0–33 bound.
+      const hw = boards.get(assignTarget.board)?.sys?.hw || "";
+      const maxGpio = hw.includes("c3") ? 21 : 33;
+      const bad = PIN_KEYS.filter(k => pins[k] < 0 || pins[k] > maxGpio);
+      if (bad.length) return setErr(`${bad.map(k => k.toUpperCase()).join(", ")}: this board exposes GPIO 0–${maxGpio}.`);
       const topic = `robots/${assignTarget.team}/cmd/config`;
-      const cfg = { target: assignTarget.board, flip: { [b.dataset.flip]: true } };
+      const cfg = { target: assignTarget.board, pins };
       driveClient.publish(topic, JSON.stringify(cfg), { qos: 1, retain: false });
       logLine("out", `${topic} ${JSON.stringify(cfg)}`);
-      status.textContent = `Sent — ${assignTarget.board} reboots and reappears with the fix in a few seconds.`;
+      status.textContent = `Sent — ${assignTarget.board} reboots with the new map and reappears in a few seconds.`;
       status.className = "assign-ok";
     });
+
+    // Calibration pulses: short, low-duty, targeted at the one selected board
+    // (pool boards share the topic — "target" keeps the rest parked). The
+    // firmware's watchdog ends the pulse even if this page dies mid-drive.
+    function testPulse(left, right, expect) {
+      const status = document.getElementById("teams-status");
+      const setErr = m => { status.textContent = m; status.className = "assign-err"; };
+      if (!assignTarget) return setErr("Pick a board first.");
+      if (!driveClient || !driveClient.connected) return setErr("Connect as professor first.");
+      const topic = `robots/${assignTarget.team}/pwm`;
+      const pwm = { left_motor: left, right_motor: right, duration_ms: 700,
+                    target: assignTarget.board };
+      driveClient.publish(topic, JSON.stringify(pwm));
+      logLine("out", `${topic} ${JSON.stringify(pwm)}`);
+      status.textContent = `Pulse sent — ${assignTarget.board} should ${expect}. Wrong? Use the flip buttons, then Apply.`;
+      status.className = "";
+    }
+    document.getElementById("pins-test-fwd").addEventListener("click", () => testPulse(130, 130, "roll forward"));
+    document.getElementById("pins-test-spin").addEventListener("click", () => testPulse(-130, 130, "spin in place to the LEFT"));
 
     function gateMsg(text) {
       const el = document.getElementById("gate-error");
