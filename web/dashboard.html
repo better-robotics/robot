@@ -118,6 +118,20 @@
          grid and leaving the right half of the canvas dead. */
       grid-template-columns: repeat(auto-fit, minmax(16rem, 26rem));
     }
+    #fleet-overview { display: none; margin-bottom: 1rem; }
+    .summary-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; }
+    .summary-card { min-height: var(--tap); text-align: left; cursor: pointer;
+      padding: 0.7rem 0.85rem; border: 0.5px solid var(--border-default);
+      border-radius: var(--radius); background: var(--surface); color: var(--ink); }
+    .summary-card strong { display: block; font-size: 1.2rem; line-height: 1.1; }
+    .summary-card span { color: var(--ink-muted); font-size: 0.78rem; }
+    .summary-card.attention strong { color: var(--warn-ink); }
+    #fleet-filters { display: flex; gap: 0.45rem; overflow-x: auto; margin-top: 0.7rem;
+      padding-bottom: 0.15rem; scrollbar-width: thin; }
+    #fleet-filters button { flex: none; cursor: pointer; min-height: 2.2rem; padding: 0.35rem 0.8rem;
+      border: 0.5px solid var(--border-strong); border-radius: var(--radius-pill);
+      background: transparent; color: var(--ink-muted); }
+    #fleet-filters button[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
     .robot {
       background: var(--surface); border: 0.5px solid var(--border-default);
       border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; box-shadow: var(--shadow-card);
@@ -129,6 +143,9 @@
       font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em;
       display: flex; align-items: center; gap: 0.55rem;
     }
+    .card-status { margin-left: auto; font-size: 0.76rem; font-weight: 700; color: var(--success); }
+    .offline .card-status, .card-status.warn { color: var(--warn-ink); }
+    .card-meta { color: var(--ink-muted); font-size: 0.8rem; margin-top: 0.2rem; }
     .offline-label {
       color: var(--warn-ink); font-size: 0.75rem; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.05em; margin-left: auto;
@@ -399,6 +416,9 @@
     #assign-form .field input { width: 100%; min-width: 0; }
     #assign-btn { flex: 1 1 100%; margin-top: 0.25rem; }
     #assign-pins-wrap { flex-basis: 100%; margin: 0.25rem 0; }
+    #assign-advanced { flex-basis: 100%; padding: 0.6rem 0; border-top: 0.5px solid var(--border-default); }
+    #assign-advanced > summary { cursor: pointer; color: var(--ink-muted); font-weight: 600; }
+    #assign-advanced > .field { margin-top: 0.7rem; }
     #assign-pins-wrap summary { cursor: pointer; color: var(--ink-muted); font-size: 0.85rem; }
     .pins-help { color: var(--ink-muted); font-size: 0.78rem; margin: 0.5rem 0; }
     .pins-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
@@ -431,6 +451,21 @@
 
     /* Per-card action row: Camera / Wi-Fi & role / Drive as tinted tiles. */
     .card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }
+    .card-more { position: relative; margin-left: auto; }
+    .card-more > summary { list-style: none; cursor: pointer; min-height: 2.2rem; display: inline-flex;
+      align-items: center; padding: 0.35rem 0.8rem; border: 0.5px solid var(--border-default);
+      border-radius: var(--radius); background: var(--inset); font-weight: 700; }
+    .card-more > summary::-webkit-details-marker { display: none; }
+    .card-more-menu { position: absolute; right: 0; bottom: calc(100% + 0.35rem); z-index: 10;
+      min-width: 11rem; display: grid; gap: 0.35rem; padding: 0.45rem;
+      background: var(--surface); border: 0.5px solid var(--border-strong);
+      border-radius: var(--radius); box-shadow: var(--shadow-card); }
+    .card-more-menu .btn-tile { width: 100%; text-align: left; }
+    .btn-danger { color: var(--danger-text); }
+    #student-details { display: none; margin-top: 1rem; }
+    #student-details > summary, #prof-advanced > summary { cursor: pointer; color: var(--ink-muted);
+      font-weight: 600; padding: 0.65rem 0; }
+    #prof-advanced { grid-column: 1 / -1; }
     .btn-tile {
       cursor: pointer; font-weight: 600; font-size: 0.85rem; min-height: 2.2rem;
       padding: 0.4rem 0.8rem; border-radius: var(--radius);
@@ -482,6 +517,7 @@
     @media (max-width: 32rem) {
       main { padding: 1.25rem 1rem 4rem; }
       #robots { grid-template-columns: 1fr; }
+      .summary-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       /* auto-fit's 24rem min track (#controls) exceeds a phone's width and would
          force a horizontal scroll — collapse to one column below 32rem. */
       #controls { grid-template-columns: 1fr; }
@@ -554,11 +590,25 @@
   </div>
   <p id="empty">No rovers yet — power one on near the hub and it appears here within seconds.
     <span class="hint">New board with no firmware? <a href="https://better-robotics.github.io/">Flash it over USB</a>.</span></p>
+  <section id="fleet-overview" aria-label="Class readiness">
+    <div class="summary-row">
+      <button class="summary-card" data-summary-filter="all"><strong id="sum-online">0</strong><span>online</span></button>
+      <button class="summary-card attention" data-summary-filter="attention"><strong id="sum-attention">0</strong><span>need attention</span></button>
+      <button class="summary-card" data-summary-filter="unassigned"><strong id="sum-unassigned">0</strong><span>unassigned</span></button>
+      <button class="summary-card" id="sum-requests-button"><strong id="sum-requests">0</strong><span>access requests</span></button>
+    </div>
+    <div id="fleet-filters" role="group" aria-label="Filter rovers">
+      <button data-filter="all" aria-pressed="true">All</button>
+      <button data-filter="attention" aria-pressed="false">Needs attention</button>
+      <button data-filter="unassigned" aria-pressed="false">Unassigned</button>
+      <button data-filter="offline" aria-pressed="false">Offline</button>
+    </div>
+  </section>
   <div id="robots"></div>
 
   <div id="controls">
   <section id="drive">
-    <h2 class="section-title">Drive</h2>
+    <h2 class="section-title" id="drive-title">Drive</h2>
     <p class="assign-help" id="gate-help">Pick who you are and enter your team's code.</p>
     <div id="code-gate">
       <!-- Claim-first gate (Pi-served only): the lede replaces the manual
@@ -566,8 +616,8 @@
            fallback (borrowed phone, lost QR card, professor on a new device),
            not the arrival path. On hosts without the /codes API the manual
            block stays expanded and this lede never shows. -->
-      <p id="gate-lede">New team? Tap <b>Claim</b> on your rover above — you'll be driving in a
-        minute. Already have one? Scan your team's sign-in card, or
+      <p id="gate-lede"><b>Connect to your rover.</b> New team? Tap <b>Claim</b> on your rover above.
+        Already have one? Scan your team's sign-in card, or
         <button type="button" class="link-btn" id="gate-toggle" aria-expanded="false">sign in with a code</button>.</p>
       <div id="manual-gate">
         <div id="team-chips"></div>
@@ -640,8 +690,10 @@
        full-width card — a verbose surface deserves the whole column. Per-rover
        reading lives in each card's telemetry sheet; this is the classroom's
        raw wire, the teaching tap. -->
+  <details id="student-details">
+    <summary>Details &amp; troubleshooting</summary>
   <section id="wire" style="display:none">
-    <h2 class="section-title">Wire log</h2>
+    <h2 class="section-title">Diagnostics</h2>
     <div class="wire-wrap">
       <div class="wire-head"><span><span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></span>
         <span class="spacer"></span>
@@ -651,6 +703,7 @@
       <div id="wire-log" role="log" tabindex="0" aria-label="Live command and telemetry log"></div>
     </div>
   </section>
+  </details>
 
   <!-- Professor-only. One roster for the whole classroom: requests arrive at
        the top, each team row carries its code actions (hub-served only —
@@ -684,12 +737,14 @@
                autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off"></label>
       <label class="field">Team code — blank rotates it &amp; mints a new sign-in card
         <input id="assign-pass" type="password" placeholder="" autocomplete="off"></label>
-      <label class="field">Display name — optional
+      <label class="field">Rover name — optional
         <input id="assign-name" placeholder="shown on its card" autocomplete="off"></label>
+      <details id="assign-advanced">
+      <summary>Advanced rover setup</summary>
       <!-- Rogue-hub guard, TOFU at assignment time: lock the board to one exact
            hub SSID so a student's own hub-XXXX can't absorb it. "-" clears.
            ("Lock", not "pin" — "Motor pins" below already means GPIO.) -->
-      <label class="field">Lock to hub — optional
+      <label class="field">Hub lock — advanced
         <input id="assign-hub" placeholder='hub-a045 · "-" clears'
                autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off"></label>
       <!-- Live truth + staged edits: fields show the rover's reported wiring
@@ -722,6 +777,7 @@
             <button class="btn-tile" id="pins-apply" disabled>Apply pins &#183; reboots the rover</button>
           </div>
         </div>
+      </details>
       </details>
       <button id="assign-btn">Assign</button>
     </div>
@@ -3331,17 +3387,20 @@ safe-buffer/index.js:
     // can't nuke a code while meaning "swap the robot".
     function teamOps(id, deletable) {
       if (!codesApi || !myScope || myScope.scope !== "all" || id === "unassigned") return "";
-      return `<span class="team-ops">
-        <button data-rotate="${esc(id)}" aria-label="Rotate ${esc(id)}'s code">Rotate…</button>
-        ${deletable && knownTeams.includes(id) ? `<button data-delcode="${esc(id)}" aria-label="Delete team ${esc(id)}">&#10005;</button>` : ""}</span>`;
+      return `<details class="card-more"><summary aria-label="Manage ${esc(id)}">•••</summary>
+        <div class="card-more-menu">
+          <button class="btn-tile" data-rotate="${esc(id)}">Rotate team code…</button>
+          ${deletable && knownTeams.includes(id) ? `<button class="btn-tile btn-danger" data-delcode="${esc(id)}">Delete team…</button>` : ""}
+        </div></details>`;
     }
     // A team whose code exists but whose robot is silent — the class exists
     // while the cabinet is closed; code hygiene must not wait for power-on.
     function teamOnlyCard(id) {
-      return `<div class="robot offline team-only">
-        <h2><span class="dot"></span>${esc(id)}${teamOps(id, true)}</h2>
-        <div class="hw">no rover on the air</div>
-        <div class="remedy">assign one from the unassigned pool, or power its rover on</div>
+      return `<div class="robot offline team-only" data-state="offline attention">
+        <h2><span class="dot"></span>${esc(id)}<span class="card-status">Needs rover</span></h2>
+        <div class="card-meta">No rover connected</div>
+        <div class="remedy">Assign an unassigned rover or power this team's rover on.</div>
+        <div class="card-actions"><button class="btn-tile" data-team-manage="${esc(id)}">Manage team</button>${teamOps(id, true)}</div>
       </div>`;
     }
 
@@ -3379,20 +3438,26 @@ safe-buffer/index.js:
       const mine = myScope && myScope.scope === "one" && team === myScope.robot;
       const claimable = isPool && !myCred && codesApi;
       const net = sys.net || sys.ip || "";   /* "net" ships in newer beacons; ip is the fallback */
-      const teamChip = `${PERSON_SVG}<span>${esc(team)}</span>`;
+      const displayTeam = isPool ? "Unassigned" : team;
+      const teamChip = `${PERSON_SVG}<span>${esc(displayTeam)}</span>`;
       const chips = `<span class="card-chips">
-        ${net && sys.ip ? `<button class="cchip" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}" title="Wi-Fi &amp; role">${WIFI_SVG}<span>${esc(net)}</span></button>` : ""}
-        ${prof ? `<button class="cchip cchip-team${isPool ? " pool" : ""}" data-assign="${esc(board)}" data-bteam="${esc(team)}" title="${isPool ? "Assign to a team" : "Reassign"}">${teamChip}</button>`
+        ${net && sys.ip && prof ? `<button class="cchip" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}" title="Rover Wi-Fi settings">${WIFI_SVG}<span>${esc(net)}</span></button>` : ""}
+        ${prof ? `<span class="cchip cchip-team${isPool ? " pool" : ""}">${teamChip}</span>`
                : `<span class="cchip cchip-team${isPool ? " pool" : ""}">${teamChip}</span>`}
       </span>`;
       const actions = [];
-      actions.push(`<button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">${icon("activity")} Log</button>`);
       if (!offline && sys.cam && sys.ip)
         actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}">${icon("camera")} Camera</button>`);
-      if (prof && !offline) {
-        actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-bteam="${esc(team)}">${icon("zap")} Blink</button>`);
-        if (!isPool)
-          actions.push(`<button class="btn-tile" data-unassign="${esc(board)}" data-uteam="${esc(team)}">Unassign</button>`);
+      if (prof) {
+        actions.unshift(`<button class="btn-tile" data-assign="${esc(board)}" data-bteam="${esc(team)}">${isPool ? "Assign team" : "Manage rover"}</button>`);
+        const more = [];
+        more.push(`<button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">${icon("activity")} Diagnostics</button>`);
+        if (!offline) more.push(`<button class="btn-tile" data-blink="${esc(board)}" data-bteam="${esc(team)}">${icon("zap")} Identify rover</button>`);
+        if (!offline && net && sys.ip) more.push(`<button class="btn-tile" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}">Wi-Fi &amp; setup</button>`);
+        if (!isPool) more.push(`<button class="btn-tile btn-danger" data-unassign="${esc(board)}" data-uteam="${esc(team)}">Unassign rover…</button>`);
+        actions.push(`<details class="card-more"><summary aria-label="More rover actions">•••</summary><div class="card-more-menu">${more.join("")}</div></details>`);
+      } else if (mine) {
+        actions.push(`<button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">Details</button>`);
       }
       // Claim: the signed-out arrival path, on the pool device itself. The
       // .pool-row class stays — the claim Enter handler anchors on it.
@@ -3408,51 +3473,93 @@ safe-buffer/index.js:
             : `<div class="pool-actions"><button class="btn-tile" data-claim="${esc(board)}">${icon("claim")} Claim — make it your team's</button></div>`;
       }
       const shared = !isPool && teamCounts.get(team) > 1;
-      return `<div class="robot${offline ? " offline" : ""}${mine ? " mine" : ""}">
-        <h2><span class="dot"></span>${esc(mine ? team : board)}${offline ? '<span class="offline-label">offline</span>' : ""}${chips}</h2>
-        <div class="hw">${mine ? esc(board) + " · " : ""}${esc(sys.hw || "unknown board")}</div>
-        <dl>
-          <dt>uptime</dt><dd>${sys.uptime_ms != null ? fmtUptime(sys.uptime_ms) : "—"}</dd>
-          <dt>last seen</dt><dd>${offline ? fmtUptime(ageMs) + " ago" : "now"}</dd>
-        </dl>
+      const state = `${offline ? "offline attention" : "online"}${isPool ? " unassigned attention" : ""}${shared ? " attention" : ""}`;
+      return `<div class="robot${offline ? " offline" : ""}${mine ? " mine" : ""}" data-state="${state}">
+        <h2><span class="dot"></span>${esc(mine || prof && !isPool ? displayTeam : board)}<span class="card-status${isPool || shared ? " warn" : ""}">${offline ? "Offline" : isPool ? "Needs team" : shared ? "Check setup" : "Ready"}</span></h2>
+        <div class="card-meta">Rover ${esc(board)}${sys.name ? ` · ${esc(sys.name)}` : ""}</div>
+        ${prof ? chips : ""}
         ${shared ? `<div class="warn-note">${icon("warn", 12)} ${teamCounts.get(team)} boards wear this team — every drive command moves all of them.</div>` : ""}
-        ${isPool && prof && !offline ? `<div class="pool-note">Fresh board — Blink to find it on the desk, then tap its team chip to assign.</div>` : ""}
-        ${offline ? '<div class="remedy">power-cycle it or check the battery</div>' : ""}
+        ${isPool && prof && !offline ? `<div class="pool-note">Identify this rover, then assign it to a team.</div>` : ""}
+        ${offline ? `<div class="remedy">Last seen ${fmtUptime(ageMs)} ago. Check power or battery.</div>` : ""}
         ${claimRow}
         ${actions.length ? `<div class="card-actions">${actions.join("")}</div>` : ""}
       </div>`;
     }
 
     let lastRobotsHtml = "";
+    let fleetFilter = "all";
+    let pendingRequestCount = 0;
+    function setFleetFilter(next) {
+      fleetFilter = next;
+      for (const b of document.querySelectorAll("#fleet-filters button"))
+        b.setAttribute("aria-pressed", String(b.dataset.filter === next));
+      lastRobotsHtml = "";
+      renderRobots();
+    }
+    document.getElementById("fleet-overview").addEventListener("click", (e) => {
+      const filter = e.target.closest("[data-filter], [data-summary-filter]");
+      if (filter) setFleetFilter(filter.dataset.filter || filter.dataset.summaryFilter);
+    });
+    document.getElementById("sum-requests-button").addEventListener("click", () => {
+      if (pendingRequestCount) document.getElementById("req-badge").click();
+    });
     function renderRobots() {
       // Cards repaint every 2 s, which would wipe an inline claim input mid-
       // typing — hold the repaint while an input inside the cards has focus.
       const active = document.activeElement;
       if (active && active.tagName === "INPUT" && document.getElementById("robots").contains(active)) return;
-      const entries = [...boards.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
-      // A team-scoped viewer's own rover leads — right under their pad.
-      if (myScope && myScope.scope === "one")
-        entries.sort((a, b) => (a[1].team === myScope.robot ? -1 : b[1].team === myScope.robot ? 1 : 0));
+      let entries = [...boards.entries()];
+      // A signed-in student sees one stable mental model: their rover, not the classroom fleet.
+      if (myScope && myScope.scope === "one") entries = entries.filter(([, r]) => r.team === myScope.robot);
       const teamCounts = new Map();
       for (const [, rec] of entries)
         if (Date.now() - rec.seenAt < 10000)
           teamCounts.set(rec.team, (teamCounts.get(rec.team) || 0) + 1);
       const seenTeams = new Set(entries.map(([, r]) => r.team));
       // Legacy/sim beacons carry no board id — those teams get a team-keyed card.
-      const legacy = [...robots.entries()]
+      let legacy = [...robots.entries()]
         .filter(([t, r]) => !r.sys.board && t !== "unassigned").sort();
+      if (myScope && myScope.scope === "one") legacy = legacy.filter(([t]) => t === myScope.robot);
       for (const [t] of legacy) seenTeams.add(t);
       // Ghost cards: a code with no robot on the air (professor only) — the
       // 7am case; code hygiene must not wait for power-on.
       const ghosts = (myScope && myScope.scope === "all")
         ? knownTeams.filter(t => t !== "professor" && !seenTeams.has(t)).sort()
         : [];
+      const prof = myScope && myScope.scope === "all";
+      if (prof) {
+        const priority = ([, r]) => {
+          const offline = Date.now() - r.seenAt > 10000;
+          const shared = r.team !== "unassigned" && teamCounts.get(r.team) > 1;
+          return r.team === "unassigned" ? 0 : shared ? 1 : offline ? 2 : 3;
+        };
+        entries.sort((a, b) => priority(a) - priority(b) || a[1].team.localeCompare(b[1].team));
+        const online = entries.filter(([, r]) => Date.now() - r.seenAt <= 10000).length;
+        const unassigned = entries.filter(([, r]) => r.team === "unassigned").length;
+        const attention = entries.filter(([, r]) => Date.now() - r.seenAt > 10000 || r.team === "unassigned" || teamCounts.get(r.team) > 1).length + ghosts.length;
+        document.getElementById("sum-online").textContent = online;
+        document.getElementById("sum-unassigned").textContent = unassigned;
+        document.getElementById("sum-attention").textContent = attention;
+        document.getElementById("sum-requests").textContent = pendingRequestCount;
+        if (fleetFilter !== "all") entries = entries.filter(([, r]) => {
+          const offline = Date.now() - r.seenAt > 10000;
+          const unassigned = r.team === "unassigned";
+          const attention = offline || unassigned || teamCounts.get(r.team) > 1;
+          return fleetFilter === "offline" ? offline : fleetFilter === "unassigned" ? unassigned : attention;
+        });
+      }
+      const visibleGhosts = prof && (fleetFilter === "all" || fleetFilter === "attention" || fleetFilter === "offline") ? ghosts : [];
       document.getElementById("empty").style.display =
-        entries.length || legacy.length || ghosts.length ? "none" : "block";
+        entries.length || legacy.length || visibleGhosts.length ? "none" : "block";
+      document.getElementById("empty").firstChild.textContent = myScope && myScope.scope === "one"
+        ? "Your rover is not online yet. Check its power or ask your professor for help. "
+        : prof && fleetFilter !== "all"
+          ? "No rovers match this filter. "
+          : "No rovers yet — power one on near the hub and it appears here within seconds. ";
       const html =
         entries.map(([b, rec]) => deviceCard(b, rec, teamCounts)).join("") +
         legacy.map(([t, rec]) => deviceCard(t, { sys: rec.sys, team: t, seenAt: rec.seenAt }, teamCounts)).join("") +
-        ghosts.map(teamOnlyCard).join("");
+        visibleGhosts.map(teamOnlyCard).join("");
       // Skip identical repaints: innerHTML assignment resets scroll, CSS
       // animations, and — for keyboard users — whichever button held focus.
       if (html !== lastRobotsHtml) {
@@ -3611,10 +3718,15 @@ safe-buffer/index.js:
         ? "Professor — full fleet control." : `Team scope — drives ${myScope.robot} only.`;
       document.getElementById("drive-panel").style.display = "block";
       document.getElementById("wire").style.display = "block";
+      document.getElementById("student-details").style.display = "block";
+      document.getElementById("student-details").querySelector("summary").textContent =
+        myScope.scope === "all" ? "Advanced diagnostics" : "Details & troubleshooting";
+      document.getElementById("fleet-overview").style.display = myScope.scope === "all" ? "block" : "none";
+      document.getElementById("drive-title").textContent = myScope.scope === "all" ? "Drive / test a rover" : "Drive my rover";
       document.getElementById("drive-target-row").style.display = myScope.scope === "all" ? "block" : "none";
       applyDriveMode(); // panel just appeared: sync the mode switch to the no-target state
       document.getElementById("scope-label").textContent = myScope.scope === "all"
-        ? "Professor — pick a rover below to drive it."
+        ? "Pick a rover to test its controls."
         : `Driving ${myScope.robot}.`;
       // Team scope reorders the page around the driver (CSS .scope-one): pad
       // first, own rover leading the demoted fleet — and lands them on it,
@@ -3677,9 +3789,11 @@ safe-buffer/index.js:
     // Drive input mode — the segmented control switches between the analog
     // joystick and the discrete D-pad. Only reveal an input once a target is
     // chosen (professor "all" scope hasn't picked a robot before then).
-    let driveMode = "joystick";
+    let driveMode = localStorage.getItem("hubDriveMode") || "joystick";
     function applyDriveMode() {
       const ready = !!target;
+      for (const b of document.querySelectorAll("#drive-mode button"))
+        b.setAttribute("aria-pressed", String(b.dataset.mode === driveMode));
       document.getElementById("drive-mode").style.display    = ready ? "" : "none"; // inert before a target exists
       document.getElementById("joystick-wrap").style.display = ready && driveMode === "joystick" ? "block" : "none";
       document.getElementById("dpad-wrap").style.display     = ready && driveMode === "dpad"     ? "block" : "none";
@@ -3688,6 +3802,7 @@ safe-buffer/index.js:
       const seg = e.target.closest("button[data-mode]");
       if (!seg) return;
       driveMode = seg.dataset.mode;
+      localStorage.setItem("hubDriveMode", driveMode);
       for (const b of document.querySelectorAll("#drive-mode button"))
         b.setAttribute("aria-pressed", String(b === seg));
       stopStick();        // releasing the old input must not leave motors latched
@@ -4229,6 +4344,8 @@ safe-buffer/index.js:
       driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
       setConnPill("");
       document.body.classList.remove("scope-one");   // back to the fleet-first order
+      document.getElementById("fleet-overview").style.display = "none";
+      document.getElementById("student-details").style.display = "none";
       document.getElementById("id-chip").classList.remove("show");
       closeChipPop();         // the logout button lives in the account popover
       document.getElementById("req-badge").style.display = "none";
@@ -4523,7 +4640,7 @@ safe-buffer/index.js:
     // on a light clock while the panel is open, so a knock shows up unasked.
     let requestsBusy = false, lastReqListHtml = "";
     async function loadRequests() {
-      if (document.getElementById("teams").style.display !== "block") return;
+      if (!myScope || myScope.scope !== "all" || !codesApi) return;
       if (requestsBusy) return;
       requestsBusy = true;
       try {
@@ -4531,9 +4648,11 @@ safe-buffer/index.js:
         // The queue renders below the fold; the badge in the sticky bar is how
         // a professor mid-scroll learns someone is waiting on them.
         const pending = r.requests.filter(q => !q.join).length;
+        pendingRequestCount = pending;
         const badge = document.getElementById("req-badge");
         badge.style.display = pending ? "inline-block" : "none";
         badge.textContent = pending === 1 ? "1 request waiting" : `${pending} requests waiting`;
+        document.getElementById("sum-requests").textContent = pending;
         document.getElementById("codes-requests").style.display = r.requests.length ? "block" : "none";
         const reqHtml = r.requests
           .map(q => `<div class="codes-row"><b>${esc(q.name)}</b>
@@ -4648,6 +4767,7 @@ safe-buffer/index.js:
       const una = e.target.closest("[data-unassign]");
       const rot = e.target.closest("[data-rotate]");
       const del = e.target.closest("[data-delcode]");
+      const teamManage = e.target.closest("[data-team-manage]");
       const tel = e.target.closest("[data-tel]");
       const clm = e.target.closest("[data-claim]");
       const cls = e.target.closest("[data-claimsend]");
@@ -4658,6 +4778,7 @@ safe-buffer/index.js:
       else if (una) unassignBoard(una.dataset.unassign, una.dataset.uteam);
       else if (rot) rotateTeam(rot.dataset.rotate);
       else if (del) delTeam(del.dataset.delcode);
+      else if (teamManage) rotateTeam(teamManage.dataset.teamManage);
       else if (asg) preselectAssign(asg.dataset.assign, asg.dataset.bteam, true);
       else if (clm) {
         claimingBoard = clm.dataset.claim; claimDraft = ""; claimErr = "";
