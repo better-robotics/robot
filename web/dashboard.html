@@ -87,17 +87,9 @@
       padding: 0.25rem 0.7rem; background: var(--inset); color: var(--ink);
     }
     .tchip.show { display: inline-flex; }
+    .tchip > svg { flex: none; }
     .tchip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .tchip.warn { color: var(--warn-ink); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
-    .tchip .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); }
-    .tchip.live .dot { background: var(--success); }
-    .tchip.reconnecting .dot { background: var(--warn); }
-    #id-menu {
-      position: fixed; top: 54px; right: 12px; z-index: 30; max-width: 90vw;
-      background: var(--surface); border: 0.5px solid var(--border-default);
-      border-radius: var(--radius); padding: 0.9rem 1.1rem;
-      box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.6);
-    }
     #id-menu p { margin-bottom: 0.5rem; }
 
     /* Centered reading column; the fleet is a card grid, so width buys
@@ -443,7 +435,7 @@
       aspect-ratio: 4 / 3; object-fit: contain; }
     #modal-body iframe.cfg-frame { width: 100%; height: min(72vh, 40rem); border: 0; display: block; background: var(--bg); }
     #modal-body .modal-note { padding: 1.25rem; color: var(--ink-muted); font-size: 0.9rem; line-height: 1.5; }
-    #modal-body .wifi-sheet { padding: 1rem 1.25rem 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    #modal-body .sheet-pad { padding: 1rem 1.25rem 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
     /* Phone: single column, full-width controls, comfortable spacing. */
     @media (max-width: 32rem) {
@@ -473,11 +465,13 @@
   <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span><span id="host-chip"></span></h1>
     <span class="topbar-right">
       <button id="req-badge" aria-live="polite"></button>
-      <button id="net-chip" class="tchip" aria-haspopup="dialog"><span id="net-chip-label"></span></button>
-      <button id="id-chip" class="tchip" aria-haspopup="menu" aria-expanded="false"><span class="dot" aria-hidden="true"></span><span id="id-chip-name"></span></button>
+      <button id="net-chip" class="tchip" aria-haspopup="dialog"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9.3a15 15 0 0 1 19 0"/><path d="M5.5 13a11 11 0 0 1 13 0"/><path d="M8.7 16.6a6 6 0 0 1 6.6 0"/><circle cx="12" cy="19.7" r="1.3" fill="currentColor" stroke="none"/></svg><span id="net-chip-label"></span></button>
+      <button id="id-chip" class="tchip" aria-haspopup="dialog"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-5 8-5s8 1.7 8 5v1H4z"/></svg><span id="id-chip-name"></span></button>
     </span>
   </header>
-  <!-- The identity chip's menu (replaced the old in-page "Signed in as" row). -->
+  <!-- The identity chip's account sheet (replaced the old in-page "Signed in
+       as" row). Lives hidden here; opening MOVES it into the modal (same
+       modalRestore pattern as the Wi-Fi panel) so its ids stay live. -->
   <div id="id-menu" hidden>
     <p>Signed in as <b id="identity-name"></b></p>
     <p class="hint" id="id-menu-scope"></p>
@@ -3175,7 +3169,7 @@ safe-buffer/index.js:
         $("wifi-status").textContent = text;
         const ms = document.getElementById("wifi-modal-status");
         if (ms) ms.textContent = text;                    // sheet open: keep it live
-        $("net-chip-label").textContent = s && s.ssid ? `📶 ${s.ssid}` : "📶 set up Wi-Fi";
+        $("net-chip-label").textContent = s && s.ssid ? s.ssid : "set up Wi-Fi";
         netChip.classList.toggle("warn", !healthy);
         $("wifi-setup").style.display = healthy ? "none" : "flex";
       };
@@ -3189,7 +3183,7 @@ safe-buffer/index.js:
       const openWifiSheet = () => {
         const panel = $("wifi-panel");
         const wrap = document.createElement("div");
-        wrap.className = "wifi-sheet";
+        wrap.className = "sheet-pad";
         const st = document.createElement("p");
         st.className = "hint"; st.id = "wifi-modal-status";
         st.textContent = $("wifi-status").textContent;
@@ -3281,6 +3275,7 @@ safe-buffer/index.js:
           ${prof ? `<div class="pool-actions">
             <button class="btn-tile" data-blink="${esc(m.board)}" data-bteam="${esc(id)}">💡 Blink</button>
             <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button>
+            ${isPool ? "" : `<button class="btn-tile" data-unassign="${esc(m.board)}" data-uteam="${esc(id)}">Unassign</button>`}
             <button class="btn-drive${target === id && targetBoard === m.board ? " driving" : ""}"
               data-robot="${esc(id)}" data-board="${esc(m.board)}">${target === id && targetBoard === m.board ? "Driving" : "Drive"}</button></div>`
           : !claimable ? ""
@@ -3331,6 +3326,8 @@ safe-buffer/index.js:
           actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(id)}" data-board="${esc(sys.board || "")}">📷 Camera</button>`);
         if (!offline && sys.ip)
           actions.push(`<button class="btn-tile" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(id)}" data-board="${esc(sys.board || "")}">⚙ Wi-Fi &amp; role</button>`);
+        if (myScope && myScope.scope === "all" && !offline && sys.board)
+          actions.push(`<button class="btn-tile" data-unassign="${esc(sys.board)}" data-uteam="${esc(id)}">Unassign</button>`);
         if (myScope && myScope.scope === "all")
           actions.push(`<button class="btn-drive${target === id ? " driving" : ""}" data-robot="${esc(id)}">${target === id ? "Driving" : "Drive"}</button>`);
         return `<div class="robot${offline ? " offline" : ""}">
@@ -3592,6 +3589,24 @@ safe-buffer/index.js:
       logLine("out", `${topic} ${payload}`);
     }
 
+    // Unassign = robots/<team>/cmd/reprovision targeted at one board: the rover
+    // clears its stored identity and reboots into the unassigned pool. QoS 1
+    // (a mutation, not a lamp) and confirmed — a mis-tap pulls a team's rover
+    // mid-class. The team's code is untouched; only the board forgets it.
+    function unassignBoard(board, team) {
+      if (!driveClient || !driveClient.connected) {
+        const status = document.getElementById("teams-status");
+        status.textContent = "Not connected — sign in as professor first.";
+        status.className = "assign-err";
+        return;
+      }
+      if (!confirm(`Unassign ${board} from ${team}? It reboots into the unassigned pool.`)) return;
+      const topic = `robots/${team}/cmd/reprovision`;
+      const payload = JSON.stringify({ target: board });
+      driveClient.publish(topic, payload, { qos: 1, retain: false });
+      logLine("out", `${topic} ${payload}`);
+    }
+
     // Authenticated POST to a hubd /codes/* endpoint — this session's code is
     // the auth. Resolves to the parsed verdict; a transport failure resolves to
     // { error: errMsg } so every call site renders one shape either way.
@@ -3621,6 +3636,15 @@ safe-buffer/index.js:
         document.getElementById("codes-pass").focus({ preventScroll: true });
       } else if (del && confirm(`Delete ${del.dataset.delcode}? Its rover and browsers lose access.`)) {
         const status = document.getElementById("teams-status");
+        // Tell the team's boards FIRST, while they can still hear it — once the
+        // credential is gone they can never authenticate to be told. They clear
+        // their stored identity and reboot into the pool. Boards offline at this
+        // moment are caught by the firmware's not-authorized fallback instead.
+        if (driveClient && driveClient.connected) {
+          const topic = `robots/${del.dataset.delcode}/cmd/reprovision`;
+          driveClient.publish(topic, "{}", { qos: 1, retain: false });
+          logLine("out", `${topic} {}`);
+        }
         const r = await codesPost("/codes/del", { user: del.dataset.delcode });
         status.textContent = r.ok ? `Deleted ${del.dataset.delcode}.` : r.error;
         status.className = r.ok ? "assign-ok" : "assign-err";
@@ -3744,15 +3768,17 @@ safe-buffer/index.js:
       document.getElementById("code-input").focus();
     });
 
-    // Session-alive signal, carried by the identity chip's dot (mqtt.js
-    // reconnects silently — without this, dragging a dead joystick looks
-    // identical to driving). The menu repeats the state in words so the dot
-    // is never the only carrier.
+    // Session-alive signal on the identity chip (mqtt.js reconnects silently —
+    // without this, dragging a dead joystick looks identical to driving).
+    // Healthy is quiet; reconnecting swaps the label to words + a warn tint,
+    // never a colored dot — dots mean "device online" on the fleet cards and
+    // that channel stays single-meaning.
     function setConnPill(state) {
       const chip = document.getElementById("id-chip");
-      chip.classList.toggle("live", state === "live");
-      chip.classList.toggle("reconnecting", state === "reconnecting");
-      const who = document.getElementById("id-chip-name").textContent;
+      const who = document.getElementById("identity-name").textContent;
+      chip.classList.toggle("warn", state === "reconnecting");
+      document.getElementById("id-chip-name").textContent =
+        state === "reconnecting" ? "reconnecting…" : who;
       chip.setAttribute("aria-label", `${who} — ${state === "live" ? "connected"
         : state === "reconnecting" ? "reconnecting" : "signed out"}`);
       document.getElementById("id-menu-conn").textContent =
@@ -3785,8 +3811,8 @@ safe-buffer/index.js:
         myCred = { user: username, pass: password };
         // Remembered so a locked phone or reload lands back in, signed in.
         localStorage.setItem("hubCred", JSON.stringify(myCred));
+        onScope(username);      // before setConnPill: the chip label reads identity-name
         setConnPill("live");
-        onScope(username);
         const filter = myScope.scope === "all" ? "robots/+/#" : `robots/${username}/#`;
         client.subscribe(filter);
       });
@@ -3827,7 +3853,7 @@ safe-buffer/index.js:
       driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
       setConnPill("");
       document.getElementById("id-chip").classList.remove("show");
-      closeIdMenu();
+      closeModal();           // the logout button lives in the account sheet
       document.getElementById("req-badge").style.display = "none";
       localStorage.removeItem("hubCred");
       for (const id of ["drive-panel", "teams", "join-req"])
@@ -3838,20 +3864,17 @@ safe-buffer/index.js:
       renderChips(); renderRobots(); renderRoster();
     });
 
-    // Identity chip → the account menu. The chip is status; the menu is where
-    // switching lives (log out → gate), one deliberate tap away.
-    const idChip = document.getElementById("id-chip"), idMenu = document.getElementById("id-menu");
-    function closeIdMenu() { idMenu.hidden = true; idChip.setAttribute("aria-expanded", "false"); }
-    idChip.addEventListener("click", (e) => {
-      e.stopPropagation(); // the document listener below would re-close it
-      idMenu.hidden = !idMenu.hidden;
-      idChip.setAttribute("aria-expanded", String(!idMenu.hidden));
-    });
-    document.addEventListener("click", (e) => {
-      if (!idMenu.hidden && !idMenu.contains(e.target)) closeIdMenu();
-    });
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !idMenu.hidden) closeIdMenu();
+    // Identity chip → the account sheet, in the same modal every other overlay
+    // uses (one idiom: focus trap, backdrop, Escape all come with it). The
+    // menu div MOVES in and back — modalRestore, like the Wi-Fi panel.
+    document.getElementById("id-chip").addEventListener("click", () => {
+      const menu = document.getElementById("id-menu");
+      const wrap = document.createElement("div");
+      wrap.className = "sheet-pad";
+      menu.hidden = false;
+      wrap.append(menu);
+      openModal("Account", wrap);
+      modalRestore = () => { menu.hidden = true; document.body.append(menu); };
     });
 
     // ---- Access requests, gate side: POST the knock, poll the token, and an
@@ -4199,12 +4222,14 @@ safe-buffer/index.js:
       const drv = e.target.closest(".btn-drive");
       const blk = e.target.closest("[data-blink]");
       const asg = e.target.closest("[data-assign]");
+      const una = e.target.closest("[data-unassign]");
       const clm = e.target.closest("[data-claim]");
       const cls = e.target.closest("[data-claimsend]");
       if (cam) openCamera(cam.dataset.id, cam.dataset.camIp, cam.dataset.board);
       else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp, cfg.dataset.board);
       else if (drv) selectTarget(drv.dataset.robot, drv.dataset.board);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.bteam);
+      else if (una) unassignBoard(una.dataset.unassign, una.dataset.uteam);
       else if (asg) preselectAssign(asg.dataset.assign, asg.dataset.bteam, true);
       else if (clm) {
         claimingBoard = clm.dataset.claim; claimDraft = ""; claimErr = "";
