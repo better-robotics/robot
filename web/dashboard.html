@@ -109,6 +109,15 @@
        banner stops being the loudest element on the page. */
     .notice.ok { background: var(--surface); border-color: var(--border-default); }
 
+    /* Scope-driven reading order. Default (professor, anonymous): survey the
+       fleet, then drive, then administer — the room seen from the front. A
+       team-scoped student's world is ONE rover: their pad leads and the fleet
+       follows (cold-pass audit 2026-07-12 — both passes converged on exactly
+       this reorder, scope-keyed because fleet-first stays right for claim/
+       onboarding and the professor). */
+    body.scope-one main { display: flex; flex-direction: column; }
+    body.scope-one #robots { order: 2; }
+
     /* Fleet grid — auto-fill so cards reflow from a phone's single column up to
        the desktop's multi-column without a media query per breakpoint. */
     #robots {
@@ -3315,6 +3324,10 @@ safe-buffer/index.js:
       const active = document.activeElement;
       if (active && active.tagName === "INPUT" && document.getElementById("robots").contains(active)) return;
       const ids = [...robots.keys()].sort();
+      // A team-scoped viewer's own rover leads the demoted grid — right under
+      // their pad; the rest of the class follows alphabetically (stable sort).
+      if (myScope && myScope.scope === "one")
+        ids.sort((a, b) => (a === myScope.robot ? -1 : b === myScope.robot ? 1 : 0));
       document.getElementById("empty").style.display = ids.length ? "none" : "block";
       // Live boards per team, from the per-board map (10 s freshness, same as cards).
       const members = new Map();
@@ -3472,7 +3485,14 @@ safe-buffer/index.js:
       document.getElementById("scope-label").textContent = myScope.scope === "all"
         ? "Professor — pick a rover below to drive it."
         : `Driving ${myScope.robot}.`;
-      if (myScope.scope === "one") selectTarget(myScope.robot);
+      // Team scope reorders the page around the driver (CSS .scope-one): pad
+      // first, own rover leading the demoted fleet — and lands them on it,
+      // the same bring-to-the-finger the professor's Drive tap already gets.
+      document.body.classList.toggle("scope-one", myScope.scope === "one");
+      if (myScope.scope === "one") {
+        selectTarget(myScope.robot);
+        document.getElementById("drive").scrollIntoView({ behavior: SCROLL, block: "start" });
+      }
       if (myScope.scope === "all") {
         document.getElementById("teams").style.display = "block";
         if (!standalone) loadCodes(); // code actions + requests join the roster when /codes exists
@@ -3881,6 +3901,7 @@ safe-buffer/index.js:
       try { driveClient.end(true); } catch {}
       driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
       setConnPill("");
+      document.body.classList.remove("scope-one");   // back to the fleet-first order
       document.getElementById("id-chip").classList.remove("show");
       closeChipPop();         // the logout button lives in the account popover
       document.getElementById("req-badge").style.display = "none";
