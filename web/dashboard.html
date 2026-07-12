@@ -203,14 +203,13 @@
     #assign-btn:disabled { opacity: 0.55; cursor: default; filter: none; }
     button:active { transform: scale(0.97); }
     /* Tinted (secondary) button — accent text on a soft accent wash.
-       .btn-accent is the generic tint; .btn-drive is ONLY the drive-target
        action (scripts and the delegated #robots handler match on it). */
-    .btn-drive, .btn-accent {
+    .btn-accent {
       cursor: pointer; font-weight: 600; font-size: 0.9rem; min-height: 2.2rem;
       padding: 0.4rem 0.9rem; border-radius: var(--radius); border: none; margin-top: 0.7rem;
       color: var(--link); background: var(--accent-soft); transition: transform 0.08s ease, filter 0.15s ease;
     }
-    .btn-drive:hover, .btn-accent:hover { filter: brightness(1.15); }
+    .btn-accent:hover { filter: brightness(1.15); }
     /* Link-styled button: disclosure toggles that were once <a href="#">. */
     .link-btn { background: none; border: none; padding: 0; font: inherit;
       color: var(--link); cursor: pointer; }
@@ -269,7 +268,6 @@
     #codes-share { margin-top: 0.8rem; }
     .copy-fallback { display: block; width: 100%; margin: 0.5rem 0; }
     #codes-qr svg { width: 11rem; height: 11rem; background: #fff; padding: 0.5rem; border-radius: 8px; }
-    .btn-drive.driving { background: var(--accent); color: var(--accent-ink); }
     /* Orientation buttons publish immediately (unlike the fields above, which
        commit on Assign) — the divider marks the change of contract. */
     #orient-row { flex-basis: 100%; border-top: 0.5px solid var(--border-default);
@@ -340,8 +338,12 @@
     #wire-pause[aria-pressed="true"], #wire-beacons[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
     #wire-filter { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: var(--radius-sm);
       border: 1px solid var(--border-strong); background: var(--inset); color: var(--ink); max-width: 9rem; }
-    /* The log gets the grid's full width — it's the verbose surface. */
-    .wire-wrap { grid-column: 1 / -1; }
+    #drive-target { background: var(--inset); color: var(--ink); font: inherit;
+      border: 0.5px solid var(--border-default); border-radius: var(--radius);
+      padding: 0.5rem 0.7rem; min-height: var(--tap); max-width: 20rem; width: 100%; }
+    /* Team scope reads pad-first: their whole world is one rover. */
+    body.scope-one main { display: flex; flex-direction: column; }
+    body.scope-one #robots { order: 2; }
     #wire-log, #tel-feed {
       height: 11rem; overflow-y: auto; background: var(--inset);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
@@ -418,7 +420,7 @@
     .pool-row { padding: 0.5rem 0.65rem;
       background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
     .pool-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; align-items: center; }
-    .pool-actions .btn-tile, .pool-actions .btn-drive { margin: 0; }
+    .pool-actions .btn-tile { margin: 0; }
     /* Inline claim: the name field lives in the rover's own row. */
     .pool-actions .claim-name { flex: 1 1 8rem; min-width: 0; padding: 0.4rem 0.7rem; min-height: 2.2rem; }
     .claim-wait { color: var(--ink-muted); font-size: 0.85rem; }
@@ -429,7 +431,6 @@
 
     /* Per-card action row: Camera / Wi-Fi & role / Drive as tinted tiles. */
     .card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }
-    .card-actions .btn-drive { margin-top: 0; }
     .btn-tile {
       cursor: pointer; font-weight: 600; font-size: 0.85rem; min-height: 2.2rem;
       padding: 0.4rem 0.8rem; border-radius: var(--radius);
@@ -494,7 +495,7 @@
       .segmented button { flex: 1; }
       /* Full 44px tap targets on touch — including the secondary controls the
          professor taps most (tiles, Approve/Rotate/✕, Log out, modal close). */
-      .btn-drive, .btn-accent, .btn-tile, .codes-row button,
+      .btn-accent, .btn-tile, .codes-row button,
       .team-ops button, .segmented button { min-height: var(--tap); }
       #modal-close { width: var(--tap); height: var(--tap); }
       .dpad { grid-template-columns: repeat(3, 4rem); grid-template-rows: repeat(3, 4rem); }
@@ -517,6 +518,7 @@
     <p>Signed in as <b id="identity-name"></b></p>
     <p class="hint" id="id-menu-scope"></p>
     <p class="hint" id="id-menu-conn" role="status"></p>
+    <button id="menu-newteam" class="btn-tile" style="display:none">New team code…</button>
     <button id="logout-btn" class="btn-tile">Log out &amp; switch</button>
   </div>
   <main>
@@ -594,6 +596,12 @@
 
     <div id="drive-panel">
       <p id="scope-label"></p>
+      <!-- Target picker (professor): driving is self-contained here — pick a
+           rover, drive it. The cards carry no Drive buttons; this is the one
+           steering wheel and this is where it points. -->
+      <div id="drive-target-row" style="display:none">
+        <select id="drive-target" aria-label="Rover to drive"><option value="">— pick a rover —</option></select>
+      </div>
       <!-- Plain toggle buttons (aria-pressed), not a tablist: the full tabs
            contract (aria-controls, roving tabindex, arrow keys) isn't
            implemented, and claiming the role without it misleads AT. -->
@@ -624,15 +632,23 @@
             <div id="dpad-readout">hold a direction to drive</div>
           </div>
         </div>
-        <div class="wire-wrap">
-          <div class="wire-head"><span>Wire log — <span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></span>
-            <span class="spacer"></span>
-            <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
-            <button id="wire-beacons" aria-pressed="false" title="sys beacons are most of the traffic — shown only on demand">Beacons</button>
-            <button id="wire-pause" aria-pressed="false">Pause</button></div>
-          <div id="wire-log" role="log" tabindex="0" aria-label="Live command and telemetry log"></div>
-        </div>
       </div>
+    </div>
+  </section>
+
+  <!-- The bus view: everything this session's subscription carries, its own
+       full-width card — a verbose surface deserves the whole column. Per-rover
+       reading lives in each card's telemetry sheet; this is the classroom's
+       raw wire, the teaching tap. -->
+  <section id="wire" style="display:none">
+    <h2 class="section-title">Wire log</h2>
+    <div class="wire-wrap">
+      <div class="wire-head"><span><span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></span>
+        <span class="spacer"></span>
+        <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
+        <button id="wire-beacons" aria-pressed="false" title="sys beacons are most of the traffic — shown only on demand">Beacons</button>
+        <button id="wire-pause" aria-pressed="false">Pause</button></div>
+      <div id="wire-log" role="log" tabindex="0" aria-label="Live command and telemetry log"></div>
     </div>
   </section>
 
@@ -641,11 +657,12 @@
        hubd /codes/* wraps mosquitto_passwd + reload) and its rovers, and
        tapping a rover opens the repair form below. QR/link appear when a
        code is (re)set — that's the only moment the plaintext exists here. -->
-  <section id="teams">
-    <h2 class="section-title">Teams</h2>
-    <p class="assign-help">Teams live as cards in the fleet above — rotate or delete a code on
-      its card, assign and repair from the rover itself. This desk mints new teams and
-      approves claims.</p>
+  <!-- Hidden storage, not a page section: team management lives in the flows
+       now — the team chip on each card (assign/rotate via the sheet), the
+       request badge (approvals sheet), the account popover (new team code).
+       These nodes keep their ids and listeners and MOVE into sheets on
+       demand, returning here on close. -->
+  <section id="teams" hidden>
     <div id="codes-nag"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> This class is still running the placeholder codes it shipped with — rotate them before students arrive.</div>
     <!-- Access requests, professor side: Approve mints a code and delivers it
          to the requester's screen — nothing to read out or type. -->
@@ -3376,8 +3393,6 @@ safe-buffer/index.js:
         actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-bteam="${esc(team)}">${icon("zap")} Blink</button>`);
         if (!isPool)
           actions.push(`<button class="btn-tile" data-unassign="${esc(board)}" data-uteam="${esc(team)}">Unassign</button>`);
-        const driving = target === team && (!targetBoard || targetBoard === board);
-        actions.push(`<button class="btn-drive${driving ? " driving" : ""}" data-robot="${esc(team)}" data-board="${esc(board)}">${driving ? "Driving" : "Drive"}</button>`);
       }
       // Claim: the signed-out arrival path, on the pool device itself. The
       // .pool-row class stays — the claim Enter handler anchors on it.
@@ -3595,6 +3610,8 @@ safe-buffer/index.js:
       document.getElementById("id-menu-scope").textContent = myScope.scope === "all"
         ? "Professor — full fleet control." : `Team scope — drives ${myScope.robot} only.`;
       document.getElementById("drive-panel").style.display = "block";
+      document.getElementById("wire").style.display = "block";
+      document.getElementById("drive-target-row").style.display = myScope.scope === "all" ? "block" : "none";
       applyDriveMode(); // panel just appeared: sync the mode switch to the no-target state
       document.getElementById("scope-label").textContent = myScope.scope === "all"
         ? "Professor — pick a rover below to drive it."
@@ -3607,10 +3624,7 @@ safe-buffer/index.js:
         selectTarget(myScope.robot);
         document.getElementById("drive").scrollIntoView({ behavior: SCROLL, block: "start" });
       }
-      if (myScope.scope === "all") {
-        document.getElementById("teams").style.display = "block";
-        if (!standalone) loadCodes(); // code actions + requests join the roster when /codes exists
-      }
+      if (myScope.scope === "all" && !standalone) loadCodes(); // codes flows arm when /codes exists
       renderRobots(); // re-render cards now that scope is known (adds Drive buttons for "all")
     }
 
@@ -3623,16 +3637,42 @@ safe-buffer/index.js:
       const label = board ? `${board} (${id})` : id;
       document.getElementById("joystick-title").textContent = `Driving ${label}`;
       applyDriveMode();  // reveal whichever input (joystick / D-pad) is active
-      if (myScope && myScope.scope === "all") {
-        // The Drive tap happened on a card below; the pad appeared up here —
-        // bring it to the finger (the Assign flow's own pattern), and retire
-        // the now-stale "pick a robot" instruction.
+      syncDriveTarget(); // keep the picker agreeing with whoever set the target
+      if (myScope && myScope.scope === "all")
         document.getElementById("scope-label").textContent =
-          `Driving ${label} — tap Drive on another rover to switch.`;
-        document.getElementById("drive").scrollIntoView({ behavior: SCROLL, block: "center" });
-        renderRobots(); // repaint cards so the chosen one shows its Driving state
-      }
+          `Driving ${label} — pick another rover above to switch.`;
     }
+
+    // The Drive card's target picker (professor): live boards only, options
+    // refreshed on the 2 s clock — never under an open dropdown, and only
+    // when the set changed. value = "<team>|<board>" (names are lowercase
+    // a-z0-9-_ by contract, so "|" can't collide).
+    function syncDriveTarget() {
+      if (!myScope || myScope.scope !== "all") return;
+      const sel = document.getElementById("drive-target");
+      if (document.activeElement === sel) return;
+      const opts = [...boards.entries()]
+        .filter(([, r]) => Date.now() - r.seenAt < 10000)
+        .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+        .map(([b, r]) => ({ v: `${r.team}|${b}`, label: `${b} — ${r.team}` }));
+      const want = opts.map(o => o.v).join(",");
+      if (sel.dataset.have !== want) {
+        sel.dataset.have = want;
+        sel.innerHTML = '<option value="">— pick a rover —</option>' +
+          opts.map(o => `<option value="${esc(o.v)}">${esc(o.label)}</option>`).join("");
+      }
+      sel.value = target && targetBoard ? `${target}|${targetBoard}` : "";
+    }
+    document.getElementById("drive-target").addEventListener("change", (e) => {
+      if (!e.target.value) {
+        target = null; targetBoard = null;
+        applyDriveMode();
+        document.getElementById("scope-label").textContent = "Professor — pick a rover above to drive it.";
+        return;
+      }
+      const [team, board] = e.target.value.split("|");
+      selectTarget(team, board);
+    });
 
     // Drive input mode — the segmented control switches between the analog
     // joystick and the discrete D-pad. Only reveal an input once a target is
@@ -3662,16 +3702,29 @@ safe-buffer/index.js:
     // a half-typed credential.
     let assignTarget = null; // { board, team } — the board's *current* team
 
-    // The roster dissolved into the fleet grid (a team is a card; robots
-    // attach to teams) — these are its code actions, now invoked from the
-    // card headers via the #robots delegation.
+    // Team management lives in sheets — the #teams section is hidden storage.
+    // openCodesSheet MOVES the mint form (+ nag, status, share card) into the
+    // modal and returns them on close; the share card minting inside it is
+    // therefore visible where the mint happened.
+    function openCodesSheet(title) {
+      const nag = document.getElementById("codes-nag");
+      const form = document.getElementById("codes-form");
+      const status = document.getElementById("teams-status");
+      const share = document.getElementById("codes-share");
+      const wrap = document.createElement("div");
+      wrap.className = "assign-sheet";
+      form.style.display = "flex";
+      openModal(title || "Team codes", wrap);   // flushes any previous sheet's restore first
+      wrap.append(nag, form, status, share);
+      modalRestore = () => document.getElementById("teams").append(nag, form, status, share);
+    }
     function rotateTeam(t) {
+      openCodesSheet(`Rotate ${t}'s code`);
       document.getElementById("codes-user").value = t;
       const status = document.getElementById("teams-status");
       status.textContent = `Rotating ${t} — enter a new code, or leave blank to auto-generate.`;
       status.className = "";
-      document.getElementById("codes-form").scrollIntoView({ behavior: SCROLL, block: "center" });
-      document.getElementById("codes-pass").focus({ preventScroll: true });
+      document.getElementById("codes-pass").focus();
     }
     async function delTeam(t) {
       const status = document.getElementById("teams-status");
@@ -3680,8 +3733,9 @@ safe-buffer/index.js:
       const occupied = [...boards.values()].some(rec =>
         rec.team === t && Date.now() - rec.seenAt < 10000);
       if (occupied) {
-        status.textContent = `${t} has a rover attached — Unassign it first, then delete.`;
-        status.className = "assign-err";
+        // teams-status lives in hidden storage between sheets — this rare
+        // race (a robot rejoined under the open confirm) needs a dialog.
+        alert(`${t} has a rover attached — Unassign it first, then delete.`);
         return;
       }
       if (!confirm(`Delete ${t}? Its sign-in code stops working.`)) return;
@@ -3717,20 +3771,17 @@ safe-buffer/index.js:
         // there. From the roster (scroll=false) the form stays in place: the
         // tap happened inside Teams already.
         const status = document.getElementById("teams-status");
+        const share = document.getElementById("codes-share");
         const wrap = document.createElement("div");
         wrap.className = "assign-sheet";
-        wrap.append(form, status);
+        // Populate the wrap ONLY AFTER openModal — it runs the previous
+        // sheet's restore, which would steal just-claimed nodes back to
+        // storage (both orderings of this bug hit tonight's bench). The
+        // share card rides along: a blank-code assign mints a fresh code
+        // and its QR must appear where the mint happened.
         openModal(`Assign ${board}`, wrap);
-        // Anchor the restore to #codes-share's REAL position — never to the
-        // form's parent at open time: opening a second sheet over a first
-        // captured the first sheet's (soon-detached) wrapper as "home", and
-        // the restore's insertBefore threw, killing the tap handler (bench
-        // 2026-07-12 — consecutive Assign… taps read as a dead button).
-        modalRestore = () => {
-          const share = document.getElementById("codes-share");
-          share.parentNode.insertBefore(form, share);
-          share.parentNode.insertBefore(status, share);
-        };
+        wrap.append(form, status, share);
+        modalRestore = () => document.getElementById("teams").append(form, status, share);
       }
       document.getElementById("assign-team").focus({ preventScroll: scroll });
     }
@@ -4182,7 +4233,8 @@ safe-buffer/index.js:
       closeChipPop();         // the logout button lives in the account popover
       document.getElementById("req-badge").style.display = "none";
       localStorage.removeItem("hubCred");
-      for (const id of ["drive-panel", "teams", "join-req"])
+      document.getElementById("menu-newteam").style.display = "none";
+      for (const id of ["drive-panel", "join-req", "wire"])
         document.getElementById(id).style.display = "none";
       document.getElementById("code-gate").style.display = "";
       document.getElementById("code-input").value = "";
@@ -4415,6 +4467,7 @@ safe-buffer/index.js:
       if (r) {
         document.getElementById("codes-nag").style.display = r.placeholders ? "block" : "none";
         document.getElementById("codes-form").style.display = "flex";
+        document.getElementById("menu-newteam").style.display = "";  // codes flows exist here
         renderRobots();   // knownTeams changed — silent-team cards join/leave the grid
       }
       loadRequests();
@@ -4499,8 +4552,26 @@ safe-buffer/index.js:
       requestsBusy = false;
     }
     setInterval(loadRequests, 5000);
-    document.getElementById("req-badge").addEventListener("click", () =>
-      document.getElementById("codes-requests").scrollIntoView({ behavior: SCROLL, block: "center" }));
+    // The badge is the attention hook; the queue itself opens as a sheet —
+    // the approvals list moves in (listeners riding along) and back on close.
+    document.getElementById("req-badge").addEventListener("click", () => {
+      const reqs = document.getElementById("codes-requests");
+      const status = document.getElementById("teams-status");
+      const share = document.getElementById("codes-share");
+      const wrap = document.createElement("div");
+      wrap.className = "assign-sheet";
+      reqs.style.display = "block";
+      openModal("Access requests", wrap);      // flushes any previous sheet's restore first
+      wrap.append(reqs, status, share);
+      modalRestore = () => document.getElementById("teams").append(reqs, status, share);
+    });
+
+    // Account popover → mint a team with no robot yet (the 7am pre-provision).
+    document.getElementById("menu-newteam").addEventListener("click", () => {
+      closeChipPop();
+      openCodesSheet("Team codes");
+      document.getElementById("codes-user").focus();
+    });
     document.getElementById("codes-req-list").addEventListener("click", async (e) => {
       const app = e.target.closest("[data-approve]");
       const den = e.target.closest("[data-denyreq]");
@@ -4572,7 +4643,6 @@ safe-buffer/index.js:
       // are rebuilt every 2s, so we match on closest, not the exact target.
       const cam = e.target.closest("[data-cam-ip]");
       const cfg = e.target.closest("[data-cfg-ip]");
-      const drv = e.target.closest(".btn-drive");
       const blk = e.target.closest("[data-blink]");
       const asg = e.target.closest("[data-assign]");
       const una = e.target.closest("[data-unassign]");
@@ -4584,7 +4654,6 @@ safe-buffer/index.js:
       if (cam) openCamera(cam.dataset.id, cam.dataset.camIp, cam.dataset.board);
       else if (tel) openTelemetry(tel.dataset.tel, tel.dataset.telBoard);
       else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp, cfg.dataset.board);
-      else if (drv) selectTarget(drv.dataset.robot, drv.dataset.board);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.bteam);
       else if (una) unassignBoard(una.dataset.unassign, una.dataset.uteam);
       else if (rot) rotateTeam(rot.dataset.rotate);
