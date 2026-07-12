@@ -3487,7 +3487,7 @@ safe-buffer/index.js:
         title.textContent = stale ? `${base} — offline?` : base;
       }
       renderRobots(); renderChips(); watchAssign(); syncPinsPanel(false);
-      syncWireFilter(); telemetrySync?.();
+      syncWireFilter(); syncDriveTarget(); telemetrySync?.();
     }, 2000);
 
     // Anonymous mqtt.js connection, scoped by Mosquitto's ACL to read-only
