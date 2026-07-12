@@ -443,6 +443,7 @@
       aspect-ratio: 4 / 3; object-fit: contain; }
     #modal-body iframe.cfg-frame { width: 100%; height: min(72vh, 40rem); border: 0; display: block; background: var(--bg); }
     #modal-body .modal-note { padding: 1.25rem; color: var(--ink-muted); font-size: 0.9rem; line-height: 1.5; }
+    #modal-body .wifi-sheet { padding: 1rem 1.25rem 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
     /* Phone: single column, full-width controls, comfortable spacing. */
     @media (max-width: 32rem) {
@@ -472,7 +473,7 @@
   <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span><span id="host-chip"></span></h1>
     <span class="topbar-right">
       <button id="req-badge" aria-live="polite"></button>
-      <button id="net-chip" class="tchip" aria-controls="wifi-setup" aria-expanded="false"><span id="net-chip-label"></span></button>
+      <button id="net-chip" class="tchip" aria-haspopup="dialog"><span id="net-chip-label"></span></button>
       <button id="id-chip" class="tchip" aria-haspopup="menu" aria-expanded="false"><span class="dot" aria-hidden="true"></span><span id="id-chip-name"></span></button>
     </span>
   </header>
@@ -3157,42 +3158,50 @@ safe-buffer/index.js:
       if (!status) return;                     // /wifi absent → not hub-served
       const netChip = $("net-chip");
       netChip.classList.add("show");
-      // The chip is the uplink's steady-state home; the #wifi-setup row shows
-      // itself only in exception states (nothing configured / portal / down),
-      // or while the user holds it open from the chip.
-      let last = status, wifiOpen = false;
+      // The chip is the uplink's steady-state home; the #wifi-setup row is now
+      // purely the exception banner (nothing configured / portal / down). The
+      // controls themselves open in the modal sheet — self-contained attention,
+      // no in-page expansion to scroll past.
+      let last = status;
       const healthyNow = () => !!(last && last.ssid && last.uplink === "full");
-      const applyWifiRow = () => {
-        const show = wifiOpen || !healthyNow();
-        $("wifi-setup").style.display = show ? "flex" : "none";
-        netChip.setAttribute("aria-expanded", String(show));
-      };
       const renderStatus = s => {
         last = s;
         const healthy = healthyNow();
         $("wifi-setup").classList.toggle("ok", healthy); // healthy = quiet chrome
-        $("wifi-status").textContent = s && s.ssid
+        const text = s && s.ssid
           ? `Uplink: ${s.ssid}${s.uplink === "full" ? " · online"
               : s.uplink === "portal" ? " · needs venue sign-in" : ""}`
           : "No uplink yet — pick a Wi-Fi network so the hub gets internet.";
+        $("wifi-status").textContent = text;
+        const ms = document.getElementById("wifi-modal-status");
+        if (ms) ms.textContent = text;                    // sheet open: keep it live
         $("net-chip-label").textContent = s && s.ssid ? `📶 ${s.ssid}` : "📶 set up Wi-Fi";
         netChip.classList.toggle("warn", !healthy);
-        applyWifiRow();
+        $("wifi-setup").style.display = healthy ? "none" : "flex";
       };
       renderStatus(status);
       // /fleet's polled verdict keeps the chip honest between /wifi/status reads.
       renderUplinkChip = verdict => renderStatus({ ...last, uplink: verdict });
-      netChip.addEventListener("click", () => {
-        wifiOpen = !wifiOpen;
-        applyWifiRow();
-        if (wifiOpen) $("wifi-setup").scrollIntoView({ behavior: SCROLL, block: "center" });
-      });
-      if (!status.ssid) $("wifi-panel").style.display = "flex";  // day-zero: open it
 
-      $("wifi-open").addEventListener("click", () => {
-        const p = $("wifi-panel");
-        p.style.display = p.style.display === "none" ? "flex" : "none";
-      });
+      // The scan/join controls live hidden in the banner row and MOVE into the
+      // modal sheet on demand; modalRestore puts them back (their listeners
+      // survive the trip — the node is moved, never rebuilt).
+      const openWifiSheet = () => {
+        const panel = $("wifi-panel");
+        const wrap = document.createElement("div");
+        wrap.className = "wifi-sheet";
+        const st = document.createElement("p");
+        st.className = "hint"; st.id = "wifi-modal-status";
+        st.textContent = $("wifi-status").textContent;
+        wrap.append(st, panel);
+        panel.style.display = "flex";
+        openModal("Wi-Fi setup", wrap);
+        // AFTER openModal: it runs (then clears) the PREVIOUS caller's restore —
+        // registering ours first would make it fire on our own open.
+        modalRestore = () => { $("wifi-setup").append(panel); panel.style.display = "none"; };
+      };
+      netChip.addEventListener("click", openWifiSheet);
+      $("wifi-open").addEventListener("click", openWifiSheet);
 
       let chosen = null;
       $("wifi-scan").addEventListener("click", async () => {
@@ -4209,7 +4218,12 @@ safe-buffer/index.js:
     const modalTitle = document.getElementById("modal-title");
     const modalBody = document.getElementById("modal-body");
     let modalInvoker = null; // where focus returns when the sheet closes
+    // A caller that MOVED a live node into the sheet (the Wi-Fi panel) sets this
+    // to put it back — run on close AND when another modal takes the body over,
+    // so replaceChildren never silently discards a wired-up node.
+    let modalRestore = null;
     function openModal(title, node) {
+      modalRestore?.(); modalRestore = null;
       modalTitle.textContent = title;
       modalBody.replaceChildren(node);
       modal.hidden = false;
@@ -4218,6 +4232,7 @@ safe-buffer/index.js:
     }
     function closeModal() {
       modal.hidden = true;
+      modalRestore?.(); modalRestore = null;
       modalBody.replaceChildren(); // drop the <img>/<iframe> so its connection closes
       modalInvoker?.focus?.();
       modalInvoker = null;
