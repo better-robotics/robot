@@ -356,21 +356,17 @@
     .log-out { color: var(--link); }
     .log-in { color: var(--success); }
 
-    /* Teams (professor-only): one roster — team rows carrying their code
-       actions, member boards nested beneath as select-then-act chips. */
+    /* Teams live as cards in the fleet grid — a team is a card, robots attach
+       to teams. Per-team code actions (Rotate/✕) sit in the card header where
+       the team lives; #teams below is the professor's codes desk (mint,
+       requests, share card), display gated by scope. */
     #teams { display: none; }
-    .team-boards { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0 0.2rem 0.9rem; }
-    .assign-empty { color: var(--ink-muted); font-size: 0.9rem; }
-    .board {
-      cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem;
-      background: var(--inset); color: var(--ink);
-      border: 0.5px solid var(--border-default); border-radius: var(--radius);
-      padding: 0.5rem 0.8rem; min-height: 2.4rem; transition: box-shadow 0.15s ease, border-color 0.15s ease;
-    }
-    .board.selected { border-color: var(--accent-text); box-shadow: 0 0 0 2px var(--accent-text); }
-    .board.offline { opacity: 0.5; cursor: default; }
-    .board .dot { width: 8px; height: 8px; }
-    .board.offline .dot { background: var(--ink-faint); }
+    .team-ops { margin-left: auto; display: flex; gap: 0.3rem; }
+    .team-ops button { padding: 0.3rem 0.7rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+      background: transparent; color: inherit; cursor: pointer; font-size: 0.78rem; }
+    /* A team whose code exists but whose rover is silent: present (the class
+       exists while robots sit in the cabinet) but visibly idle. */
+    .robot.team-only { opacity: 0.85; }
     /* Assign/repair form: its own hairline-divided block (it follows the
        Set-code form — without the divider the two read as one broken form),
        labeled fields on the pins-grid pattern (an anonymous placeholder box
@@ -484,7 +480,7 @@
       /* Full 44px tap targets on touch — including the secondary controls the
          professor taps most (tiles, Approve/Rotate/✕, Log out, modal close). */
       .btn-drive, .btn-accent, .btn-tile, .codes-row button,
-      .segmented button { min-height: var(--tap); }
+      .team-ops button, .segmented button { min-height: var(--tap); }
       #modal-close { width: var(--tap); height: var(--tap); }
       .dpad { grid-template-columns: repeat(3, 4rem); grid-template-rows: repeat(3, 4rem); }
     }
@@ -630,8 +626,9 @@
        code is (re)set — that's the only moment the plaintext exists here. -->
   <section id="teams">
     <h2 class="section-title">Teams</h2>
-    <p class="assign-help">Approve a team's claim below and the code, sign-in card, and rover
-      land in the same tap. Tap a rover to repair or move it.</p>
+    <p class="assign-help">Teams live as cards in the fleet above — rotate or delete a code on
+      its card, assign and repair from the rover itself. This desk mints new teams and
+      approves claims.</p>
     <div id="codes-nag">&#9888; This class is still running the placeholder codes it shipped with — rotate them before students arrive.</div>
     <!-- Access requests, professor side: Approve mints a code and delivers it
          to the requester's screen — nothing to read out or type. -->
@@ -639,7 +636,6 @@
       <p class="assign-help" style="margin-bottom:0.2rem">Access requests — approve and the team lands signed in on their own screen.</p>
       <div id="codes-req-list"></div>
     </div>
-    <div id="team-roster"></div>
     <div class="gate-row" id="codes-form">
       <input id="codes-user" placeholder="team name" aria-label="Team name"
              autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
@@ -3419,7 +3415,7 @@ safe-buffer/index.js:
         const base = title.textContent.replace(/ — offline\?$/, "");
         title.textContent = stale ? `${base} — offline?` : base;
       }
-      renderRobots(); renderRoster(); renderChips(); syncPinsPanel(false);
+      renderRobots(); renderRoster(); renderChips(); watchAssign(); syncPinsPanel(false);
     }, 2000);
 
     // Anonymous mqtt.js connection, scoped by Mosquitto's ACL to read-only
@@ -3757,13 +3753,70 @@ safe-buffer/index.js:
       const topic = `robots/${assignTarget.team}/cmd/config`;
       driveClient.publish(topic, JSON.stringify(cfg), { qos: 1, retain: false });
       logLine("out", `${topic} ${JSON.stringify(cfg)}`);
-      status.textContent = `Sent — ${assignTarget.board} → ${team}${cfg.pins ? " (+ motor pins)" : ""}. It reboots and reappears under ${team} in a few seconds.`;
-      status.className = "assign-ok";
+      // "Sent" is a proxy — the criterion is the rover's next beacon. Arm the
+      // transit watcher (2 s clock) and hold the button so a double-tap can't
+      // race the reboot.
+      assignPending = { board: assignTarget.board, team, oldTeam: assignTarget.team,
+                        baseUptime: boards.get(assignTarget.board)?.sys?.uptime_ms ?? 0,
+                        sentAt: Date.now() };
+      document.getElementById("assign-btn").disabled = true;
+      status.textContent = `Sent — waiting for ${assignTarget.board} to reboot into ${team}…`;
+      status.className = "";
       // Pin fields are NOT cleared: they display the rover's live map, and
       // the 2 s sync repaints them once the reboot lands.
       ["assign-team", "assign-pass", "assign-name", "assign-hub"]
         .forEach(i => document.getElementById(i).value = "");
     });
+
+    // ---- Assign transit watcher: three terminals, all read from the live
+    // boards map, never a timer guessing. Back under the new team = success
+    // (the sheet closes once the confirmation has been readable). Rebooted
+    // but on another subtree = the firmware's auth-rejection fallback put it
+    // in the pool — almost always a wrong team code. Silence past 30 s = it
+    // never came back. Success needs proof of an actual reboot: an uptime
+    // reset, or a team change (an identity can't move subtrees without one) —
+    // otherwise a same-team re-assign would "succeed" off pre-reboot beacons.
+    let assignPending = null;
+    function watchAssign() {
+      if (assignTarget) {
+        // Team is the topic subtree — keep it truthful across reboots and
+        // moves, or an open sheet's Test/Apply publishes into a subtree the
+        // board no longer subscribes to: a silent no-op that reads as a
+        // dead button.
+        const rec = boards.get(assignTarget.board);
+        if (rec && rec.team !== assignTarget.team) {
+          assignTarget.team = rec.team;
+          document.getElementById("assign-selected").textContent =
+            `Assigning ${assignTarget.board} — currently ${rec.team}.`;
+        }
+      }
+      if (!assignPending) return;
+      const status = document.getElementById("teams-status");
+      const settle = (msg, cls) => {
+        status.textContent = msg; status.className = cls;
+        document.getElementById("assign-btn").disabled = false;
+        assignPending = null;
+      };
+      const rec = boards.get(assignPending.board);
+      const fresh = rec && Date.now() - rec.seenAt < 6000;
+      const rebooted = fresh && ((rec.sys.uptime_ms ?? 0) < assignPending.baseUptime
+                                 || rec.team !== assignPending.oldTeam);
+      if (rebooted && rec.team === assignPending.team) {
+        settle(`${assignPending.board} is back under ${rec.team}.`, "assign-ok");
+        setTimeout(closeAssignSheet, 1600);   // readable, then out of the way
+      } else if (rebooted && rec.team !== assignPending.team) {
+        settle(`${assignPending.board} rebooted but landed under ${rec.team} — wrong team code?`, "assign-err");
+      } else if (Date.now() - assignPending.sentAt > 30000) {
+        settle(`No sign of ${assignPending.board} after 30 s — check its power and Wi-Fi, then try again.`, "assign-err");
+      }
+    }
+    // Close whichever presentation the form is in: the modal sheet (closeModal
+    // runs modalRestore, putting the form home) or the inline Teams placement.
+    function closeAssignSheet() {
+      const form = document.getElementById("assign-form");
+      if (!modal.hidden && modalBody.contains(form)) closeModal();
+      else form.style.display = "none";
+    }
 
     // ---- Motor pins panel: live truth, staged edits, one Apply. ----
     // The rover's sys beacon reports its running map ("pins"); the fields
