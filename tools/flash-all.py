@@ -10,8 +10,9 @@ any other unrelated serial device on the bus reports a different vendor ID
 and gets skipped instead of getting an esptool sync thrown at it.
 
 VID→env is a *best-effort guess*, not a guarantee: it's 1:1 only while each VID
-maps to one board. It stops being 1:1 the moment two boards share a bridge chip
-— e.g. a plain rover on a CP2102 adapter (same VID as the CAM). For that case
+maps to one board. Bridge chips are commodity parts in front of arbitrary boards
+— two boards can share one, and the map itself can rot when bench wiring changes
+(it was inverted for weeks and misflashed both boards; re-verified 2026-07-12).
 HARDWARE_SPECIFIC envs (esp32cam, whose -DHAS_CAMERA=1 mutes a non-camera board)
 refuse to auto-flash on a VID collision and are reported for explicit by-port
 flashing, rather than guessed at. CH340 has no env in this repo's platformio.ini
@@ -31,9 +32,12 @@ try:
 except ImportError:
     sys.exit("pyserial missing — `pip install pyserial` (or source your PlatformIO venv)")
 
+# Re-verified on the wire 2026-07-12 after boards got misflashed BOTH ways under
+# the previous (inverted) map: the devkit's onboard bridge is the CP2102, and the
+# FT232R is the CAM's external adapter — not the other way around.
 VID_TO_ENV = {
-    0x0403: "esp32dev",           # FT232R — the devkit's own FTDI
-    0x10c4: "esp32cam",           # CP2102 — the CAM's USB↔UART adapter
+    0x0403: "esp32cam",           # FT232R — the CAM's plug-in USB↔UART adapter
+    0x10c4: "esp32dev",           # CP2102 — the devkit's onboard bridge
     0x303a: "esp32c3-supermini",  # Espressif native USB-CDC/JTAG
 }
 VID_NAME = {0x0403: "FT232R", 0x10c4: "CP2102", 0x1a86: "CH340", 0x303a: "USB-CDC/JTAG"}
@@ -43,10 +47,10 @@ ESP_USB_VIDS = set(VID_NAME)  # includes 0x1a86 (CH340) even with no env mapped
 # the WRONG board breaks it rather than merely losing a feature: esp32cam ships
 # -DHAS_CAMERA=1, which disables motors + the button (camera.c owns those pins).
 # The VID→env map is a *guess* — safe only when the VID uniquely identifies the
-# board. It stopped being safe once a plain rover joined the bench on a CP2102
-# adapter (same VID as the CAM): two 0x10c4 ports, and we can't tell which is the
-# camera. So we refuse to auto-guess these envs on a VID collision and make the
-# operator flash them by port, instead of silently muting a motor rover.
+# board. FT232R and CP2102 adapters are commodity parts that can sit in front of
+# ANY board (2026-07-12: the map above was inverted for weeks and misflashed both
+# bench boards). So we refuse to auto-guess these envs on a VID collision and make
+# the operator flash them by port, instead of silently muting a motor rover.
 HARDWARE_SPECIFIC = {"esp32cam"}
 
 
