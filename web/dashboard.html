@@ -74,6 +74,31 @@
     .topbar h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
     h1 .logo-accent { font-weight: 700; color: var(--ink); }
     h1 .logo-base { font-weight: 400; color: var(--ink-muted); }
+    /* Top-right status cluster — ambient state lives in the chrome (the
+       identity chip is the standard account-corner; the network chip is the
+       uplink's steady-state home, the .notice row below stays the exception
+       surface). Chips are text-bearing on purpose: a bare glyph is a claim a
+       first-time student can't read. Tapping a chip opens its control. */
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+    .tchip {
+      display: none; align-items: center; gap: 0.4rem; max-width: 11rem;
+      font-size: 0.78rem; font-weight: 600; cursor: pointer;
+      border: 0.5px solid var(--border-default); border-radius: var(--radius-pill);
+      padding: 0.25rem 0.7rem; background: var(--inset); color: var(--ink);
+    }
+    .tchip.show { display: inline-flex; }
+    .tchip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tchip.warn { color: var(--warn-ink); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+    .tchip .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); }
+    .tchip.live .dot { background: var(--success); }
+    .tchip.reconnecting .dot { background: var(--warn); }
+    #id-menu {
+      position: fixed; top: 54px; right: 12px; z-index: 30; max-width: 90vw;
+      background: var(--surface); border: 0.5px solid var(--border-default);
+      border-radius: var(--radius); padding: 0.9rem 1.1rem;
+      box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.6);
+    }
+    #id-menu p { margin-bottom: 0.5rem; }
 
     /* Centered reading column; the fleet is a card grid, so width buys
        cards-per-row while prose blocks cap themselves for readability. */
@@ -205,7 +230,7 @@
                  letter-spacing: 0.02em; vertical-align: middle; }
     /* Pending-request badge: the professor's attention hook lives in the sticky
        bar, because the queue itself renders far below the fold. */
-    #req-badge { display: none; margin-left: auto; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+    #req-badge { display: none; cursor: pointer; font-size: 0.8rem; font-weight: 600;
                  border: none; border-radius: var(--radius-pill); padding: 0.3rem 0.8rem;
                  background: var(--accent); color: var(--accent-ink); }
     #team-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
@@ -214,15 +239,6 @@
     .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
     .gate-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
     .gate-row input { flex: 1 1 11rem; min-width: 0; }
-    #identity-bar { display: none; font-size: 0.9rem; opacity: 0.9; }
-    #identity-bar button { margin-left: 0.75rem; padding: 0.2rem 0.7rem; border-radius: 6px;
-            border: 1px solid var(--border-strong); background: transparent; color: inherit; cursor: pointer; }
-    /* Connection pill — the one global "is my session alive" signal. */
-    #conn-pill { display: none; margin-left: 0.6rem; font-size: 0.8rem; border-radius: var(--radius-pill);
-            padding: 0.15rem 0.6rem; border: 0.5px solid var(--border-default); vertical-align: 0.05rem; }
-    #conn-pill.live { display: inline-block; color: var(--success); }
-    #conn-pill.reconnecting { display: inline-block; color: var(--warn-ink);
-            border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
     #codes-nag { display: none; color: var(--danger-text); font-size: 0.9rem; margin: 0.4rem 0 0.8rem; }
     .codes-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.65rem;
       font-size: 0.95rem; background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
@@ -446,14 +462,27 @@
       /* Full 44px tap targets on touch — including the secondary controls the
          professor taps most (tiles, Approve/Rotate/✕, Log out, modal close). */
       .btn-drive, .btn-accent, .btn-tile, .codes-row button,
-      #identity-bar button, .segmented button { min-height: var(--tap); }
+      .segmented button { min-height: var(--tap); }
       #modal-close { width: var(--tap); height: var(--tap); }
       .dpad { grid-template-columns: repeat(3, 4rem); grid-template-rows: repeat(3, 4rem); }
     }
   </style>
 </head>
 <body>
-  <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span><span id="host-chip"></span></h1><button id="req-badge" aria-live="polite"></button></header>
+  <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span><span id="host-chip"></span></h1>
+    <span class="topbar-right">
+      <button id="req-badge" aria-live="polite"></button>
+      <button id="net-chip" class="tchip" aria-controls="wifi-setup" aria-expanded="false"><span id="net-chip-label"></span></button>
+      <button id="id-chip" class="tchip" aria-haspopup="menu" aria-expanded="false"><span class="dot" aria-hidden="true"></span><span id="id-chip-name"></span></button>
+    </span>
+  </header>
+  <!-- The identity chip's menu (replaced the old in-page "Signed in as" row). -->
+  <div id="id-menu" hidden>
+    <p>Signed in as <b id="identity-name"></b></p>
+    <p class="hint" id="id-menu-scope"></p>
+    <p class="hint" id="id-menu-conn" role="status"></p>
+    <button id="logout-btn" class="btn-tile">Log out &amp; switch</button>
+  </div>
   <main>
   <div id="hub-host-gate" class="notice" style="gap:0.5rem; align-items:center; flex-wrap:wrap">
     <span id="hub-host-label">Standalone copy — which hub?</span>
@@ -520,7 +549,6 @@
       <p id="req-status" role="status" aria-live="polite"></p>
     </div>
     <p id="gate-error" role="alert">Wrong code, or the hub isn't accepting drive connections.</p>
-    <p id="identity-bar">Signed in as <b id="identity-name"></b><span id="conn-pill" role="status"></span><button id="logout-btn">Log out</button></p>
     <div id="join-req" class="codes-row">
       <span id="join-req-text"></span>
       <span class="spacer"></span>
@@ -3075,6 +3103,7 @@ safe-buffer/index.js:
     // leaves each fetch pending ~75 s while new ones enqueue behind it for
     // hours) and an in-flight guard (skip the tick, don't stack).
     let uplinkBusy = false, fleetFails = 0, fleetSeen = false;
+    let renderUplinkChip = null;   // assigned by initWifiSetup once hub-served is known
     async function refreshUplink() {
       if (uplinkBusy) return;
       uplinkBusy = true;
@@ -3105,6 +3134,7 @@ safe-buffer/index.js:
       }
       uplinkBusy = false;
       setHostChip(data.ssid, data.host);
+      if (renderUplinkChip) renderUplinkChip(data.uplink);
       const uplinkEl = document.getElementById("uplink");
       const msg = UPLINK_MSG[data.uplink];
       uplinkEl.textContent = msg || "";
@@ -3125,17 +3155,38 @@ safe-buffer/index.js:
       };
       const status = await getStatus();
       if (!status) return;                     // /wifi absent → not hub-served
-      $("wifi-setup").style.display = "flex";
-
+      const netChip = $("net-chip");
+      netChip.classList.add("show");
+      // The chip is the uplink's steady-state home; the #wifi-setup row shows
+      // itself only in exception states (nothing configured / portal / down),
+      // or while the user holds it open from the chip.
+      let last = status, wifiOpen = false;
+      const healthyNow = () => !!(last && last.ssid && last.uplink === "full");
+      const applyWifiRow = () => {
+        const show = wifiOpen || !healthyNow();
+        $("wifi-setup").style.display = show ? "flex" : "none";
+        netChip.setAttribute("aria-expanded", String(show));
+      };
       const renderStatus = s => {
-        const healthy = !!(s && s.ssid && s.uplink === "full");
+        last = s;
+        const healthy = healthyNow();
         $("wifi-setup").classList.toggle("ok", healthy); // healthy = quiet chrome
         $("wifi-status").textContent = s && s.ssid
           ? `Uplink: ${s.ssid}${s.uplink === "full" ? " · online"
               : s.uplink === "portal" ? " · needs venue sign-in" : ""}`
           : "No uplink yet — pick a Wi-Fi network so the hub gets internet.";
+        $("net-chip-label").textContent = s && s.ssid ? `📶 ${s.ssid}` : "📶 set up Wi-Fi";
+        netChip.classList.toggle("warn", !healthy);
+        applyWifiRow();
       };
       renderStatus(status);
+      // /fleet's polled verdict keeps the chip honest between /wifi/status reads.
+      renderUplinkChip = verdict => renderStatus({ ...last, uplink: verdict });
+      netChip.addEventListener("click", () => {
+        wifiOpen = !wifiOpen;
+        applyWifiRow();
+        if (wifiOpen) $("wifi-setup").scrollIntoView({ behavior: SCROLL, block: "center" });
+      });
       if (!status.ssid) $("wifi-panel").style.display = "flex";  // day-zero: open it
 
       $("wifi-open").addEventListener("click", () => {
@@ -3395,7 +3446,10 @@ safe-buffer/index.js:
       document.getElementById("code-gate").style.display = "none";
       gateMsg("");
       document.getElementById("identity-name").textContent = username;
-      document.getElementById("identity-bar").style.display = "block";
+      document.getElementById("id-chip-name").textContent = username;
+      document.getElementById("id-chip").classList.add("show");
+      document.getElementById("id-menu-scope").textContent = myScope.scope === "all"
+        ? "Professor — full fleet control." : `Team scope — drives ${myScope.robot} only.`;
       document.getElementById("drive-panel").style.display = "block";
       applyDriveMode(); // panel just appeared: sync the mode switch to the no-target state
       document.getElementById("scope-label").textContent = myScope.scope === "all"
@@ -3681,14 +3735,19 @@ safe-buffer/index.js:
       document.getElementById("code-input").focus();
     });
 
-    // Session-alive pill next to the identity name (mqtt.js reconnects
-    // silently — without this, dragging a dead joystick looks identical to
-    // driving).
+    // Session-alive signal, carried by the identity chip's dot (mqtt.js
+    // reconnects silently — without this, dragging a dead joystick looks
+    // identical to driving). The menu repeats the state in words so the dot
+    // is never the only carrier.
     function setConnPill(state) {
-      const pill = document.getElementById("conn-pill");
-      pill.className = state;
-      pill.textContent = state === "live" ? "connected"
-        : state === "reconnecting" ? "reconnecting…" : "";
+      const chip = document.getElementById("id-chip");
+      chip.classList.toggle("live", state === "live");
+      chip.classList.toggle("reconnecting", state === "reconnecting");
+      const who = document.getElementById("id-chip-name").textContent;
+      chip.setAttribute("aria-label", `${who} — ${state === "live" ? "connected"
+        : state === "reconnecting" ? "reconnecting" : "signed out"}`);
+      document.getElementById("id-menu-conn").textContent =
+        state === "live" ? "Connected" : state === "reconnecting" ? "Reconnecting…" : "";
     }
     function connect(username, password, { silent = false } = {}) {
       if (!hubHost) return gateMsg("No hub address set — enter one above first.");
@@ -3758,14 +3817,32 @@ safe-buffer/index.js:
       try { driveClient.end(true); } catch {}
       driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
       setConnPill("");
+      document.getElementById("id-chip").classList.remove("show");
+      closeIdMenu();
       document.getElementById("req-badge").style.display = "none";
       localStorage.removeItem("hubCred");
-      for (const id of ["drive-panel", "teams", "identity-bar", "join-req"])
+      for (const id of ["drive-panel", "teams", "join-req"])
         document.getElementById(id).style.display = "none";
       document.getElementById("code-gate").style.display = "";
       document.getElementById("code-input").value = "";
       if (codesApi) { document.getElementById("req-access").style.display = "block"; refreshKnownTeams(); }
       renderChips(); renderRobots(); renderRoster();
+    });
+
+    // Identity chip → the account menu. The chip is status; the menu is where
+    // switching lives (log out → gate), one deliberate tap away.
+    const idChip = document.getElementById("id-chip"), idMenu = document.getElementById("id-menu");
+    function closeIdMenu() { idMenu.hidden = true; idChip.setAttribute("aria-expanded", "false"); }
+    idChip.addEventListener("click", (e) => {
+      e.stopPropagation(); // the document listener below would re-close it
+      idMenu.hidden = !idMenu.hidden;
+      idChip.setAttribute("aria-expanded", String(!idMenu.hidden));
+    });
+    document.addEventListener("click", (e) => {
+      if (!idMenu.hidden && !idMenu.contains(e.target)) closeIdMenu();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !idMenu.hidden) closeIdMenu();
     });
 
     // ---- Access requests, gate side: POST the knock, poll the token, and an
