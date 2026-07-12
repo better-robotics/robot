@@ -96,6 +96,14 @@ static void json_esc_ssid(char *dst, size_t cap, const char *src)
     dst[e] = 0;
 }
 
+/* The uplink SSID the STA last committed to, JSON-escaped ("" while
+ * searching) — the sys beacon's "net" field, so the dashboard's per-card
+ * network chip names the actual network instead of a bare IP. */
+void board_uplink_ssid_json(char out[65])
+{
+    json_esc_ssid(out, 65, (const char *)s_uplink_ssid);
+}
+
 int board_status_json(char *buf, size_t len)
 {
     static const char *st_str[] = { "searching", "hub", "remote", "local" };

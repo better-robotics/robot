@@ -595,21 +595,25 @@ void rover_client_run(const char *broker_uri) {
             /* No "pins" on the camera board: motors are structurally disabled
              * there (motor_init skips), so reporting a map would claim a
              * capability that doesn't exist. */
+            char net[65];
+            board_uplink_ssid_json(net);
             snprintf(buf, sizeof buf,
                      "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
-                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"cam\":%s,\"synthetic\":false}",
-                     (long long)up_ms, (unsigned)heap, s_id, ip,
+                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"net\":\"%s\",\"cam\":%s,\"synthetic\":false}",
+                     (long long)up_ms, (unsigned)heap, s_id, ip, net,
                      camera_running() ? "true" : "false");
 #else
             /* "pins" = the live motor map (NVS-or-default, what motor_init
              * ran with) — the dashboard's pin editor shows this as truth
              * instead of blind-writing. Changes only across a reboot, so the
              * 2 s cadence is effectively instant read-back after a rejoin. */
+            char net[65];
+            board_uplink_ssid_json(net);
             snprintf(buf, sizeof buf,
                      "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
-                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"cam\":%s,\"synthetic\":false,"
+                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"net\":\"%s\",\"cam\":%s,\"synthetic\":false,"
                      "\"pins\":{\"ena\":%d,\"in1\":%d,\"in2\":%d,\"enb\":%d,\"in3\":%d,\"in4\":%d}}",
-                     (long long)up_ms, (unsigned)heap, s_id, ip,
+                     (long long)up_ms, (unsigned)heap, s_id, ip, net,
                      camera_running() ? "true" : "false",
                      s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4);
 #endif

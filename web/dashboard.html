@@ -368,6 +368,22 @@
     /* A team whose code exists but whose rover is silent: present (the class
        exists while robots sit in the cabinet) but visibly idle. */
     .robot.team-only { opacity: 0.85; }
+    /* Card chips — a card's corner is the rover's own topbar: network +
+       identity, the grammar the page chrome taught, one scale down. */
+    .card-chips { margin-left: auto; display: flex; gap: 0.3rem; min-width: 0; }
+    .cchip { display: inline-flex; align-items: center; gap: 0.3rem; max-width: 10rem;
+      font-size: 0.72rem; font-weight: 600; border: 0.5px solid var(--border-default);
+      border-radius: var(--radius-pill); padding: 0.2rem 0.55rem;
+      background: var(--inset); color: var(--ink); }
+    button.cchip { cursor: pointer; }
+    button.cchip:hover { filter: brightness(1.25); }
+    .cchip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cchip svg { flex: none; }
+    .cchip-team { color: var(--accent-text); }
+    .cchip-team.pool { color: var(--warn-ink);
+      border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+    /* The team-scoped viewer's own rover — the one card that's theirs. */
+    .robot.mine { box-shadow: 0 0 0 2px var(--accent-text); }
     /* Assign/repair form: its own hairline-divided block (it follows the
        Set-code form — without the divider the two read as one broken form),
        labeled fields on the pins-grid pattern (an anonymous placeholder box
@@ -396,13 +412,10 @@
     .assign-ok { color: var(--success); }
     .assign-err { color: var(--danger-text); }
 
-    /* Pool / collision cards: per-board rows (keyed by hardware id) instead of
-       one card flapping last-writer-wins between boards sharing an identity. */
+    /* Claim row on an unassigned device card (.pool-row anchors the claim
+       Enter handler). */
     .pool-row { padding: 0.5rem 0.65rem;
       background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
-    .pool-id { display: flex; align-items: baseline; gap: 0.55rem; flex-wrap: wrap; }
-    .pool-id .b { font-weight: 600; font-size: 0.92rem; white-space: nowrap; }
-    .pool-id .meta { color: var(--ink-muted); font-size: 0.8rem; }
     .pool-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; align-items: center; }
     .pool-actions .btn-tile, .pool-actions .btn-drive { margin: 0; }
     /* Inline claim: the name field lives in the rover's own row. */
@@ -3314,46 +3327,68 @@ safe-buffer/index.js:
       </div>`;
     }
 
-    function memberCard(id, mem, offline, ageMs) {
-      const isPool = id === "unassigned";
+    // ── Device cards: one card per physical board — the grid mirrors the desk.
+    // A card is permanent across assignments; the TEAM is something the device
+    // WEARS, as a chip. A card's corner is the rover's own topbar — network +
+    // identity, the same grammar the page chrome taught, one scale down; the
+    // chips tap through to the flows that already exist (board Wi-Fi panel,
+    // the assign sheet). Ghost cards (teamOnlyCard) remain for teams whose
+    // code exists but whose robot is off. This one renderer replaced the
+    // pool card, the collision card, and the single-team card.
+    const WIFI_SVG = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9.3a15 15 0 0 1 19 0"/><path d="M5.5 13a11 11 0 0 1 13 0"/><path d="M8.7 16.6a6 6 0 0 1 6.6 0"/><circle cx="12" cy="19.7" r="1.3" fill="currentColor" stroke="none"/></svg>`;
+    const PERSON_SVG = `<svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-5 8-5s8 1.7 8 5v1H4z"/></svg>`;
+    function deviceCard(board, rec, teamCounts) {
+      const { sys, team, seenAt } = rec;
+      const ageMs = Date.now() - seenAt;
+      const offline = ageMs > 10000;   /* boards publish every 2 s */
       const prof = myScope && myScope.scope === "all";
-      // A signed-out visitor on the Pi can CLAIM a pool board: the request
-      // carries the board id, and the professor's one approval both mints the
-      // team's code and assigns this rover to it.
+      const isPool = team === "unassigned";
+      const mine = myScope && myScope.scope === "one" && team === myScope.robot;
       const claimable = isPool && !myCred && codesApi;
-      const note = !mem.length
-        ? ""
-        : isPool
-          ? (prof ? "Fresh boards land here. Blink one to find it on the desk, then assign it to a team."
-                  : claimable ? "Fresh boards land here — find yours on the desk and claim it with your team name."
-                              : "Fresh boards land here — a professor assigns them to teams.")
-          : `${mem.length} boards are sharing this team — every drive command moves all of them. Split them in Teams below.`;
-      const rows = mem.map(m => `<div class="pool-row">
-          <div class="pool-id"><span class="b">${esc(m.board)}</span>
-            <span class="meta">${esc(m.sys.hw || "")}${m.sys.uptime_ms != null ? " · up " + fmtUptime(m.sys.uptime_ms) : ""}</span></div>
-          ${prof ? `<div class="pool-actions">
-            <button class="btn-tile" data-tel="${esc(id)}" data-tel-board="${esc(m.board)}">📈 Log</button>
-            <button class="btn-tile" data-blink="${esc(m.board)}" data-bteam="${esc(id)}">💡 Blink</button>
-            <button class="btn-tile" data-assign="${esc(m.board)}" data-bteam="${esc(id)}">Assign…</button>
-            ${isPool ? "" : `<button class="btn-tile" data-unassign="${esc(m.board)}" data-uteam="${esc(id)}">Unassign</button>`}
-            <button class="btn-drive${target === id && targetBoard === m.board ? " driving" : ""}"
-              data-robot="${esc(id)}" data-board="${esc(m.board)}">${target === id && targetBoard === m.board ? "Driving" : "Drive"}</button></div>`
-          : !claimable ? ""
-          : claimingBoard === m.board ? `<div class="pool-actions">
+      const net = sys.net || sys.ip || "";   /* "net" ships in newer beacons; ip is the fallback */
+      const teamChip = `${PERSON_SVG}<span>${esc(team)}</span>`;
+      const chips = `<span class="card-chips">
+        ${net && sys.ip ? `<button class="cchip" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}" title="Wi-Fi &amp; role">${WIFI_SVG}<span>${esc(net)}</span></button>` : ""}
+        ${prof ? `<button class="cchip cchip-team${isPool ? " pool" : ""}" data-assign="${esc(board)}" data-bteam="${esc(team)}" title="${isPool ? "Assign to a team" : "Reassign"}">${teamChip}</button>`
+               : `<span class="cchip cchip-team${isPool ? " pool" : ""}">${teamChip}</span>`}
+      </span>`;
+      const actions = [];
+      actions.push(`<button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">📈 Log</button>`);
+      if (!offline && sys.cam && sys.ip)
+        actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}">📷 Camera</button>`);
+      if (prof && !offline) {
+        actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-bteam="${esc(team)}">💡 Blink</button>`);
+        if (!isPool)
+          actions.push(`<button class="btn-tile" data-unassign="${esc(board)}" data-uteam="${esc(team)}">Unassign</button>`);
+        const driving = target === team && (!targetBoard || targetBoard === board);
+        actions.push(`<button class="btn-drive${driving ? " driving" : ""}" data-robot="${esc(team)}" data-board="${esc(board)}">${driving ? "Driving" : "Drive"}</button>`);
+      }
+      // Claim: the signed-out arrival path, on the pool device itself. The
+      // .pool-row class stays — the claim Enter handler anchors on it.
+      let claimRow = "";
+      if (claimable) {
+        claimRow = claimingBoard === board ? `<div class="pool-actions pool-row">
             <input class="claim-name" placeholder="team name" aria-label="Team name" value="${esc(claimDraft)}"
               autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
-            <button class="btn-tile" data-claimsend="${esc(m.board)}">Request</button>
+            <button class="btn-tile" data-claimsend="${esc(board)}">Request</button>
             ${claimErr ? `<span class="claim-err">${esc(claimErr)}</span>` : ""}</div>`
-          : localStorage.getItem("hubReqBoard") === m.board && reqTimer ? `<div class="pool-actions">
-            <span class="claim-wait">waiting for the professor…</span></div>`
-          : `<div class="pool-actions">
-            <button class="btn-tile" data-claim="${esc(m.board)}">🙋 Claim</button></div>`}
-        </div>`).join("");
-      return `<div class="robot${offline ? " offline" : ""}${isPool ? "" : " collision"}">
-        <h2><span class="dot"></span>${isPool ? `Unassigned rovers${mem.length ? ` (${mem.length})` : ""}` : esc(id)}
-          ${offline ? '<span class="offline-label">offline</span>' : ""}${isPool ? "" : teamOps(id)}</h2>
-        ${note ? `<div class="${isPool ? "pool-note" : "warn-note"}">${isPool ? "" : "⚠ "}${note}</div>` : ""}
-        ${rows || `<div class="pool-note">nothing online here — last seen ${fmtUptime(ageMs)} ago</div>`}
+          : localStorage.getItem("hubReqBoard") === board && reqTimer
+            ? `<div class="pool-actions"><span class="claim-wait">waiting for the professor…</span></div>`
+            : `<div class="pool-actions"><button class="btn-tile" data-claim="${esc(board)}">🙋 Claim — make it your team's</button></div>`;
+      }
+      const shared = !isPool && teamCounts.get(team) > 1;
+      return `<div class="robot${offline ? " offline" : ""}${mine ? " mine" : ""}">
+        <h2><span class="dot"></span>${esc(mine ? team : board)}${offline ? '<span class="offline-label">offline</span>' : ""}${chips}</h2>
+        <div class="hw">${mine ? esc(board) + " · " : ""}${esc(sys.hw || "unknown board")}</div>
+        <dl>
+          <dt>uptime</dt><dd>${sys.uptime_ms != null ? fmtUptime(sys.uptime_ms) : "—"}</dd>
+          <dt>last seen</dt><dd>${offline ? fmtUptime(ageMs) + " ago" : "now"}</dd>
+        </dl>
+        ${shared ? `<div class="warn-note">⚠ ${teamCounts.get(team)} boards wear this team — every drive command moves all of them.</div>` : ""}
+        ${isPool && prof && !offline ? `<div class="pool-note">Fresh board — Blink to find it on the desk, then tap its team chip to assign.</div>` : ""}
+        ${offline ? '<div class="remedy">power-cycle it or check the battery</div>' : ""}
+        ${claimRow}
+        ${actions.length ? `<div class="card-actions">${actions.join("")}</div>` : ""}
       </div>`;
     }
 
@@ -3363,63 +3398,30 @@ safe-buffer/index.js:
       // typing — hold the repaint while an input inside the cards has focus.
       const active = document.activeElement;
       if (active && active.tagName === "INPUT" && document.getElementById("robots").contains(active)) return;
-      const ids = [...robots.keys()];
-      // The grid is the CLASS, not just the airwaves: the professor also sees
-      // teams whose code exists but whose robot is silent — rotating a code at
-      // 7am with the cabinet still closed needs the team present as a card.
-      if (myScope && myScope.scope === "all")
-        for (const t of knownTeams)
-          if (t !== "professor" && !robots.has(t)) ids.push(t);
-      ids.sort();
-      // A team-scoped viewer's own rover leads the demoted grid — right under
-      // their pad; the rest of the class follows alphabetically (stable sort).
+      const entries = [...boards.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+      // A team-scoped viewer's own rover leads — right under their pad.
       if (myScope && myScope.scope === "one")
-        ids.sort((a, b) => (a === myScope.robot ? -1 : b === myScope.robot ? 1 : 0));
-      document.getElementById("empty").style.display = ids.length ? "none" : "block";
-      // Live boards per team, from the per-board map (10 s freshness, same as cards).
-      const members = new Map();
-      for (const [b, rec] of boards) {
-        if (Date.now() - rec.seenAt > 10000) continue;
-        if (!members.has(rec.team)) members.set(rec.team, []);
-        members.get(rec.team).push({ board: b, sys: rec.sys });
-      }
-      const html = ids.map(id => {
-        if (!robots.has(id)) return teamOnlyCard(id);
-        const { sys, seenAt } = robots.get(id);
-        const ageMs = Date.now() - seenAt;
-        const offline = ageMs > 10000;  /* robots publish every 2 s */
-        const mem = (members.get(id) || []).sort((a, b) => a.board < b.board ? -1 : 1);
-        if (id === "unassigned" || mem.length > 1) return memberCard(id, mem, offline, ageMs);
-        // Actions are markup, not a live stream — a per-card <img> would be torn
-        // down and reconnected on every 2s re-render, so the camera + config open
-        // in the static modal instead (see openCamera / openConfig).
-        const actions = [];
-        actions.push(`<button class="btn-tile" data-tel="${esc(id)}">📈 Log</button>`);
-        if (!offline && sys.cam && sys.ip)
-          actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(id)}" data-board="${esc(sys.board || "")}">📷 Camera</button>`);
-        if (!offline && sys.ip)
-          actions.push(`<button class="btn-tile" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(id)}" data-board="${esc(sys.board || "")}">⚙ Wi-Fi &amp; role</button>`);
-        if (myScope && myScope.scope === "all" && !offline && sys.board) {
-          actions.push(`<button class="btn-tile" data-blink="${esc(sys.board)}" data-bteam="${esc(id)}">💡 Blink</button>`);
-          actions.push(`<button class="btn-tile" data-assign="${esc(sys.board)}" data-bteam="${esc(id)}">Assign…</button>`);
-          actions.push(`<button class="btn-tile" data-unassign="${esc(sys.board)}" data-uteam="${esc(id)}">Unassign</button>`);
-        }
-        if (myScope && myScope.scope === "all")
-          actions.push(`<button class="btn-drive${target === id ? " driving" : ""}" data-robot="${esc(id)}">${target === id ? "Driving" : "Drive"}</button>`);
-        return `<div class="robot${offline ? " offline" : ""}">
-          <h2><span class="dot"></span>${esc(id)}${offline ? '<span class="offline-label">offline</span>' : ""}${teamOps(id)}</h2>
-          <!-- The board id stays visible after assignment: it's the physical
-               handle — the rover's own Wi-Fi name, the Blink/assign target. -->
-          <div class="hw">${sys.board ? `${esc(sys.board)} · ` : ""}${esc(sys.hw || "unknown board")}</div>
-          <dl>
-            <dt>uptime</dt><dd>${sys.uptime_ms != null ? fmtUptime(sys.uptime_ms) : "—"}</dd>
-            ${myScope && myScope.scope === "all" ? `<dt>free heap</dt><dd>${sys.free_heap != null ? Math.round(sys.free_heap / 1024) + " KB" : "—"}</dd>` : ""}
-            <dt>last seen</dt><dd>${offline ? fmtUptime(ageMs) + " ago" : "now"}</dd>
-          </dl>
-          ${offline ? '<div class="remedy">power-cycle it or check the battery</div>' : ""}
-          ${actions.length ? `<div class="card-actions">${actions.join("")}</div>` : ""}
-        </div>`;
-      }).join("");
+        entries.sort((a, b) => (a[1].team === myScope.robot ? -1 : b[1].team === myScope.robot ? 1 : 0));
+      const teamCounts = new Map();
+      for (const [, rec] of entries)
+        if (Date.now() - rec.seenAt < 10000)
+          teamCounts.set(rec.team, (teamCounts.get(rec.team) || 0) + 1);
+      const seenTeams = new Set(entries.map(([, r]) => r.team));
+      // Legacy/sim beacons carry no board id — those teams get a team-keyed card.
+      const legacy = [...robots.entries()]
+        .filter(([t, r]) => !r.sys.board && t !== "unassigned").sort();
+      for (const [t] of legacy) seenTeams.add(t);
+      // Ghost cards: a code with no robot on the air (professor only) — the
+      // 7am case; code hygiene must not wait for power-on.
+      const ghosts = (myScope && myScope.scope === "all")
+        ? knownTeams.filter(t => t !== "professor" && !seenTeams.has(t)).sort()
+        : [];
+      document.getElementById("empty").style.display =
+        entries.length || legacy.length || ghosts.length ? "none" : "block";
+      const html =
+        entries.map(([b, rec]) => deviceCard(b, rec, teamCounts)).join("") +
+        legacy.map(([t, rec]) => deviceCard(t, { sys: rec.sys, team: t, seenAt: rec.seenAt }, teamCounts)).join("") +
+        ghosts.map(teamOnlyCard).join("");
       // Skip identical repaints: innerHTML assignment resets scroll, CSS
       // animations, and — for keyboard users — whichever button held focus.
       if (html !== lastRobotsHtml) {

@@ -62,6 +62,7 @@ typedef enum {
     BOARD_NET_LOCAL,          /* this board serves broker + dashboard itself */
 } board_net_state_t;
 void board_net_state_set(board_net_state_t st, const char *uplink_ssid, const char *dash);
+void board_uplink_ssid_json(char out[65]);       /* sys beacon "net" field */
 int  board_status_json(char *buf, size_t len);   /* → bytes written (snprintf) */
 
 /* A scanned network, deduped by SSID (strongest kept). A flat struct so the Wi-Fi

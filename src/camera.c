@@ -19,6 +19,8 @@
 #include <stdio.h>
 #include "esp_camera.h"
 #include "esp_http_server.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "camera";
 static bool s_running = false;
@@ -98,14 +100,26 @@ void camera_start(void)
         .jpeg_quality = 18,               /* 0-63, HIGHER = more compression = smaller/stabler */
         .fb_count = 2,                    /* double-buffer: capture N+1 while the pump sends N */
     };
-    esp_err_t e = esp_camera_init(&cfg);
-    if (e == ESP_ERR_NO_MEM) {
-        /* PSRAM absent or dead (this board's has read back 0xffffffff under
-         * marginal power) — the driver has no DRAM fallback of its own, and
-         * QVGA @ q=18 JPEG frames (~5-15 KB ×2) fit internal RAM fine. */
-        ESP_LOGW(TAG, "PSRAM frame buffer failed — retrying in internal RAM");
-        cfg.fb_location = CAMERA_FB_IN_DRAM;
+    /* The SCCB probe on this board can return a garbage sensor PID on a cold
+     * boot (ESP_ERR_NOT_SUPPORTED with all three OV drivers enabled) — same
+     * marginal-supply signature as the PSRAM 0xffffffff reads, and it clears
+     * on a later attempt once the rails settle. Retry the whole init, not
+     * just the frame buffer. */
+    esp_err_t e = ESP_FAIL;
+    for (int attempt = 1; attempt <= 3; attempt++) {
         e = esp_camera_init(&cfg);
+        if (e == ESP_ERR_NO_MEM) {
+            /* PSRAM absent or dead (this board's has read back 0xffffffff under
+             * marginal power) — the driver has no DRAM fallback of its own, and
+             * QVGA @ q=18 JPEG frames (~5-15 KB ×2) fit internal RAM fine. */
+            ESP_LOGW(TAG, "PSRAM frame buffer failed — retrying in internal RAM");
+            cfg.fb_location = CAMERA_FB_IN_DRAM;
+            e = esp_camera_init(&cfg);
+        }
+        if (e == ESP_OK) break;
+        ESP_LOGW(TAG, "esp_camera_init attempt %d/3 failed: %s", attempt, esp_err_to_name(e));
+        esp_camera_deinit();   /* harmless INVALID_STATE if init never got that far */
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
     if (e != ESP_OK) {
         /* Connection-first: a camera that can't fit its buffers must not take the
