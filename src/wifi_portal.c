@@ -437,10 +437,14 @@ void wifi_portal_start(void)
     /* True peak on THIS shared handle: /wifi{,/scan,/save,/role×2,/status} + /
      * + the 4 captive-portal probe paths below = 11 registered right after this
      * function returns; start_ws_mqtt_bridge later drops / (-1) then adds back
-     * / (dashboard) + /fleet (+2) = 12 peak. +1 headroom over that measured
-     * peak, not a round-number guess. */
-    cfg.max_uri_handlers = 13;
+     * / (dashboard) + /fleet + /ide/?* (+3) = 13 peak. +1 headroom over that
+     * measured peak, not a round-number guess. */
+    cfg.max_uri_handlers = 14;
     cfg.lru_purge_enable = true;
+    /* Wildcard matcher for the bridge's /ide/?* route (ws_mqtt_bridge.c
+     * registers onto this shared handle); URIs without '*' — everything
+     * below — still match exactly as before. */
+    cfg.uri_match_fn = httpd_uri_match_wildcard;
 
     if (httpd_start(&s_http, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "config panel httpd (:80) failed to start");

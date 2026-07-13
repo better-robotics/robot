@@ -63,9 +63,20 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   `web/dashboard.html`, compiled as an ordinary source. `web/dashboard.html` is a
   VENDORED copy (canonical in the `hub` monorepo); `tools/sync-dashboard.sh`
   resyncs it and `--check` gates drift. `src/dashboard_html.c` is gitignored.
+- **IDE embed (hub role):** same mechanism, second bundle — `tools/embed_ide.py`
+  generates `src/ide_bundle.c` (one gzip blob per file + a path/type table,
+  `src/ide_bundle.h`) from `web/ide/`, and `ws_mqtt_bridge.c` serves it at
+  `/ide/?*` with `Content-Encoding: gzip` (browser inflates; the chip never
+  does). `web/ide/` is VENDORED from `better-robotics/ide`'s **release asset**
+  `ide-esp32-dist.tar.gz` (Blockly + textarea editor, no Monaco — the bundle
+  only exists built, it carries ide's gitignored vendor tree): `tools/sync-ide.sh`
+  fetches it, `--check` gates drift, and the tag pin lives IN the script —
+  bumping it is a deliberate commit, never a build side effect. Both `:80`
+  httpd configs use `httpd_uri_match_wildcard` for this route (exact URIs
+  still match exactly).
 - **Custom `partitions.csv`** (3 MB factory) — the unified image genuinely needs
-  it now (~48–51% used); the "over-large, harmless" note from the lean rover-only
-  era no longer applies.
+  it now (~67–68% used with the embedded dashboard + block IDE); the
+  "over-large, harmless" note from the lean rover-only era no longer applies.
 - **`src/wifi_creds.h`** (gitignored) — the hub role's STA uplink credentials;
   copy `src/wifi_creds.example.h`. NEVER commit the real one.
 

@@ -7,10 +7,12 @@
 # We compile it as a normal source instead of an objcopy/.S embed because
 # PlatformIO's SCons build doesn't wire a generated .S into the link. The
 # generator writes it from web/dashboard.html (VENDORED, canonical in
-# better-robotics/hub; resync via tools/sync-dashboard.sh).
+# better-robotics/hub; resync via tools/sync-dashboard.sh). ide_bundle.c is its
+# sibling (tools/embed_ide.py from web/ide/, the vendored better-robotics/ide
+# ESP32 bundle; resync via tools/sync-ide.sh) — the block IDE as gzip blobs.
 idf_component_register(SRCS "main.c" "rover_role.c" "hub_role.c" "ws_mqtt_bridge.c"
                              "wifi_portal.c" "dns_server.c" "camera.c" "dashboard_html.c"
-                             "provisioning_util.c" "rover_config.c"
+                             "ide_bundle.c" "provisioning_util.c" "rover_config.c"
                        INCLUDE_DIRS "."
                        REQUIRES nvs_flash esp_wifi esp_netif esp_event esp_timer
                                 driver mqtt json esp_http_server lwip)
