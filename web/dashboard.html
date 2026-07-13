@@ -542,6 +542,11 @@
          at a tighter cap so brand + host + both chips share one line. */
       .topbar { padding: 0 1rem; }
       .tchip { max-width: 7.5rem; }
+      /* Compact width: the corner popover adapts toward a sheet (the HIG
+         popover→sheet rule) — symmetric margins and a scrim, so it reads
+         as a layer over the page, not a misaligned card in it. */
+      #chip-pop { left: 0.75rem; right: 0.75rem; width: auto;
+        box-shadow: 0 10px 30px -12px rgba(0,0,0,0.6), 0 0 0 100vmax rgba(0,0,0,0.4); }
       #robots { grid-template-columns: 1fr; }
       .summary-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
       /* auto-fit's 24rem min track (#controls) exceeds a phone's width and would
@@ -4453,10 +4458,14 @@ safe-buffer/index.js:
     // the gate; errors mirror into the popover via gateMsg's second sink.
     document.getElementById("signin-chip").addEventListener("click", () => {
       const wrap = document.createElement("div");
+      // Reuses the gate's own form grammar (.gate-row): input flexes, button
+      // rides beside it, and the phone breakpoint stacks them full-width.
       wrap.innerHTML = `<p><b>Professor sign-in</b></p>
-        <input id="prof-code" type="password" placeholder="professor code" aria-label="Professor code"
-               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
-        <button id="prof-go">Sign in</button>
+        <div class="gate-row">
+          <input id="prof-code" type="password" placeholder="professor code" aria-label="Professor code"
+                 autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+          <button id="prof-go">Sign in</button>
+        </div>
         <p class="hint" id="prof-pop-status" role="status" aria-live="polite"></p>
         <p class="hint">On a team? Tap <b>Claim</b> on your rover, or scan your team's sign-in card.</p>`;
       openChipPop(document.getElementById("signin-chip"), wrap);
