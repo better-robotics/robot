@@ -119,19 +119,15 @@
       grid-template-columns: repeat(auto-fit, minmax(16rem, 26rem));
     }
     #fleet-overview { display: none; margin-bottom: 1rem; }
-    .summary-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; }
-    .summary-card { min-height: var(--tap); text-align: left; cursor: pointer;
+    .summary-row { display: grid; grid-template-columns: repeat(2, minmax(0, 14rem)); gap: 0.6rem; }
+    .summary-card { min-height: var(--tap); text-align: left;
       padding: 0.7rem 0.85rem; border: 0.5px solid var(--border-default);
       border-radius: var(--radius); background: var(--surface); color: var(--ink); }
     .summary-card strong { display: block; font-size: 1.2rem; line-height: 1.1; }
     .summary-card span { color: var(--ink-muted); font-size: 0.78rem; }
-    .summary-card.attention strong { color: var(--warn-ink); }
-    #fleet-filters { display: flex; gap: 0.45rem; overflow-x: auto; margin-top: 0.7rem;
-      padding-bottom: 0.15rem; scrollbar-width: thin; }
-    #fleet-filters button { flex: none; cursor: pointer; min-height: 2.2rem; padding: 0.35rem 0.8rem;
-      border: 0.5px solid var(--border-strong); border-radius: var(--radius-pill);
-      background: transparent; color: var(--ink-muted); }
-    #fleet-filters button[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
+    button.summary-card { cursor: pointer; }
+    button.summary-card[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--border-strong); }
+    button.summary-card[aria-pressed="true"] span { color: var(--link); }
     .robot {
       background: var(--surface); border: 0.5px solid var(--border-default);
       border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; box-shadow: var(--shadow-card);
@@ -447,6 +443,8 @@
     /* Inline claim: the name field lives in the rover's own row. */
     .pool-actions .claim-name { flex: 1 1 8rem; min-width: 0; padding: 0.4rem 0.7rem; min-height: 2.2rem; }
     .claim-wait { color: var(--ink-muted); font-size: 0.85rem; }
+    .req-line { color: var(--ink-muted); font-size: 0.85rem; }
+    .req-line b { color: var(--ink); }
     .claim-err { color: var(--danger-text); font-size: 0.85rem; flex-basis: 100%; }
     .pool-note { color: var(--ink-muted); font-size: 0.85rem; margin-top: 0.45rem; }
     .warn-note { color: var(--warn-ink); font-size: 0.85rem; margin-top: 0.45rem; }
@@ -520,7 +518,7 @@
     @media (max-width: 32rem) {
       main { padding: 1.25rem 1rem 4rem; }
       #robots { grid-template-columns: 1fr; }
-      .summary-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .summary-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
       /* auto-fit's 24rem min track (#controls) exceeds a phone's width and would
          force a horizontal scroll — collapse to one column below 32rem. */
       #controls { grid-template-columns: 1fr; }
@@ -593,18 +591,15 @@
   </div>
   <p id="empty">No rovers yet — power one on near the hub and it appears here within seconds.
     <span class="hint">New board with no firmware? <a href="https://better-robotics.github.io/">Flash it over USB</a>.</span></p>
+  <!-- Two numbers, one interaction: online is orientation, unassigned is the
+       only bucket with a workflow behind it (tap = filter toggle). Everything
+       else lives on the cards themselves — warn tints carry attention at
+       classroom scale, claim requests land on the claimed rover's card, and
+       the sticky req-badge stays the mid-scroll hook for the rest. -->
   <section id="fleet-overview" aria-label="Class readiness">
     <div class="summary-row">
-      <button class="summary-card" data-summary-filter="all"><strong id="sum-online">0</strong><span>online</span></button>
-      <button class="summary-card attention" data-summary-filter="attention"><strong id="sum-attention">0</strong><span>need attention</span></button>
-      <button class="summary-card" data-summary-filter="unassigned"><strong id="sum-unassigned">0</strong><span>unassigned</span></button>
-      <button class="summary-card" id="sum-requests-button"><strong id="sum-requests">0</strong><span>access requests</span></button>
-    </div>
-    <div id="fleet-filters" role="group" aria-label="Filter rovers">
-      <button data-filter="all" aria-pressed="true">All</button>
-      <button data-filter="attention" aria-pressed="false">Needs attention</button>
-      <button data-filter="unassigned" aria-pressed="false">Unassigned</button>
-      <button data-filter="offline" aria-pressed="false">Offline</button>
+      <div class="summary-card"><strong id="sum-online">0</strong><span>online</span></div>
+      <button class="summary-card" id="sum-unassigned-card" aria-pressed="false"><strong id="sum-unassigned">0</strong><span>unassigned</span></button>
     </div>
   </section>
   <div id="robots"></div>
@@ -696,7 +691,7 @@
   <details id="student-details">
     <summary>Details &amp; troubleshooting</summary>
   <section id="wire" style="display:none">
-    <h2 class="section-title">Diagnostics</h2>
+    <!-- No heading of its own — the wrapping details' summary titles it. -->
     <div class="wire-wrap">
       <div class="wire-head"><span><span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></span>
         <span class="spacer"></span>
@@ -3442,20 +3437,21 @@ safe-buffer/index.js:
       const claimable = isPool && !myCred && codesApi;
       const net = sys.net || sys.ip || "";   /* "net" ships in newer beacons; ip is the fallback */
       const displayTeam = isPool ? "Unassigned" : team;
-      // Title wears the team where the viewer owns that framing (their own
-      // rover, or the professor's assigned fleet); everyone else gets the
-      // board id and the team rides as a chip — the anonymous projector view
-      // must still say who each rover belongs to.
-      const titled = mine || prof && !isPool;
+      // The corner is the rover's own topbar — network + identity, the same
+      // grammar the page chrome taught. The team chip taps through to the
+      // assign sheet for the professor and stays a label for everyone else;
+      // only the student's own card wears the team as its title instead.
+      const teamChip = `${PERSON_SVG}<span>${esc(displayTeam)}</span>`;
       const chips = `<span class="card-chips">
         ${net && sys.ip && prof ? `<button class="cchip" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}" title="Rover Wi-Fi settings">${WIFI_SVG}<span>${esc(net)}</span></button>` : ""}
-        ${titled ? "" : `<span class="cchip cchip-team${isPool ? " pool" : ""}">${PERSON_SVG}<span>${esc(displayTeam)}</span></span>`}
+        ${mine ? "" : prof
+          ? `<button class="cchip cchip-team${isPool ? " pool" : ""}" data-assign="${esc(board)}" data-bteam="${esc(team)}" title="${isPool ? "Assign to a team" : "Reassign"}">${teamChip}</button>`
+          : `<span class="cchip cchip-team${isPool ? " pool" : ""}">${teamChip}</span>`}
       </span>`;
       const actions = [];
       if (!offline && sys.cam && sys.ip)
         actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}">${icon("camera")} Camera</button>`);
       if (prof) {
-        actions.unshift(`<button class="btn-tile" data-assign="${esc(board)}" data-bteam="${esc(team)}">${isPool ? "Assign team" : "Manage rover"}</button>`);
         const more = [];
         more.push(`<button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">${icon("activity")} Diagnostics</button>`);
         if (!offline) more.push(`<button class="btn-tile" data-blink="${esc(board)}" data-bteam="${esc(team)}">${icon("zap")} Identify rover</button>`);
@@ -3478,12 +3474,20 @@ safe-buffer/index.js:
             : `<div class="pool-actions"><button class="btn-tile" data-claim="${esc(board)}">${icon("claim")} Claim — make it your team's</button></div>`;
       }
       const shared = !isPool && teamCounts.get(team) > 1;
+      // A pending claim renders on the claimed rover itself — the professor is
+      // looking at the physical board the request is about; approve where the
+      // grid mirrors the desk. Join/pair requests carry no board and stay in
+      // the req-badge sheet.
+      const req = prof ? pendingRequests.find(q => !q.join && q.board === board) : null;
       return `<div class="robot${offline ? " offline" : ""}${mine ? " mine" : ""}">
-        <h2><span class="dot"></span>${esc(titled ? displayTeam : board)}<span class="card-status${offline ? "" : isPool ? " pool" : shared ? " warn" : ""}">${offline ? "Offline" : isPool ? "Needs team" : shared ? "Check setup" : "Ready"}</span></h2>
-        <div class="card-meta">${titled ? `Rover ${esc(board)}` : esc(sys.hw || "unknown board")}${sys.name ? ` · ${esc(sys.name)}` : ""}</div>
+        <h2><span class="dot"></span>${esc(mine ? displayTeam : board)}<span class="card-status${offline ? "" : isPool ? " pool" : shared ? " warn" : ""}">${offline ? "Offline" : isPool ? "Needs team" : shared ? "Check setup" : "Ready"}</span></h2>
+        <div class="card-meta">${mine ? `Rover ${esc(board)}` : esc(sys.hw || "unknown board")}${sys.name ? ` · ${esc(sys.name)}` : ""}</div>
         ${chips}
         ${shared ? `<div class="warn-note">${icon("warn", 12)} ${teamCounts.get(team)} boards wear this team — every drive command moves all of them.</div>` : ""}
-        ${isPool && prof && !offline ? `<div class="pool-note">Identify this rover, then assign it to a team.</div>` : ""}
+        ${req ? `<div class="pool-actions"><span class="req-line"><b>${esc(req.name)}</b> claims this rover</span>
+            <button class="btn-tile" data-approve="${esc(req.name)}">Approve</button>
+            <button class="btn-tile" data-denyreq="${esc(req.name)}" aria-label="Dismiss request from ${esc(req.name)}">&#10005;</button></div>`
+          : isPool && prof && !offline ? `<div class="pool-note">Fresh board — Identify it from the ••• menu, then tap its team chip to assign.</div>` : ""}
         ${offline ? `<div class="remedy">Last seen ${fmtUptime(ageMs)} ago. Check power or battery.</div>` : ""}
         ${claimRow}
         ${actions.length ? `<div class="card-actions">${actions.join("")}</div>` : ""}
@@ -3492,20 +3496,12 @@ safe-buffer/index.js:
 
     let lastRobotsHtml = "";
     let fleetFilter = "all";
-    let pendingRequestCount = 0;
-    function setFleetFilter(next) {
-      fleetFilter = next;
-      for (const b of document.querySelectorAll("#fleet-filters button"))
-        b.setAttribute("aria-pressed", String(b.dataset.filter === next));
+    let pendingRequests = [];   // the /codes/requests queue — cards render board-matched claim rows
+    document.getElementById("sum-unassigned-card").addEventListener("click", (e) => {
+      fleetFilter = fleetFilter === "unassigned" ? "all" : "unassigned";
+      e.currentTarget.setAttribute("aria-pressed", String(fleetFilter === "unassigned"));
       lastRobotsHtml = "";
       renderRobots();
-    }
-    document.getElementById("fleet-overview").addEventListener("click", (e) => {
-      const filter = e.target.closest("[data-filter], [data-summary-filter]");
-      if (filter) setFleetFilter(filter.dataset.filter || filter.dataset.summaryFilter);
-    });
-    document.getElementById("sum-requests-button").addEventListener("click", () => {
-      if (pendingRequestCount) document.getElementById("req-badge").click();
     });
     // ••• menus are <details> — the platform gives no light-dismiss, so an
     // abandoned open menu would hold the repaint guard forever. Any tap
@@ -3541,36 +3537,29 @@ safe-buffer/index.js:
         ? knownTeams.filter(t => t !== "professor" && !seenTeams.has(t)).sort()
         : [];
       // Desk order is sacred: cards sort by board id and never move — a card
-      // is permanent across assignments (see deviceCard). Attention rides the
-      // summary counts and filter pills, never a reshuffle of the grid under
-      // a reaching hand on the 2 s clock. Unassigned is a normal pool state
-      // with its own card and filter — it does NOT count as attention;
-      // attention = offline, shared-team collisions, and ghost teams.
+      // is permanent across assignments (see deviceCard). The grid never
+      // reshuffles under a reaching hand on the 2 s clock; warn tints on the
+      // cards carry attention at classroom scale.
       entries.sort((a, b) => (a[0] < b[0] ? -1 : 1));
       const prof = myScope && myScope.scope === "all";
       if (prof) {
-        const needsAttention = ([, r]) =>
-          Date.now() - r.seenAt > 10000 || (r.team !== "unassigned" && teamCounts.get(r.team) > 1);
         document.getElementById("sum-online").textContent =
           entries.filter(([, r]) => Date.now() - r.seenAt <= 10000).length;
         document.getElementById("sum-unassigned").textContent =
           entries.filter(([, r]) => r.team === "unassigned").length;
-        document.getElementById("sum-attention").textContent =
-          entries.filter(needsAttention).length + ghosts.length;
-        document.getElementById("sum-requests").textContent = pendingRequestCount;
-        if (fleetFilter !== "all") entries = entries.filter(e =>
-          fleetFilter === "offline" ? Date.now() - e[1].seenAt > 10000
-          : fleetFilter === "unassigned" ? e[1].team === "unassigned"
-          : needsAttention(e));
+        if (fleetFilter === "unassigned") entries = entries.filter(([, r]) => r.team === "unassigned");
       }
-      const visibleGhosts = prof && (fleetFilter === "all" || fleetFilter === "attention" || fleetFilter === "offline") ? ghosts : [];
+      const visibleGhosts = prof && fleetFilter === "all" ? ghosts : [];
       document.getElementById("empty").style.display =
         entries.length || legacy.length || visibleGhosts.length ? "none" : "block";
       document.getElementById("empty").firstChild.textContent = myScope && myScope.scope === "one"
         ? "Your rover is not online yet. Check its power or ask your professor for help. "
         : prof && fleetFilter !== "all"
-          ? "No rovers match this filter. "
+          ? "No unassigned rovers — every board wears a team. "
           : "No rovers yet — power one on near the hub and it appears here within seconds. ";
+      // The flash-a-new-board hint serves arrivals, not a signed-in student.
+      document.querySelector("#empty .hint").style.display =
+        myScope && myScope.scope === "one" ? "none" : "";
       const html =
         entries.map(([b, rec]) => deviceCard(b, rec, teamCounts)).join("") +
         legacy.map(([t, rec]) => deviceCard(t, { sys: rec.sys, team: t, seenAt: rec.seenAt }, teamCounts)).join("") +
@@ -3737,7 +3726,7 @@ safe-buffer/index.js:
       document.getElementById("student-details").querySelector("summary").textContent =
         myScope.scope === "all" ? "Advanced diagnostics" : "Details & troubleshooting";
       document.getElementById("fleet-overview").style.display = myScope.scope === "all" ? "block" : "none";
-      document.getElementById("drive-title").textContent = myScope.scope === "all" ? "Drive / test a rover" : "Drive my rover";
+      document.getElementById("drive-title").textContent = myScope.scope === "all" ? "Drive" : "Drive my rover";
       document.getElementById("drive-target-row").style.display = myScope.scope === "all" ? "block" : "none";
       applyDriveMode(); // panel just appeared: sync the mode switch to the no-target state
       document.getElementById("scope-label").textContent = myScope.scope === "all"
@@ -4360,6 +4349,9 @@ safe-buffer/index.js:
       document.body.classList.remove("scope-one");   // back to the fleet-first order
       document.getElementById("fleet-overview").style.display = "none";
       document.getElementById("student-details").style.display = "none";
+      fleetFilter = "all";   // a filter must not survive into the next sign-in
+      document.getElementById("sum-unassigned-card").setAttribute("aria-pressed", "false");
+      pendingRequests = [];
       document.getElementById("id-chip").classList.remove("show");
       closeChipPop();         // the logout button lives in the account popover
       document.getElementById("req-badge").style.display = "none";
@@ -4662,11 +4654,10 @@ safe-buffer/index.js:
         // The queue renders below the fold; the badge in the sticky bar is how
         // a professor mid-scroll learns someone is waiting on them.
         const pending = r.requests.filter(q => !q.join).length;
-        pendingRequestCount = pending;
+        pendingRequests = r.requests;
         const badge = document.getElementById("req-badge");
         badge.style.display = pending ? "inline-block" : "none";
         badge.textContent = pending === 1 ? "1 request waiting" : `${pending} requests waiting`;
-        document.getElementById("sum-requests").textContent = pending;
         document.getElementById("codes-requests").style.display = r.requests.length ? "block" : "none";
         const reqHtml = r.requests
           .map(q => `<div class="codes-row"><b>${esc(q.name)}</b>
@@ -4705,7 +4696,10 @@ safe-buffer/index.js:
       openCodesSheet("Team codes");
       document.getElementById("codes-user").focus();
     });
-    document.getElementById("codes-req-list").addEventListener("click", async (e) => {
+    // Shared by the req-badge sheet AND the fleet cards' claim rows — same
+    // buttons, two surfaces.
+    document.getElementById("codes-req-list").addEventListener("click", handleRequestAction);
+    async function handleRequestAction(e) {
       const app = e.target.closest("[data-approve]");
       const den = e.target.closest("[data-denyreq]");
       const blq = e.target.closest("[data-blinkreq]");
@@ -4743,7 +4737,7 @@ safe-buffer/index.js:
         }
         status.className = r.ok ? "assign-ok" : "assign-err";
         if (r.ok) mintShareCard(r.user, r.pass); // backup card, e.g. for their rover's QR label
-        loadCodes();
+        loadCodes(); loadRequests();
       } else if (den) {
         if (!confirm(`Dismiss the request from ${den.dataset.denyreq}?`)) return;
         const r = await codesPost("/codes/deny", { name: den.dataset.denyreq });
@@ -4751,7 +4745,7 @@ safe-buffer/index.js:
         status.className = r.ok ? "assign-ok" : "assign-err";
         loadRequests();
       }
-    });
+    }
     document.getElementById("codes-add").addEventListener("click", async () => {
       const user = document.getElementById("codes-user").value.trim();
       const pass = document.getElementById("codes-pass").value;
@@ -4774,6 +4768,8 @@ safe-buffer/index.js:
     document.getElementById("robots").addEventListener("click", (e) => {
       // Delegated on #robots (which persists across re-renders); the buttons inside
       // are rebuilt every 2s, so we match on closest, not the exact target.
+      // Claim rows on cards reuse the request sheet's buttons and handler.
+      if (e.target.closest("[data-approve], [data-denyreq]")) return handleRequestAction(e);
       const cam = e.target.closest("[data-cam-ip]");
       const cfg = e.target.closest("[data-cfg-ip]");
       const blk = e.target.closest("[data-blink]");
