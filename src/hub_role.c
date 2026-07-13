@@ -117,9 +117,16 @@ int board_status_json(char *buf, size_t len)
     json_esc_ssid(esc, sizeof esc, s_uplink_ssid);
     rover_config_load_hub_pin(pin);   /* surfaced so "did the pin apply" is visible */
     json_esc_ssid(pesc, sizeof pesc, pin);
+    /* ssid + uplink follow the Pi hubd's /wifi/status dialect — the shared
+     * dashboard shows "No uplink yet" unless `ssid` is set and gates health
+     * on `uplink === "full"`. "full" here means "the STA has an address"
+     * (portal-vs-full needs an HTTP probe the Pi does — same honesty note as
+     * /fleet). The portal page's own fields ride along; its JS reads `ssid`
+     * for the network name since this change. */
     return snprintf(buf, len,
-        "{\"state\":\"%s\",\"board\":\"%s\",\"role\":\"%s\",\"uplink\":\"%s\",\"ip\":\"%s\",\"pin\":\"%s\",\"dash\":\"%s\"}",
-        st_str[s_net_state], s_board_id, role, esc, ip, pesc, s_dash);
+        "{\"state\":\"%s\",\"board\":\"%s\",\"role\":\"%s\",\"ssid\":\"%s\",\"uplink\":\"%s\",\"ip\":\"%s\",\"pin\":\"%s\",\"dash\":\"%s\"}",
+        st_str[s_net_state], s_board_id, role, esc, s_sta_got_ip ? "full" : "none",
+        ip, pesc, s_dash);
 }
 
 /* Session auth: whole-session accept/reject, the only gate this broker offers (no
@@ -397,6 +404,34 @@ int board_wifi_scan(board_ap_t *out, int max)
     return count;
 }
 
+/* Set by hub_role_run: the dedicated hub applies new uplink credentials with
+ * a live re-dial (its STA is fire-and-forget + event-handler reconnect);
+ * board/rover mode keeps the config-apply reboot — its loop owns the radio
+ * mid-session. */
+static volatile bool s_hub_role = false;
+
+bool board_wifi_redial(const char *ssid, const char *pass)
+{
+    if (!s_hub_role) return false;
+    /* Gate OFF first so the disconnect event can't race an auto-reconnect
+     * against the OLD credentials while we swap the config in. */
+    s_want_connect = false;
+    s_sta_got_ip = false;
+    esp_wifi_disconnect();
+    wifi_config_t sta = {0};
+    memcpy(sta.sta.ssid, ssid, strnlen(ssid, sizeof sta.sta.ssid));
+    memcpy(sta.sta.password, pass, strnlen(pass, sizeof sta.sta.password));
+    if (esp_wifi_set_config(WIFI_IF_STA, &sta) != ESP_OK) {
+        s_want_connect = true;   /* leave the reconnect gate as it was */
+        return false;
+    }
+    board_net_state_set(BOARD_NET_LOCAL, ssid, "/");
+    s_want_connect = true;
+    esp_wifi_connect();
+    ESP_LOGI(TAG, "uplink re-dial -> '%s' (live — AP and dashboard stay up)", ssid);
+    return true;
+}
+
 /* ── hub-watch: an island yields to a real hub.
  * A board islanded because it saw no hub — but one may appear just after (a Pi
  * boots ~30-60 s slower than an ESP; a professor's hub is switched on; or our own
@@ -588,6 +623,7 @@ void board_run(bool self_broker_ok)
  * NOT drive. Never returns (blocks in the broker). */
 void hub_role_run(void)
 {
+    s_hub_role = true;   /* enables the live /wifi/connect re-dial path */
     uint8_t apmac[6];
     esp_read_mac(apmac, ESP_MAC_WIFI_SOFTAP);
     char ap_ssid[16];

@@ -147,10 +147,10 @@ static const char PAGE[] =
 "document.getElementById('bid').textContent=j.board||'This board';"
 "let t=j.role=='hub'?'Classroom hub':j.role=='rover'?'Rover (always joins a hub)':'Rover';"
 "t+=' \\u00b7 ';"
-"t+=j.state=='hub'?'part of classroom '+j.uplink:"
-"j.state=='local'?(j.ip?'self-hosted \\u00b7 internet via '+j.uplink+' ('+j.ip+')':"
+"t+=j.state=='hub'?'part of classroom '+j.ssid:"
+"j.state=='local'?(j.ip?'self-hosted \\u00b7 internet via '+j.ssid+' ('+j.ip+')':"
 "'self-hosted \\u00b7 no internet uplink (drives fine offline)'):"
-"j.state=='remote'?'on '+j.uplink+(j.ip?' ('+j.ip+')':''):"
+"j.state=='remote'?'on '+j.ssid+(j.ip?' ('+j.ip+')':''):"
 "'looking for a network\\u2026';"
 "if(j.pin)t+=' \\u00b7 pinned to '+j.pin;"
 "document.getElementById('bst').textContent=t;"
@@ -220,7 +220,7 @@ static const char LANDING[] =
 /* This board serves the dashboard now — "/" was re-registered, so reload IS it. */
 "if(j.dash=='/'){location.reload();return}"
 "if(j.dash){"
-"st.textContent='Part of the classroom network'+(j.uplink?' '+j.uplink:'')+' \\u2014 drive it from the class dashboard.';"
+"st.textContent='Part of the classroom network'+(j.ssid?' '+j.ssid:'')+' \\u2014 drive it from the class dashboard.';"
 /* DOM, not innerHTML: dash derives from a stored locator (user-supplied NVS). */
 "if(!act.firstChild){let a=document.createElement('a');a.className='btn';a.href=j.dash;"
 "a.textContent='Open the class dashboard';act.appendChild(a)}"
@@ -401,6 +401,14 @@ static esp_err_t connect_post(httpd_req_t *req)
     if (rover_config_set_wifi(ssid, pass) != ESP_OK)
         return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"could not save credentials\"}");
 
+    /* The dedicated hub re-dials live — the AP (and the phone on it, and this
+     * very panel) stays up; the panel's status re-read shows the join land.
+     * Rover/board mode falls back to the config-apply reboot, same as
+     * /wifi/save: its loop owns the radio mid-session. */
+    if (board_wifi_redial(ssid, pass)) {
+        ESP_LOGI(TAG, "saved uplink '%s' via /wifi/connect — re-dialing live", ssid);
+        return httpd_resp_sendstr(req, "{\"ok\":true}");
+    }
     ESP_LOGI(TAG, "saved uplink '%s' via /wifi/connect — restarting to join it", ssid);
     httpd_resp_sendstr(req, "{\"ok\":true}");
     xTaskCreate(reboot_task, "cfg-reboot", 2048, NULL, 5, NULL);

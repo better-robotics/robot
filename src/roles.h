@@ -74,6 +74,12 @@ int  board_status_json(char *buf, size_t len);   /* → bytes written (snprintf)
 typedef struct { char ssid[33]; signed char rssi; bool open; } board_ap_t;
 int board_wifi_scan(board_ap_t *out, int max);
 
+/* Live uplink re-dial (wifi_portal's POST /wifi/connect). Only the dedicated
+ * hub role honors it — always-APSTA lets new credentials apply WITHOUT the
+ * config-apply reboot that would drop the AP under the phone driving the
+ * panel. Returns false outside hub mode (caller falls back to the reboot). */
+bool board_wifi_redial(const char *ssid, const char *pass);
+
 /* Camera (camera.c). Inits the OV2640 and serves MJPEG at :81/stream — a no-op
  * unless built with HAS_CAMERA (the esp32cam board). Call after Wi-Fi is up
  * (connection-first: camera fits in what memory is left, or fails loudly).
