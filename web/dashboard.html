@@ -2114,6 +2114,12 @@ safe-buffer/index.js:
       // previous client, and every handler below closes over `client`, never
       // the shared driveClient variable.
       try { if (driveClient) driveClient.end(true); } catch {}
+      // Trade this page's anonymous slot for the sign-in attempt BEFORE
+      // dialing: the ESP32 hub bridges only 3 sessions, and holding our own
+      // fleet-view connection while opening a second one means one page
+      // briefly costs two — a full-but-working classroom would refuse the
+      // professor. Every failure path below restores the anonymous feed.
+      stopPublicClient();
       const client = mqtt.connect(`ws://${hubHost}:${wsPort}`, { username, password });
       driveClient = client;
       // mqtt.js retries an unreachable host forever without ever emitting
@@ -2128,6 +2134,7 @@ safe-buffer/index.js:
           : "No answer from the hub — are you on its Wi-Fi?");
         try { client.end(true); } catch {}
         restore();
+        startPublicClient();    // sign-in didn't land — the cards go back to the anonymous feed
       }, 8000);
       client.on("connect", () => {
         clearTimeout(stall); restore();
@@ -2136,7 +2143,6 @@ safe-buffer/index.js:
         myCred = { user: username, pass: password };
         // Remembered so a locked phone or reload lands back in, signed in.
         localStorage.setItem("hubCred", JSON.stringify(myCred));
-        stopPublicClient();     // one page, one connection — this session feeds the cards now
         onScope(username);      // before setConnPill: the chip label reads identity-name
         setConnPill("live");
         const filter = myScope.scope === "all" ? "robots/+/#" : `robots/${username}/#`;
@@ -2150,6 +2156,7 @@ safe-buffer/index.js:
         try { client.end(true); } catch {} // stop mqtt.js re-trying bad creds
         if (driveClient !== client) return;
         setConnPill("");
+        startPublicClient();    // rejected — the cards go back to the anonymous feed
         if (!silent) gateMsg("The hub rejected that code — check it and try again.");
         else {
           // Explain the surprise logout instead of silently showing the gate.
@@ -2256,7 +2263,8 @@ safe-buffer/index.js:
           <button id="prof-go">Sign in</button>
         </div>
         <p class="hint" id="prof-pop-status" role="status" aria-live="polite"></p>
-        <p class="hint">On a team? Tap <b>Claim</b> on your rover, or scan your team's sign-in card.</p>`;
+        ${codesApi ? `<p class="hint">On a team? Tap <b>Claim</b> on your rover, or scan your team's sign-in card.</p>`
+                   : `<p class="hint">On a team? Sign in below with your team's code.</p>`}`;
       openChipPop(document.getElementById("signin-chip"), wrap);
       const go = () => {
         const v = wrap.querySelector("#prof-code").value.trim();
