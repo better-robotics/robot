@@ -57,7 +57,7 @@ per-subtree by the Pi broker's ACL. `▲` board publishes · `▼` board obeys:
 
 | topic | | payload |
 |---|---|---|
-| `sys` | ▲ 2 s | `{"uptime_ms":…,"free_heap":…,"hw":"esp32cam","board":"rover-XXXX","ip":…,"cam":…}` |
+| `sys` | ▲ 2 s | `{"uptime_ms":…,"free_heap":…,"hw":"esp32cam","board":"rover-XXXX","ip":…,"cam":…,"rssi_dbm":…}` — `rssi_dbm` only while the STA uplink is associated |
 | `pwm` | ▼ | `{"left_motor":180,"right_motor":-180,"duration_ms":200}` — signed ±255/wheel; a watchdog coasts to a stop `duration_ms` after the last command |
 | `cmd/config` | ▼ | assign: `team` `pass` `name` `hub` (pin; `""` clears) `pins` (L298N wiring) — optional `target` board-id addresses one of N |
 | `cmd/identify` | ▼ | blink the LED ~6 s — find the physical board |

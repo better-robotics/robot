@@ -300,6 +300,30 @@
     .orient-btns { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
     #drive-panel { display: none; }
     #scope-label { color: var(--ink-muted); font-size: 0.92rem; margin: 0.85rem 0; }
+    /* Status sentence (team scope) — the fleet cards' dot language, promoted
+       to a headline. .offline reuses the card rule that flattens the dot. */
+    #drive-status { display: flex; align-items: center; gap: 0.7rem; margin: 0.85rem 0; }
+    #drive-status-line { font-weight: 600; }
+    /* 0.2rem — the card title→meta beat (.card-meta), same semantic pair. */
+    #drive-status-sub { color: var(--ink-muted); font-size: 0.85rem; margin-top: 0.2rem; }
+    /* Live status: the telemetry dl pattern, titled to the joystick's beat. */
+    #live-status-title { font-weight: 600; margin-bottom: 0.75rem; }
+    #live-status-facts dd.ok { color: var(--success); }
+    #live-status-facts dd.warn { color: var(--warn-ink); }
+    #details-age { color: var(--ink-faint); font-size: 0.85rem; font-weight: 400; }
+    /* Fleet vitals table — scrolls inside its own box; the page never grows
+       a horizontal scrollbar on a phone. min-width:0 on the details (a
+       #controls grid item) lets the track shrink below the table's nowrap
+       min-content — without it every sibling card inherits the table's width. */
+    #student-details { min-width: 0; }
+    #fleet-diag { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 1rem; }
+    #fleet-diag table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    #fleet-diag th { text-align: left; color: var(--ink-muted); font-weight: 600;
+      padding: 0.35rem 0.9rem 0.35rem 0; white-space: nowrap; }
+    #fleet-diag td { padding: 0.4rem 0.9rem 0.4rem 0; border-top: 0.5px solid var(--border-default);
+      font-variant-numeric: tabular-nums; white-space: nowrap; }
+    #fleet-diag .mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
+    #fleet-diag tr.stale td { color: var(--ink-faint); }
 
     /* Segmented control (iOS): a pill track holding equal segments, the selected
        one raised on an elevated thumb. Here it switches the drive input between
@@ -319,7 +343,9 @@
       box-shadow: 0 1px 2px rgba(0,0,0,0.35);
     }
 
-    .drive-grid { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+    /* min(15rem, 100%) — same shrinkable floor as the fleet grid: with the
+       live-status column aboard, a hard 15rem × 2 would overflow a 320px phone. */
+    .drive-grid { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr)); }
     #joystick-wrap, #dpad-wrap { display: none; text-align: center; }
     #joystick-title { font-weight: 600; margin-bottom: 0.75rem; }
     .stick-pad {
@@ -354,9 +380,11 @@
       margin-top: 0.85rem; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
       font-size: 0.78rem; color: var(--ink-faint);
     }
-    /* Wire log header: names the teaching surface and keys its arrows. */
-    .wire-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;
-      font-size: 0.8rem; color: var(--ink-muted); }
+    /* Wire log header: names the teaching surface and keys its arrows.
+       Wraps: at 320px a 9rem team filter plus both buttons outgrow the row
+       (pre-existing overflow, surfaced by long team names). */
+    .wire-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem;
+      margin-bottom: 0.35rem; font-size: 0.8rem; color: var(--ink-muted); }
     .wire-head .spacer { flex: 1; }
     #wire-pause, #wire-beacons { cursor: pointer; font-size: 0.78rem; padding: 0.2rem 0.7rem; border-radius: var(--radius-sm);
       border: 0.5px solid var(--border-strong); background: transparent; color: var(--ink-muted); }
@@ -677,6 +705,16 @@
     </div>
 
     <div id="drive-panel">
+      <!-- Team scope: one status sentence answers "am I connected?" before
+           anything technical — it replaces scope-label (which named the team
+           a third time, after the section title and the joystick title). -->
+      <div id="drive-status" style="display:none">
+        <span class="dot"></span>
+        <div>
+          <p id="drive-status-line">Waiting for your rover…</p>
+          <p id="drive-status-sub"></p>
+        </div>
+      </div>
       <p id="scope-label"></p>
       <!-- Target picker (professor): driving is self-contained here — pick a
            rover, drive it. The cards carry no Drive buttons; this is the one
@@ -714,6 +752,14 @@
             <div id="dpad-readout">hold a direction to drive</div>
           </div>
         </div>
+        <!-- Live status beside the controls: only fields the sys beacon
+             actually carries (uptime_ms, cam, rssi_dbm where firmware sends
+             it) plus link health derived from beacon age — the one answer to
+             "why won't it move" that needs no new telemetry. -->
+        <div id="live-status" style="display:none">
+          <div id="live-status-title">Live status</div>
+          <dl id="live-status-facts"></dl>
+        </div>
       </div>
     </div>
   </section>
@@ -723,7 +769,12 @@
        reading lives in each card's telemetry sheet; this is the classroom's
        raw wire, the teaching tap. -->
   <details id="student-details">
-    <summary>Details &amp; troubleshooting</summary>
+    <!-- The age hint tells you the link is healthy without opening the row;
+         it lives in its own span because signIn retitles the label by role. -->
+    <summary><span id="details-label">Details &amp; troubleshooting</span> <span id="details-age"></span></summary>
+  <!-- Professor-only fleet vitals: the sys beacon rendered as one row per
+       board — the glanceable middle ground between the cards and the raw wire. -->
+  <div id="fleet-diag" style="display:none"></div>
   <section id="wire" style="display:none">
     <!-- No heading of its own — the wrapping details' summary titles it. -->
     <div class="wire-wrap">
@@ -3641,6 +3692,7 @@ safe-buffer/index.js:
       }
       renderRobots(); renderChips(); watchAssign(); syncPinsPanel(false);
       syncWireFilter(); syncDriveTarget(); telemetrySync?.();
+      renderDriveStatus(); renderLiveStatus(); renderDetailsAge(); renderFleetDiag();
     }, 2000);
 
     // Anonymous mqtt.js connection, scoped by Mosquitto's ACL to read-only
@@ -3756,6 +3808,9 @@ safe-buffer/index.js:
     function onScope(username) {
       myScope = username === "professor" ? { scope: "all" } : { scope: "one", robot: username };
       document.getElementById("code-gate").style.display = "none";
+      // The gate's help line has no job once signed in (hub-served pages hide
+      // it earlier via the claim-first presentation; standalone never did).
+      document.getElementById("gate-help").style.display = "none";
       gateMsg("");
       document.getElementById("identity-name").textContent = username;
       document.getElementById("id-chip-name").textContent = username;
@@ -3767,15 +3822,20 @@ safe-buffer/index.js:
       document.getElementById("drive-panel").style.display = "block";
       document.getElementById("wire").style.display = "block";
       document.getElementById("student-details").style.display = "block";
-      document.getElementById("student-details").querySelector("summary").textContent =
+      document.getElementById("details-label").textContent =
         myScope.scope === "all" ? "Advanced diagnostics" : "Details & troubleshooting";
       document.getElementById("fleet-overview").style.display = myScope.scope === "all" ? "block" : "none";
       document.getElementById("drive-title").textContent = myScope.scope === "all" ? "Drive" : "Drive my rover";
       document.getElementById("drive-target-row").style.display = myScope.scope === "all" ? "block" : "none";
       applyDriveMode(); // panel just appeared: sync the mode switch to the no-target state
-      document.getElementById("scope-label").textContent = myScope.scope === "all"
-        ? "Pick a rover to test its controls."
-        : `Driving ${myScope.robot}.`;
+      if (myScope.scope === "all") {
+        document.getElementById("scope-label").textContent = "Pick a rover to test its controls.";
+      } else {
+        // The status row is the team scope's one sentence about the rover —
+        // scope-label would only repeat the name it already carries.
+        document.getElementById("scope-label").style.display = "none";
+        document.getElementById("drive-status").style.display = "flex";
+      }
       // Team scope reorders the page around the driver (CSS .scope-one): pad
       // first, then their own rover — renderRobots filters the rest of the
       // fleet out of a student's view entirely — and lands them on it,
@@ -3797,11 +3857,109 @@ safe-buffer/index.js:
       targetBoard = board || null;
       const label = board ? `${board} (${id})` : id;
       document.getElementById("joystick-title").textContent = `Driving ${label}`;
+      // Team scope: the status sentence above already names the rover — a
+      // "Driving jonas2" title under it would be the third repeat.
+      document.getElementById("joystick-title").style.display =
+        myScope && myScope.scope === "one" ? "none" : "";
       applyDriveMode();  // reveal whichever input (joystick / D-pad) is active
       syncDriveTarget(); // keep the picker agreeing with whoever set the target
       if (myScope && myScope.scope === "all")
         document.getElementById("scope-label").textContent =
           `Driving ${label} — pick another rover above to switch.`;
+      renderDriveStatus(); renderLiveStatus(); // paint now, not at the next tick
+    }
+
+    // ---- Live status: the driver's "is it working?" surface ----
+    // Every row reads a field the sys beacon actually carries (uptime_ms,
+    // cam, rssi_dbm where the firmware sends it); Link is beacon age — the
+    // one health signal that needs no telemetry at all.
+    function driveRec() {
+      if (!target) return null;
+      return (targetBoard ? boards.get(targetBoard) : robots.get(target)) || null;
+    }
+    function renderDriveStatus() {
+      const el = document.getElementById("drive-status");
+      if (el.style.display === "none") return;
+      const line = document.getElementById("drive-status-line");
+      const sub = document.getElementById("drive-status-sub");
+      const rec = driveRec();
+      if (!rec) {
+        el.classList.add("offline");
+        line.textContent = "Waiting for your rover…";
+        sub.textContent = "Power it on near the hub and this page finds it.";
+        return;
+      }
+      const stale = Date.now() - rec.seenAt > 10000;
+      el.classList.toggle("offline", stale);
+      line.textContent = stale ? "Your rover stopped answering" : "Your rover is connected";
+      sub.textContent = stale
+        ? `Last heard ${fmtUptime(Date.now() - rec.seenAt)} ago — check its power.`
+        // "jonas2 · rover-a044 · esp32cam" — deduped so a legacy rover
+        // (board id == team id) doesn't read its name twice.
+        : [target, rec.sys?.board, rec.sys?.hw].filter(Boolean)
+            .filter((v, i, a) => a.indexOf(v) === i).join(" · ");
+    }
+    function renderLiveStatus() {
+      const wrap = document.getElementById("live-status");
+      if (!target || document.getElementById("drive-panel").style.display !== "block") {
+        wrap.style.display = "none";
+        return;
+      }
+      const rec = driveRec(), sys = rec?.sys;
+      const age = rec ? Date.now() - rec.seenAt : Infinity;
+      const rows = [["Link", age <= 10000 ? "OK" : rec ? `lost ${fmtUptime(age)} ago` : "no beacon yet",
+                     age <= 10000 ? "ok" : "warn"]];
+      if (sys) {
+        if (typeof sys.rssi_dbm === "number")
+          rows.push(["Signal", `${sys.rssi_dbm >= -60 ? "Strong" : sys.rssi_dbm >= -75 ? "OK" : "Weak"} · ${sys.rssi_dbm} dBm`,
+                     sys.rssi_dbm >= -60 ? "ok" : sys.rssi_dbm >= -75 ? "" : "warn"]);
+        if (typeof sys.uptime_ms === "number") rows.push(["Uptime", fmtUptime(sys.uptime_ms), ""]);
+        if (typeof sys.cam === "boolean") rows.push(["Camera", sys.cam ? "Ready" : "Off", sys.cam ? "ok" : ""]);
+      }
+      const html = rows.map(([k, v, cls]) =>
+        `<dt>${k}</dt><dd${cls ? ` class="${cls}"` : ""}>${esc(v)}</dd>`).join("");
+      const facts = document.getElementById("live-status-facts");
+      wrap.style.display = "";
+      // Same diff-skip as the fleet grid: identical repaints cost focus/scroll.
+      if (facts.dataset.html !== html) { facts.dataset.html = html; facts.innerHTML = html; }
+    }
+    // The collapsed row's pulse: link health without opening it. The driver's
+    // own rover in team scope; the freshest beacon fleet-wide for the professor.
+    function renderDetailsAge() {
+      const el = document.getElementById("details-age");
+      if (!myScope) { el.textContent = ""; return; }
+      let last = 0;
+      if (myScope.scope === "one") { const rec = driveRec(); last = rec ? rec.seenAt : 0; }
+      else for (const r of robots.values()) last = Math.max(last, r.seenAt);
+      el.textContent = last ? `· last message ${fmtUptime(Date.now() - last)} ago` : "";
+    }
+    // Professor fleet vitals — only painted while the details row is open.
+    let lastDiagHtml = "";
+    function renderFleetDiag() {
+      const box = document.getElementById("fleet-diag");
+      const show = myScope && myScope.scope === "all" &&
+        document.getElementById("student-details").open;
+      box.style.display = show ? "" : "none";
+      if (!show) return;
+      const items = [...boards.entries()]
+        .map(([b, rec]) => ({ id: b, team: rec.team, sys: rec.sys, seenAt: rec.seenAt }));
+      for (const [t, rec] of robots)                       // legacy: no board field
+        if (!rec.sys?.board) items.push({ id: t, team: t, sys: rec.sys, seenAt: rec.seenAt });
+      items.sort((a, b) => a.id.localeCompare(b.id));
+      const rows = items.map(({ id, team, sys, seenAt }) => {
+        const stale = Date.now() - seenAt > 10000;
+        return `<tr${stale ? ' class="stale"' : ""}><td class="mono">${esc(id)}</td><td>${esc(team)}</td>` +
+          `<td>${typeof sys?.uptime_ms === "number" ? fmtUptime(sys.uptime_ms) : "—"}</td>` +
+          `<td>${typeof sys?.free_heap === "number" ? Math.round(sys.free_heap / 1024) + " KB" : "—"}</td>` +
+          `<td>${typeof sys?.rssi_dbm === "number" ? sys.rssi_dbm + " dBm" : "—"}</td>` +
+          `<td class="mono">${esc(sys?.ip || "—")}</td>` +
+          `<td>${sys?.cam === true ? "yes" : "—"}</td></tr>`;
+      }).join("");
+      const html = rows
+        ? `<table><thead><tr><th>Rover</th><th>Team</th><th>Uptime</th><th>Memory free</th>` +
+          `<th>Signal</th><th>IP</th><th>Camera</th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<p class="hint">No rovers online.</p>`;
+      if (html !== lastDiagHtml) { lastDiagHtml = html; box.innerHTML = html; }
     }
 
     // The Drive card's target picker (professor): live boards only, options
@@ -4948,6 +5106,7 @@ safe-buffer/index.js:
           if (k === "synthetic") continue;
           const val = k === "uptime_ms" ? fmtUptime(v)
             : k === "free_heap" ? Math.round(v / 1024) + " KB"
+            : k === "rssi_dbm" ? v + " dBm"
             : typeof v === "object" && v !== null ? JSON.stringify(v) : String(v);
           rows.push(`<dt>${esc(k.replace(/_ms$/, "").replace(/_/g, " "))}</dt><dd>${esc(val)}</dd>`);
         }

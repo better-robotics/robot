@@ -569,7 +569,7 @@ void rover_client_run(const char *broker_uri) {
     snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);
     ESP_LOGI(TAG, "publishing %s every 2 s", key);
 
-    char buf[320];   /* worst-case sys payload with "pins" is ~230 — keep headroom */
+    char buf[320];   /* worst-case sys payload with "pins"+rssi is ~250 — keep headroom */
     int down = 0;   /* consecutive 2 s ticks with no live session — dead → return */
     for (;;) {
         if (s_mqtt_up) {
@@ -590,6 +590,14 @@ void rover_client_run(const char *broker_uri) {
                 if (ap && esp_netif_get_ip_info(ap, &ipi) == ESP_OK && ipi.ip.addr)
                     snprintf(ip, sizeof ip, IPSTR, IP2STR(&ipi.ip));
             }
+            /* Uplink RSSI — the dashboard's Signal chip (and the workbench
+             * vitals parity CONTRACT.md already names). Only present while
+             * the STA is associated: an island rover has no uplink to rate,
+             * and an absent key reads as "no signal to show", not 0 dBm. */
+            char rssi[24] = "";
+            wifi_ap_record_t apr;
+            if (esp_wifi_sta_get_ap_info(&apr) == ESP_OK)
+                snprintf(rssi, sizeof rssi, ",\"rssi_dbm\":%d", apr.rssi);
             /* board id is metadata in the payload, not the topic (id == team). */
 #ifdef HAS_CAMERA
             /* No "pins" on the camera board: motors are structurally disabled
@@ -599,9 +607,9 @@ void rover_client_run(const char *broker_uri) {
             board_uplink_ssid_json(net);
             snprintf(buf, sizeof buf,
                      "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
-                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"net\":\"%s\",\"cam\":%s,\"synthetic\":false}",
+                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"net\":\"%s\",\"cam\":%s%s,\"synthetic\":false}",
                      (long long)up_ms, (unsigned)heap, s_id, ip, net,
-                     camera_running() ? "true" : "false");
+                     camera_running() ? "true" : "false", rssi);
 #else
             /* "pins" = the live motor map (NVS-or-default, what motor_init
              * ran with) — the dashboard's pin editor shows this as truth
@@ -611,10 +619,10 @@ void rover_client_run(const char *broker_uri) {
             board_uplink_ssid_json(net);
             snprintf(buf, sizeof buf,
                      "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
-                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"net\":\"%s\",\"cam\":%s,\"synthetic\":false,"
+                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"net\":\"%s\",\"cam\":%s%s,\"synthetic\":false,"
                      "\"pins\":{\"ena\":%d,\"in1\":%d,\"in2\":%d,\"enb\":%d,\"in3\":%d,\"in4\":%d}}",
                      (long long)up_ms, (unsigned)heap, s_id, ip, net,
-                     camera_running() ? "true" : "false",
+                     camera_running() ? "true" : "false", rssi,
                      s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4);
 #endif
             if (esp_mqtt_client_publish(cli, key, buf, 0, 0, 0) >= 0)
