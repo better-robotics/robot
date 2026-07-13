@@ -22,6 +22,10 @@ DST = os.path.join(PROJECT_DIR, "src", "ide_bundle.c")
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
+    # .mjs must be JS and .wasm application/wasm, or the browser refuses the
+    # ES-module import / streaming-compile of the MicroPython runtime.
+    ".mjs": "text/javascript; charset=utf-8",
+    ".wasm": "application/wasm",
     ".css": "text/css; charset=utf-8",
     ".json": "application/json",
     ".png": "image/png",
