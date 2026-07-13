@@ -502,7 +502,6 @@
     .req-line { color: var(--ink-muted); font-size: 0.85rem; }
     .req-line b { color: var(--ink); }
     .claim-err { color: var(--danger-text); font-size: 0.85rem; flex-basis: 100%; }
-    .pool-note { color: var(--ink-muted); font-size: 0.85rem; margin-top: 0.45rem; }
     .warn-note { color: var(--warn-ink); font-size: 0.85rem; margin-top: 0.45rem; }
 
     /* Per-card action row: Camera / Wi-Fi & role / Drive as tinted tiles. */
@@ -3529,19 +3528,19 @@ safe-buffer/index.js:
       const net = sys.net || sys.ip || "";   /* "net" ships in newer beacons; ip is the fallback */
       // The corner is the rover's own topbar — network + identity, the same
       // grammar the page chrome taught. A claimed board wears its team in
-      // plain ink (settled); an unclaimed board wears the amber call-to-action
-      // instead — the professor's taps through to assign, an arriving team's
-      // to claim. The student's own card wears the team as its title, no chip.
+      // plain ink (settled); an unclaimed board wears its "Unassigned" state,
+      // and an arriving team gets the amber Claim call-to-action. The professor
+      // assigns from a button in the action row, not the corner — Identify and
+      // Assign belong together where the work happens. The student's own card
+      // wears the team as its title, no chip.
       const idChip = mine ? ""
         : !isPool
           ? (prof
               ? `<button class="cchip cchip-team" data-assign="${esc(board)}" data-bteam="${esc(team)}" title="Reassign">${PERSON_SVG}<span>${esc(team)}</span></button>`
               : `<span class="cchip cchip-team">${PERSON_SVG}<span>${esc(team)}</span></span>`)
-          : prof
-            ? `<button class="cchip cchip-claim" data-assign="${esc(board)}" data-bteam="${esc(team)}" title="Assign to a team">${icon("claim", 11)}<span>Assign</span></button>`
-            : claimable
-              ? `<button class="cchip cchip-claim" data-claim="${esc(board)}">${icon("claim", 11)}<span>Claim</span></button>`
-              : `<span class="cchip cchip-team pool">${PERSON_SVG}<span>Unassigned</span></span>`;
+          : claimable
+            ? `<button class="cchip cchip-claim" data-claim="${esc(board)}">${icon("claim", 11)}<span>Claim</span></button>`
+            : `<span class="cchip cchip-team pool">${PERSON_SVG}<span>Unassigned</span></span>`;
       const chips = `<span class="card-chips">
         ${net && sys.ip && prof ? `<button class="cchip" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}" title="Rover Wi-Fi settings">${WIFI_SVG}<span>${esc(net)}</span></button>` : ""}
         ${idChip}
@@ -3549,11 +3548,19 @@ safe-buffer/index.js:
       const actions = [];
       if (!offline && sys.cam && sys.ip)
         actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}">${icon("camera")} Camera</button>`);
-      if (prof) {
+      if (prof && isPool) {
+        // A fresh board's two jobs, surfaced as buttons instead of a note:
+        // blink it to find which board on the desk it is, then name it.
+        // Telemetry stays in the ••• overflow — the diagnostic path, not the
+        // first move.
+        if (!offline) actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-bteam="${esc(team)}">${icon("zap")} Identify</button>`);
+        actions.push(`<button class="btn-accent" data-assign="${esc(board)}" data-bteam="${esc(team)}">${icon("claim")} Assign to team</button>`);
+        actions.push(`<details class="card-more"><summary aria-label="More rover actions">•••</summary><div class="card-more-menu"><button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">${icon("activity")} Telemetry</button></div></details>`);
+      } else if (prof) {
         const more = [];
         more.push(`<button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">${icon("activity")} Telemetry</button>`);
         if (!offline) more.push(`<button class="btn-tile" data-blink="${esc(board)}" data-bteam="${esc(team)}">${icon("zap")} Identify rover</button>`);
-        if (!isPool) more.push(`<button class="btn-tile btn-danger" data-unassign="${esc(board)}" data-uteam="${esc(team)}">Unassign rover…</button>`);
+        more.push(`<button class="btn-tile btn-danger" data-unassign="${esc(board)}" data-uteam="${esc(team)}">Unassign rover…</button>`);
         actions.push(`<details class="card-more"><summary aria-label="More rover actions">•••</summary><div class="card-more-menu">${more.join("")}</div></details>`);
       } else if (mine) {
         actions.push(`<button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">Details</button>`);
@@ -3585,8 +3592,7 @@ safe-buffer/index.js:
         ${shared ? `<div class="warn-note">${icon("warn", 12)} ${teamCounts.get(team)} boards wear this team — every drive command moves all of them.</div>` : ""}
         ${req ? `<div class="pool-actions"><span class="req-line"><b>${esc(req.name)}</b> claims this rover</span>
             <button class="btn-tile" data-approve="${esc(req.name)}">Approve</button>
-            <button class="btn-tile" data-denyreq="${esc(req.name)}" aria-label="Dismiss request from ${esc(req.name)}">&#10005;</button></div>`
-          : isPool && prof && !offline ? `<div class="pool-note">Fresh board — Identify it from the ••• menu, then tap Assign in its corner.</div>` : ""}
+            <button class="btn-tile" data-denyreq="${esc(req.name)}" aria-label="Dismiss request from ${esc(req.name)}">&#10005;</button></div>` : ""}
         ${offline ? `<div class="remedy">Last seen ${fmtUptime(ageMs)} ago. Check power or battery.</div>` : ""}
         ${claimRow}
         ${actions.length ? `<div class="card-actions">${actions.join("")}</div>` : ""}
@@ -3829,7 +3835,7 @@ safe-buffer/index.js:
       document.getElementById("wire").style.display = "block";
       document.getElementById("student-details").style.display = "block";
       document.getElementById("details-label").textContent =
-        myScope.scope === "all" ? "Advanced diagnostics" : "Details & troubleshooting";
+        myScope.scope === "all" ? "Advanced diagnostics" : "Live messages";
       document.getElementById("fleet-overview").style.display = myScope.scope === "all" ? "block" : "none";
       document.getElementById("drive-title").textContent = myScope.scope === "all" ? "Drive" : "Drive my rover";
       document.getElementById("drive-target-row").style.display = myScope.scope === "all" ? "block" : "none";
