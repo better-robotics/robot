@@ -396,11 +396,13 @@
     button.cchip:hover { filter: brightness(1.25); }
     .cchip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cchip svg { flex: none; }
-    .cchip-team { color: var(--accent-text); }
-    /* Pool is a normal state, not a warning — amber means "something's wrong"
-       everywhere else on this page. A placeholder identity wears muted ink;
-       a real team wears accent. */
+    /* A claimed board is settled — its team reads in plain ink, no color.
+       The unclaimed chip is the page's one call-to-action chip: amber, the
+       person-add icon, and a verb (Claim / Assign by role). Amber = act here. */
+    .cchip-team { color: var(--ink); }
     .cchip-team.pool { color: var(--ink-muted); }
+    .cchip-claim { color: var(--warn-ink);
+      border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
     /* The team-scoped viewer's own rover — the one card that's theirs. */
     .robot.mine { box-shadow: 0 0 0 2px var(--accent-text); }
     /* Assign/repair form: its own hairline-divided block (it follows the
@@ -3436,17 +3438,24 @@ safe-buffer/index.js:
       const mine = myScope && myScope.scope === "one" && team === myScope.robot;
       const claimable = isPool && !myCred && codesApi;
       const net = sys.net || sys.ip || "";   /* "net" ships in newer beacons; ip is the fallback */
-      const displayTeam = isPool ? "Unassigned" : team;
       // The corner is the rover's own topbar — network + identity, the same
-      // grammar the page chrome taught. The team chip taps through to the
-      // assign sheet for the professor and stays a label for everyone else;
-      // only the student's own card wears the team as its title instead.
-      const teamChip = `${PERSON_SVG}<span>${esc(displayTeam)}</span>`;
+      // grammar the page chrome taught. A claimed board wears its team in
+      // plain ink (settled); an unclaimed board wears the amber call-to-action
+      // instead — the professor's taps through to assign, an arriving team's
+      // to claim. The student's own card wears the team as its title, no chip.
+      const idChip = mine ? ""
+        : !isPool
+          ? (prof
+              ? `<button class="cchip cchip-team" data-assign="${esc(board)}" data-bteam="${esc(team)}" title="Reassign">${PERSON_SVG}<span>${esc(team)}</span></button>`
+              : `<span class="cchip cchip-team">${PERSON_SVG}<span>${esc(team)}</span></span>`)
+          : prof
+            ? `<button class="cchip cchip-claim" data-assign="${esc(board)}" data-bteam="${esc(team)}" title="Assign to a team">${icon("claim", 11)}<span>Assign</span></button>`
+            : claimable
+              ? `<button class="cchip cchip-claim" data-claim="${esc(board)}">${icon("claim", 11)}<span>Claim</span></button>`
+              : `<span class="cchip cchip-team pool">${PERSON_SVG}<span>Unassigned</span></span>`;
       const chips = `<span class="card-chips">
         ${net && sys.ip && prof ? `<button class="cchip" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}" title="Rover Wi-Fi settings">${WIFI_SVG}<span>${esc(net)}</span></button>` : ""}
-        ${mine ? "" : prof
-          ? `<button class="cchip cchip-team${isPool ? " pool" : ""}" data-assign="${esc(board)}" data-bteam="${esc(team)}" title="${isPool ? "Assign to a team" : "Reassign"}">${teamChip}</button>`
-          : `<span class="cchip cchip-team${isPool ? " pool" : ""}">${teamChip}</span>`}
+        ${idChip}
       </span>`;
       const actions = [];
       if (!offline && sys.cam && sys.ip)
@@ -3480,13 +3489,13 @@ safe-buffer/index.js:
       // the req-badge sheet.
       const req = prof ? pendingRequests.find(q => !q.join && q.board === board) : null;
       return `<div class="robot${offline ? " offline" : ""}${mine ? " mine" : ""}">
-        <h2><span class="dot"></span>${esc(mine ? displayTeam : board)}${offline ? '<span class="offline-label">offline</span>' : ""}${chips}</h2>
+        <h2><span class="dot"></span>${esc(mine ? team : board)}${offline ? '<span class="offline-label">offline</span>' : ""}${chips}</h2>
         <div class="card-meta">${mine ? `Rover ${esc(board)}` : esc(sys.hw || "unknown board")}${sys.name ? ` · ${esc(sys.name)}` : ""}</div>
         ${shared ? `<div class="warn-note">${icon("warn", 12)} ${teamCounts.get(team)} boards wear this team — every drive command moves all of them.</div>` : ""}
         ${req ? `<div class="pool-actions"><span class="req-line"><b>${esc(req.name)}</b> claims this rover</span>
             <button class="btn-tile" data-approve="${esc(req.name)}">Approve</button>
             <button class="btn-tile" data-denyreq="${esc(req.name)}" aria-label="Dismiss request from ${esc(req.name)}">&#10005;</button></div>`
-          : isPool && prof && !offline ? `<div class="pool-note">Fresh board — Identify it from the ••• menu, then tap its team chip to assign.</div>` : ""}
+          : isPool && prof && !offline ? `<div class="pool-note">Fresh board — Identify it from the ••• menu, then tap Assign in its corner.</div>` : ""}
         ${offline ? `<div class="remedy">Last seen ${fmtUptime(ageMs)} ago. Check power or battery.</div>` : ""}
         ${claimRow}
         ${actions.length ? `<div class="card-actions">${actions.join("")}</div>` : ""}
