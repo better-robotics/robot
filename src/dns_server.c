@@ -1,0 +1,143 @@
+/*
+ * dns_server.c — wildcard DNS-over-UDP responder for the board's own AP.
+ *
+ * ESP-IDF has no built-in wildcard-DNS convenience class (unlike Arduino's
+ * DNSServer). This repo vendors neither ESP-IDF's own
+ * examples/protocols/http_server/captive_portal dns_server component nor any
+ * other captive-portal DNS lib (checked: no idf_component.yml entry, no
+ * components/ dir carrying one) — so this is a from-scratch minimal
+ * reimplementation of that same well-known pattern: bind a UDP socket on :53,
+ * parse just enough of an incoming query to build a valid response carrying
+ * one A record pointing at the AP's own IP, for ANY queried name. Runs as one
+ * FreeRTOS task, matching wifi_portal.c's reboot_task idiom (fire-and-forget
+ * via xTaskCreate, no handle kept).
+ */
+#include <string.h>
+#include <errno.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_netif.h"
+#include "esp_log.h"
+#include "lwip/sockets.h"
+#include "dns_server.h"
+
+static const char *TAG = "dns-server";
+
+#define DNS_PORT       53
+#define DNS_MAX_LEN    512
+#define DNS_ANSWER_TTL 60   /* seconds — short: nothing here ever changes (the
+                             * AP's IP is fixed for the boot), but a client that
+                             * lingers shouldn't hold an answer any longer than
+                             * it has to either */
+
+/* Walk the question section starting right after the 12-byte header: a
+ * sequence of length-prefixed labels terminated by a zero-length label, then
+ * QTYPE(2)+QCLASS(2). Returns the offset just past QCLASS (== the length of
+ * the header+question we can copy verbatim), or 0 if the packet is malformed
+ * or truncated before that point — such a query is simply dropped, never
+ * answered (a captive-portal probe is always a clean, single-question query). */
+static int question_end(const uint8_t *pkt, int len)
+{
+    int pos = 12;
+    while (pos < len && pkt[pos] != 0) {
+        int llen = pkt[pos];
+        if (llen & 0xC0) return 0;   /* a compression pointer in a QUESTION name
+                                       * is not a well-formed query — bail rather
+                                       * than chase it */
+        pos += llen + 1;
+    }
+    if (pos >= len) return 0;
+    pos += 1;   /* the zero-length terminator label */
+    pos += 4;   /* QTYPE + QCLASS */
+    return pos <= len ? pos : 0;
+}
+
+/* Build a wildcard A-record response for query `rx` (length `rx_len`)
+ * answering with `ip` (already network-byte-order, as returned by
+ * esp_netif_get_ip_info), into `tx` (capacity `tx_cap`). Returns the response
+ * length, or 0 if the query didn't parse cleanly (dropped, not answered). */
+static int dns_build_response(const uint8_t *rx, int rx_len, uint8_t *tx, size_t tx_cap, uint32_t ip)
+{
+    if (rx_len < 12) return 0;
+    int qend = question_end(rx, rx_len);
+    if (!qend) return 0;
+
+    size_t need = (size_t)qend + 2 /* answer name ptr */ + 2 /* type */ + 2 /* class */
+                             + 4 /* ttl */ + 2 /* rdlength */ + 4 /* rdata (A) */;
+    if (need > tx_cap) return 0;
+
+    memcpy(tx, rx, (size_t)qend);   /* header + question section, verbatim */
+
+    /* QR=1 (this is a response); preserve the query's RD bit; RA=1 ("recursion
+     * available" — trivially true, every answer is the same one A record).
+     * ANCOUNT=1; NSCOUNT/ARCOUNT are already 0 in a well-formed query and were
+     * just copied as-is. */
+    tx[2] = 0x80 | (rx[2] & 0x01);
+    tx[3] = 0x80;
+    tx[6] = 0x00; tx[7] = 0x01;   /* ANCOUNT = 1 */
+
+    uint8_t *a = tx + qend;
+    *a++ = 0xC0; *a++ = 0x0C;    /* NAME = pointer to the question's name @ offset 12 */
+    *a++ = 0x00; *a++ = 0x01;    /* TYPE = A */
+    *a++ = 0x00; *a++ = 0x01;    /* CLASS = IN */
+    *a++ = (uint8_t)(DNS_ANSWER_TTL >> 24); *a++ = (uint8_t)(DNS_ANSWER_TTL >> 16);
+    *a++ = (uint8_t)(DNS_ANSWER_TTL >> 8);  *a++ = (uint8_t)DNS_ANSWER_TTL;
+    *a++ = 0x00; *a++ = 0x04;    /* RDLENGTH = 4 */
+    memcpy(a, &ip, 4);
+    a += 4;
+
+    return (int)(a - tx);
+}
+
+static void dns_server_task(void *arg)
+{
+    (void)arg;
+
+    /* "WIFI_AP_DEF" is the fixed netif key esp_netif_create_default_wifi_ap()
+     * registers (hub_role.c's wifi_apsta_up) — querying it directly means this
+     * server needs no IP passed in and Just Works whichever subnet the caller
+     * is on: 192.168.99.1 for a normal board (rover-<id>), 192.168.4.1 for the
+     * dedicated hub role (hub-<id>). */
+    esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    esp_netif_ip_info_t ip_info = { 0 };
+    if (!ap || esp_netif_get_ip_info(ap, &ip_info) != ESP_OK) {
+        ESP_LOGE(TAG, "couldn't read the AP's own IP — captive-portal DNS not starting");
+        vTaskDelete(NULL);
+        return;
+    }
+    uint32_t ip = ip_info.ip.addr;   /* esp_ip4_addr_t is already network byte order */
+
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock < 0) {
+        ESP_LOGE(TAG, "socket() failed: errno %d", errno);
+        vTaskDelete(NULL);
+        return;
+    }
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(DNS_PORT),
+        .sin_addr.s_addr = htonl(INADDR_ANY),
+    };
+    if (bind(sock, (struct sockaddr *)&addr, sizeof addr) < 0) {
+        ESP_LOGE(TAG, "bind :53 failed: errno %d", errno);
+        close(sock);
+        vTaskDelete(NULL);
+        return;
+    }
+    ESP_LOGI(TAG, "wildcard DNS on :53 — every query answers " IPSTR, IP2STR(&ip_info.ip));
+
+    uint8_t rx[DNS_MAX_LEN], tx[DNS_MAX_LEN];
+    for (;;) {
+        struct sockaddr_in from;
+        socklen_t fromlen = sizeof from;
+        int n = recvfrom(sock, rx, sizeof rx, 0, (struct sockaddr *)&from, &fromlen);
+        if (n <= 0) continue;   /* a transient recv error — keep serving, don't tear the socket down */
+        int tlen = dns_build_response(rx, n, tx, sizeof tx, ip);
+        if (tlen > 0) sendto(sock, tx, tlen, 0, (struct sockaddr *)&from, fromlen);
+    }
+}
+
+void dns_server_start(void)
+{
+    xTaskCreate(dns_server_task, "dns-server", 4096, NULL, 5, NULL);
+}

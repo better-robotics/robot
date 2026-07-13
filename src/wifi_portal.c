@@ -22,6 +22,8 @@
 #include "roles.h"          /* board_ap_t, board_wifi_scan */
 #include "rover_config.h"   /* rover_config_set_wifi, rover_config_load */
 #include "wifi_portal.h"
+#include "dns_server.h"     /* wildcard :53 responder — makes the OS captive-portal
+                             * probes below actually get dialed against this board */
 
 static const char *TAG = "wifi-portal";
 static httpd_handle_t s_http = NULL;
@@ -404,14 +406,40 @@ static esp_err_t role_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* OS-native captive-portal connectivity probes (robot's own island onboarding,
+ * NOT the classroom/MDM auto-join flow — CLAUDE.md § Status & design history).
+ * Apple, Android, and Windows each fire a GET against one of these fixed,
+ * well-known paths right after a device joins any network; a plain 200 tells
+ * the OS "this network has internet," while a redirect elsewhere is what makes
+ * it decide "this network needs sign-in" and pop its own captive-portal
+ * browser onto wherever the redirect points — here, "/", which landing_get
+ * already knows how to route (state-routing landing page, reused as-is, not
+ * duplicated). The wildcard DNS responder (dns_server.c) is what makes these
+ * probes reach this board in the first place, for any hostname the OS queries.
+ *
+ * Strictly additive: a device that never fires a probe (locked-down MDM
+ * policy, or an OS/version that skips it) sees no different behavior than
+ * today — it still just manually visits rover.local or /wifi. */
+static esp_err_t probe_redirect(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
 void wifi_portal_start(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = 80;
     cfg.ctrl_port = 32768;
     cfg.max_open_sockets = 7;
-    cfg.max_uri_handlers = 12;   /* /wifi{,/scan,/save,/role×2,/status} + / here;
-                                  * +/fleet & dashboard / later (bridge) = 9 peak */
+    /* True peak on THIS shared handle: /wifi{,/scan,/save,/role×2,/status} + /
+     * + the 4 captive-portal probe paths below = 11 registered right after this
+     * function returns; start_ws_mqtt_bridge later drops / (-1) then adds back
+     * / (dashboard) + /fleet (+2) = 12 peak. +1 headroom over that measured
+     * peak, not a round-number guess. */
+    cfg.max_uri_handlers = 13;
     cfg.lru_purge_enable = true;
 
     if (httpd_start(&s_http, &cfg) != ESP_OK) {
@@ -426,6 +454,15 @@ void wifi_portal_start(void)
     httpd_uri_t u_rpost = { .uri = "/wifi/role",   .method = HTTP_POST, .handler = role_post };
     httpd_uri_t u_stat  = { .uri = "/wifi/status", .method = HTTP_GET,  .handler = status_get };
     httpd_uri_t u_root  = { .uri = "/",            .method = HTTP_GET,  .handler = landing_get };
+    /* OS captive-portal probes — see probe_redirect's comment above. */
+    httpd_uri_t u_apple   = { .uri = "/hotspot-detect.html", .method = HTTP_GET, .handler = probe_redirect };
+    httpd_uri_t u_android = { .uri = "/generate_204",        .method = HTTP_GET, .handler = probe_redirect };
+    httpd_uri_t u_wintest = { .uri = "/connecttest.txt",     .method = HTTP_GET, .handler = probe_redirect };
+    /* Windows checks BOTH ncsi.txt (content match) and connecttest.txt
+     * (redirect/status); its auto-open behavior across versions is less
+     * consistent than Apple's/Android's — sometimes it's only a taskbar toast,
+     * not a full popup — so this is best-effort, not a guaranteed auto-open. */
+    httpd_uri_t u_ncsi    = { .uri = "/ncsi.txt",             .method = HTTP_GET, .handler = probe_redirect };
     httpd_register_uri_handler(s_http, &u_page);
     httpd_register_uri_handler(s_http, &u_scan);
     httpd_register_uri_handler(s_http, &u_save);
@@ -433,7 +470,18 @@ void wifi_portal_start(void)
     httpd_register_uri_handler(s_http, &u_rpost);
     httpd_register_uri_handler(s_http, &u_stat);
     httpd_register_uri_handler(s_http, &u_root);
-    ESP_LOGI(TAG, "config panel on :80 (/wifi + /wifi/status; state-routing landing at /)");
+    httpd_register_uri_handler(s_http, &u_apple);
+    httpd_register_uri_handler(s_http, &u_android);
+    httpd_register_uri_handler(s_http, &u_wintest);
+    httpd_register_uri_handler(s_http, &u_ncsi);
+
+    /* Wildcard :53 responder so the probes above actually get dialed at this
+     * board (a joining device has no other DNS to ask on this AP anyway). One
+     * task for the life of the boot, same lifetime as this httpd. */
+    dns_server_start();
+
+    ESP_LOGI(TAG, "config panel on :80 (/wifi + /wifi/status; state-routing landing at /; "
+                  "captive-portal probes -> /)");
 }
 
 httpd_handle_t wifi_portal_httpd(void)

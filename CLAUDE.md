@@ -225,18 +225,20 @@ chosen-against:
   Always-APSTA removed the switch, so both died: home↔classroom is a runtime
   re-point of the broker URI, and the room's topology is explicit (a hub exists
   or it doesn't), never emergent. Don't re-propose coordination between boards.
-- **Captive portal rejected for onboarding (cold pass 2026-07-09).** MDM-managed
-  Chromebooks/iPads often can't join arbitrary open APs, and OSes auto-drop
-  no-internet networks. The stronger move: rovers already auto-join `hub-*`, so
-  there is nothing to configure *before* join — config moved post-join
-  (dashboard → `cmd/config` → NVS). BLE (#11) and the portal died to the same
-  insight; onboarding a rover is: turn it on. The one config that can't be
-  post-join is a board's own uplink Wi-Fi — the `/wifi` panel, deliberately a
-  settings page you visit, not a captive portal.
 - **Per-board-AP-vs-shared-hub dichotomy dissolved (hub#3, closed 2026-07-10)** —
   always-APSTA runs both topologies, split by hub presence; the beacon/client-cap
   cost stays measure-then-mitigate (if it bites, drop the beacon when cleanly
   joined to a hub).
+- **OS-native captive-portal popup for the `/wifi` panel (2026-07-13).**
+  Rover→hub auto-discovery needs no human and is untouched. The one config
+  that stays human-driven is a board's own uplink Wi-Fi in the island scenario
+  (a student's phone or home laptop, no hub to join) — `wifi_portal.c` answers
+  the OS-native captive-portal probes (`/hotspot-detect.html`, `/generate_204`,
+  `/connecttest.txt`, `/ncsi.txt`) with a 302 to `/`, and a wildcard DNS
+  responder (`dns_server.c`, :53) makes those probes resolve to this board in
+  the first place — reusing `landing_get`'s existing state-routing page, not
+  duplicating it. On a locked-down device, or an OS that never fires the
+  probe, this is a no-op: it still just visits `/wifi` manually.
 
 History ladder (details: git log): v2 zenoh + BLE provisioning → v3/v4 MQTT port
 + motor drive → v5 BLE removed → v6 unified always-APSTA image.
