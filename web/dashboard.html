@@ -121,7 +121,7 @@
     /* Fleet grid — auto-fill so cards reflow from a phone's single column up to
        the desktop's multi-column without a media query per breakpoint. */
     #robots {
-      display: grid; gap: 0.9rem; align-items: start;
+      display: grid; gap: 0.9rem; align-items: stretch;
       /* auto-fit (not fill): with one or two cards the empty tracks collapse
          and the cards grow, instead of hugging a phantom column grid. Tracks
          flex to 1fr — a fixed 26rem max would count repetitions at 26rem and
@@ -235,6 +235,11 @@
       color: var(--link); background: var(--accent-soft); transition: transform 0.08s ease, filter 0.15s ease;
     }
     .btn-accent:hover { filter: brightness(1.15); }
+    /* Warn variant of the soft button — the fleet's one call-to-action. An
+       unassigned board's "Assign to team" carries amber, not accent blue,
+       matching its corner chip: the whole card says "act here" in one hue. */
+    .btn-warn { color: var(--warn-ink);
+      background: color-mix(in srgb, var(--warn) 14%, transparent); }
     /* Link-styled button: disclosure toggles that were once <a href="#">. */
     .link-btn { background: none; border: none; padding: 0; font: inherit;
       color: var(--link); cursor: pointer; }
@@ -450,12 +455,13 @@
     button.cchip:hover { filter: brightness(1.25); }
     .cchip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cchip svg { flex: none; }
-    /* A claimed board is settled — its team reads in plain ink, no color.
-       The unclaimed chip is the page's one call-to-action chip: amber, the
-       person-add icon, and a verb (Claim / Assign by role). Amber = act here. */
+    /* A claimed board is settled — its team reads in plain ink, no color. An
+       unclaimed board needs a team, so it reads amber = "act here": the corner
+       chip (Claim for a student, Unassigned for the professor) and the card's
+       Assign-to-team button all carry the warn hue. Amber recedes as the class
+       gets set up — a board that earns a team drops to plain ink. */
     .cchip-team { color: var(--ink); }
-    .cchip-team.pool { color: var(--ink-muted); }
-    .cchip-claim { color: var(--warn-ink);
+    .cchip-team.pool, .cchip-claim { color: var(--warn-ink);
       border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
     /* The team-scoped viewer's own rover — the one card that's theirs. */
     .robot.mine { box-shadow: 0 0 0 2px var(--accent-text); }
@@ -599,6 +605,14 @@
       .card-more > summary { min-height: var(--tap); }
       #modal-close { width: var(--tap); height: var(--tap); }
       .dpad { grid-template-columns: repeat(3, 4rem); grid-template-rows: repeat(3, 4rem); }
+    }
+    /* The tap-target bump above is width-gated, but the classroom's iPads sit
+       at 768px — above 32rem, yet every input is a finger. pointer:coarse
+       catches touch at ANY width, so the card action row, the drive mode
+       switch, and the diagnostics controls all clear 44pt on the iPad too. */
+    @media (pointer: coarse) {
+      .btn-accent, .btn-tile, .codes-row button, .segmented button,
+      .card-more > summary, #wire-filter, #wire-beacons, #wire-pause { min-height: var(--tap); }
     }
   </style>
 </head>
@@ -769,30 +783,6 @@
     </div>
   </section>
 
-  <!-- The bus view: everything this session's subscription carries, its own
-       full-width card — a verbose surface deserves the whole column. Per-rover
-       reading lives in each card's telemetry sheet; this is the classroom's
-       raw wire, the teaching tap. -->
-  <details id="student-details">
-    <!-- The age hint tells you the link is healthy without opening the row;
-         it lives in its own span because signIn retitles the label by role. -->
-    <summary><span id="details-label">Details &amp; troubleshooting</span> <span id="details-age"></span></summary>
-  <!-- Professor-only fleet vitals: the sys beacon rendered as one row per
-       board — the glanceable middle ground between the cards and the raw wire. -->
-  <div id="fleet-diag" style="display:none"></div>
-  <section id="wire" style="display:none">
-    <!-- No heading of its own — the wrapping details' summary titles it. -->
-    <div class="wire-wrap">
-      <div class="wire-head"><span><span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></span>
-        <span class="spacer"></span>
-        <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
-        <button id="wire-beacons" aria-pressed="false" title="sys beacons are most of the traffic — shown only on demand">Beacons</button>
-        <button id="wire-pause" aria-pressed="false">Pause</button></div>
-      <div id="wire-log" role="log" tabindex="0" aria-label="Live command and telemetry log"></div>
-    </div>
-  </section>
-  </details>
-
   <!-- Professor-only. One roster for the whole classroom: requests arrive at
        the top, each team row carries its code actions (hub-served only —
        hubd /codes/* wraps mosquitto_passwd + reload) and its rovers, and
@@ -880,6 +870,32 @@
     </div>
   </section>
   </div>
+
+  <!-- The bus view: everything this session's subscription carries — its own
+       full-width row below the controls, a verbose surface that deserves the
+       whole column. In student scope its order:3 lands it last ("diagnostics
+       close the page"); in professor scope it reads as "Advanced diagnostics".
+       Per-rover reading lives in each card's telemetry sheet; this is the
+       classroom's raw wire, the teaching tap. -->
+  <details id="student-details">
+    <!-- The age hint tells you the link is healthy without opening the row;
+         it lives in its own span because signIn retitles the label by role. -->
+    <summary><span id="details-label">Details &amp; troubleshooting</span> <span id="details-age"></span></summary>
+  <!-- Professor-only fleet vitals: the sys beacon rendered as one row per
+       board — the glanceable middle ground between the cards and the raw wire. -->
+  <div id="fleet-diag" style="display:none"></div>
+  <section id="wire" style="display:none">
+    <!-- No heading of its own — the wrapping details' summary titles it. -->
+    <div class="wire-wrap">
+      <div class="wire-head"><span><span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></span>
+        <span class="spacer"></span>
+        <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
+        <button id="wire-beacons" aria-pressed="false" title="sys beacons are most of the traffic — shown only on demand">Beacons</button>
+        <button id="wire-pause" aria-pressed="false">Pause</button></div>
+      <div id="wire-log" role="log" tabindex="0" aria-label="Live command and telemetry log"></div>
+    </div>
+  </section>
+  </details>
   </main>
 
   <!-- Per-board modal: opens the live camera stream or the board's embedded /wifi
@@ -3554,7 +3570,7 @@ safe-buffer/index.js:
         // Telemetry stays in the ••• overflow — the diagnostic path, not the
         // first move.
         if (!offline) actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-bteam="${esc(team)}">${icon("zap")} Identify</button>`);
-        actions.push(`<button class="btn-accent" data-assign="${esc(board)}" data-bteam="${esc(team)}">${icon("claim")} Assign to team</button>`);
+        actions.push(`<button class="btn-accent btn-warn" data-assign="${esc(board)}" data-bteam="${esc(team)}">${icon("claim")} Assign to team</button>`);
         actions.push(`<details class="card-more"><summary aria-label="More rover actions">•••</summary><div class="card-more-menu"><button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">${icon("activity")} Telemetry</button></div></details>`);
       } else if (prof) {
         const more = [];
