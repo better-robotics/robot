@@ -3467,8 +3467,10 @@ safe-buffer/index.js:
       } else if (mine) {
         actions.push(`<button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">Details</button>`);
       }
-      // Claim: the signed-out arrival path, on the pool device itself. The
-      // .pool-row class stays — the claim Enter handler anchors on it.
+      // Claim: the signed-out arrival path. The amber corner chip is the one
+      // entry (no idle-state button — one CTA per card); this row only shows
+      // the in-progress states. The .pool-row class stays — the claim Enter
+      // handler anchors on it.
       let claimRow = "";
       if (claimable) {
         claimRow = claimingBoard === board ? `<div class="pool-actions pool-row">
@@ -3478,7 +3480,7 @@ safe-buffer/index.js:
             ${claimErr ? `<span class="claim-err">${esc(claimErr)}</span>` : ""}</div>`
           : localStorage.getItem("hubReqBoard") === board && reqTimer
             ? `<div class="pool-actions"><span class="claim-wait">waiting for the professor…</span></div>`
-            : `<div class="pool-actions"><button class="btn-tile" data-claim="${esc(board)}">${icon("claim")} Claim — make it your team's</button></div>`;
+            : "";
       }
       const shared = !isPool && teamCounts.get(team) > 1;
       // A pending claim renders on the claimed rover itself — the professor is
