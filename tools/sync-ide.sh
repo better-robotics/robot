@@ -15,7 +15,7 @@ set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 dst="$here/../web/ide"
 
-IDE_TAG=ide-v7
+IDE_TAG=ide-v8
 
 if [ "${1:-}" = "--check" ]; then
   if [ -f "$dst/.tag" ] && [ "$(cat "$dst/.tag")" = "$IDE_TAG" ]; then

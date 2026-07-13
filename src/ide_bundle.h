@@ -6,10 +6,13 @@
 #pragma once
 
 typedef struct {
-    const char          *path;  /* request path, e.g. "/ide/app.js" */
-    const char          *type;  /* Content-Type */
-    const unsigned char *data;  /* gzip-compressed body, lives in flash */
+    const char          *path;    /* request path, e.g. "/ide/app.js" */
+    const char          *type;    /* Content-Type */
+    const unsigned char *data;    /* body, lives in flash */
     unsigned int         len;
+    unsigned char        gzipped; /* 0 = identity — audio: Chrome's media
+                                   * pipeline rejects gzip on streamed audio
+                                   * (ERR_CONTENT_DECODING_FAILED) */
 } ide_file_t;
 
 extern const ide_file_t ide_files[];

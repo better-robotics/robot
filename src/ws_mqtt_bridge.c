@@ -231,7 +231,8 @@ static esp_err_t ide_handler(httpd_req_t *req)
         const ide_file_t *f = &ide_files[i];
         if (strlen(f->path) == n && strncmp(f->path, want, n) == 0) {
             httpd_resp_set_type(req, f->type);
-            httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+            if (f->gzipped)
+                httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
             httpd_resp_send(req, (const char *)f->data, f->len);
             return ESP_OK;
         }
