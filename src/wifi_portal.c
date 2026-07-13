@@ -433,7 +433,12 @@ void wifi_portal_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = 80;
     cfg.ctrl_port = 32768;
-    cfg.max_open_sockets = 7;
+    /* 3 (was 7): this handle also serves the dashboard + IDE once
+     * start_ws_mqtt_bridge registers onto it, and the chip-wide LWIP pool is
+     * 16 sockets shared with mosquitto/rovers/DNS/mDNS — the old budget let
+     * one IDE page load starve the broker's accept loop (2026-07-13). The
+     * IDE bundle is built to load within this (ide-v7 script concat). */
+    cfg.max_open_sockets = 3;
     /* True peak on THIS shared handle: /wifi{,/scan,/save,/role×2,/status} + /
      * + the 4 captive-portal probe paths below = 11 registered right after this
      * function returns; start_ws_mqtt_bridge later drops / (-1) then adds back

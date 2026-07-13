@@ -28,7 +28,14 @@
 
 #define WS_PORT      9001
 #define BROKER_PORT  1883
-#define MAX_BRIDGES  4
+/* 2, not 4: every bridge session costs TWO LWIP sockets (the WS side plus a
+ * local TCP pipe into mosquitto), and the chip's whole pool is 16
+ * (CONFIG_LWIP_MAX_SOCKETS ceiling) shared with the page httpd, broker
+ * clients, DNS, and mDNS. Two concurrent browser MQTT sessions — professor
+ * dashboard + one IDE — is the tier-2 reality; the Pi is the classroom-scale
+ * hub. First-hardware lesson 2026-07-13: the old budget let one page load
+ * starve mosquitto's accept loop. */
+#define MAX_BRIDGES  2
 #define PUMP_BUF     1024
 
 static const char *TAG = "ws-bridge";
@@ -291,9 +298,11 @@ void start_ws_mqtt_bridge(void)
         httpd_config_t page_cfg = HTTPD_DEFAULT_CONFIG();
         page_cfg.server_port = 80;
         page_cfg.ctrl_port = 32768;
-        /* 7 (was 4): the IDE's first load fans out to ~10 asset requests and
-         * browsers open up to 6 parallel connections per host. */
-        page_cfg.max_open_sockets = 7;
+        /* 3: the IDE bundle concatenates its upfront scripts (ide-v7) so a
+         * page load only needs a few connections, and the socket budget must
+         * leave room for mosquitto + rovers within LWIP's 16-socket pool —
+         * see MAX_BRIDGES above. */
+        page_cfg.max_open_sockets = 3;
         page_cfg.lru_purge_enable = true;
         /* The IDE's /ide/?* route needs wildcard matching; every exact URI
          * (no '*' in it) still matches exactly as before. The shared portal
@@ -319,7 +328,7 @@ void start_ws_mqtt_bridge(void)
     httpd_config_t ws_cfg = HTTPD_DEFAULT_CONFIG();
     ws_cfg.server_port = WS_PORT;
     ws_cfg.ctrl_port = 32769;
-    ws_cfg.max_open_sockets = MAX_BRIDGES + 2;
+    ws_cfg.max_open_sockets = MAX_BRIDGES + 1;
     ws_cfg.lru_purge_enable = true;
     httpd_handle_t ws_srv = NULL;
     if (httpd_start(&ws_srv, &ws_cfg) != ESP_OK) {
