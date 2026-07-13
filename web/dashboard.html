@@ -1339,7 +1339,24 @@ safe-buffer/index.js:
     // Rust relay (mosquitto-acl.example.conf's top-level rule).
     const wsPort = "9001"; // fixed convention, same host — see mosquitto.example.conf
     let publicClient = null;
-    if (hubHost) {
+    // Feed the rover cards from any /sys message, whichever client carried it.
+    function ingestSys(topic, payload) {
+      const id = topic.split("/")[1];
+      try {
+        const sys = JSON.parse(payload.toString());
+        robots.set(id, { sys, seenAt: Date.now() });
+        if (sys.board) boards.set(sys.board, { team: id, sys, seenAt: Date.now() });
+        // No render here — the 2 s clock paints. Rendering per message is
+        // quadratic in fleet size and steals taps/focus mid-interaction.
+      } catch { /* a non-JSON payload on this topic isn't a valid sys sample */ }
+    }
+    // One page, one connection: signing in ENDS this client (the signed-in
+    // session's own subscription takes over the sys feed), and logout brings
+    // it back. The ESP32 hub bridges at most a handful of WS-MQTT sessions —
+    // a page that holds two would fill it alone (bench 2026-07-13: professor
+    // sign-in stalled with "No answer from the hub" on a fresh laptop).
+    function startPublicClient() {
+      if (publicClient || !hubHost) return;
       publicClient = mqtt.connect(`ws://${hubHost}:${wsPort}`);
       publicClient.on("connect", () => {
         hostGate.style.display = "none"; // real confirmation: this host actually works
@@ -1355,17 +1372,14 @@ safe-buffer/index.js:
           hostGate.style.display = "flex";
         });
       }
-      publicClient.on("message", (topic, payload) => {
-        const id = topic.split("/")[1];
-        try {
-          const sys = JSON.parse(payload.toString());
-          robots.set(id, { sys, seenAt: Date.now() });
-          if (sys.board) boards.set(sys.board, { team: id, sys, seenAt: Date.now() });
-          // No render here — the 2 s clock paints. Rendering per message is
-          // quadratic in fleet size and steals taps/focus mid-interaction.
-        } catch { /* a non-JSON payload on this topic isn't a valid sys sample */ }
-      });
+      publicClient.on("message", ingestSys);
     }
+    function stopPublicClient() {
+      if (!publicClient) return;
+      try { publicClient.end(true); } catch {}
+      publicClient = null;
+    }
+    startPublicClient();
 
     // ---- Manual control: code gate → direct MQTT → scoped joystick + wire log ----
     // Deliberately visual/verbose (opposite of the landing page's instinct to
@@ -2104,21 +2118,32 @@ safe-buffer/index.js:
       driveClient = client;
       // mqtt.js retries an unreachable host forever without ever emitting
       // "error" — surface that case ourselves instead of spinning silently.
+      // A hub with no free session slot (the ESP32 bridges only a few) looks
+      // different on the wire: the socket opens and is immediately dropped,
+      // over and over — count those drops and name the real problem.
+      let sessionUp = false, drops = 0;
       const stall = setTimeout(() => {
-        if (!silent) gateMsg("No answer from the hub — are you on its Wi-Fi?");
+        if (!silent) gateMsg(drops
+          ? "The hub is full — close another dashboard or IDE tab, then try again."
+          : "No answer from the hub — are you on its Wi-Fi?");
         try { client.end(true); } catch {}
         restore();
       }, 8000);
       client.on("connect", () => {
         clearTimeout(stall); restore();
         if (driveClient !== client) return; // superseded while connecting
+        sessionUp = true;
         myCred = { user: username, pass: password };
         // Remembered so a locked phone or reload lands back in, signed in.
         localStorage.setItem("hubCred", JSON.stringify(myCred));
+        stopPublicClient();     // one page, one connection — this session feeds the cards now
         onScope(username);      // before setConnPill: the chip label reads identity-name
         setConnPill("live");
         const filter = myScope.scope === "all" ? "robots/+/#" : `robots/${username}/#`;
         client.subscribe(filter);
+        // Team scope's filter misses other rovers' beacons; the professor's
+        // robots/+/# already carries them (no double subscription).
+        if (myScope.scope === "one") client.subscribe("robots/+/sys");
       });
       client.on("error", () => {
         clearTimeout(stall); restore();
@@ -2132,9 +2157,14 @@ safe-buffer/index.js:
           gateMsg("Your saved code no longer works — it may have been rotated. Sign in again.");
         }
       });
-      client.on("close", () => { if (driveClient === client && myCred) setConnPill("reconnecting"); });
+      client.on("close", () => {
+        if (!sessionUp) { drops++; return; } // pre-CONNACK drop: the stall message reads this
+        if (driveClient === client && myCred) setConnPill("reconnecting");
+      });
       client.on("message", (topic, payload) => {
-        if (driveClient === client) logLine("in", `${topic} ${payload.toString()}`);
+        if (driveClient !== client) return;
+        if (topic.endsWith("/sys")) ingestSys(topic, payload); // publicClient's job, taken over
+        logLine("in", `${topic} ${payload.toString()}`);
       });
     }
     function submitCode() {
@@ -2155,6 +2185,7 @@ safe-buffer/index.js:
     document.getElementById("logout-btn").addEventListener("click", () => {
       try { driveClient.end(true); } catch {}
       driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
+      startPublicClient();      // signed-out cards go back to the anonymous sys feed
       if (!modal.hidden) closeModal();   // an open Drive/Camera/Telemetry sheet must not survive sign-out
       setConnPill("");
       document.body.classList.remove("scope-one");   // back to the fleet-first order

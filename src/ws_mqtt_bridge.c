@@ -28,14 +28,17 @@
 
 #define WS_PORT      9001
 #define BROKER_PORT  1883
-/* 2, not 4: every bridge session costs TWO LWIP sockets (the WS side plus a
+/* 3, not more: every bridge session costs TWO LWIP sockets (the WS side plus a
  * local TCP pipe into mosquitto), and the chip's whole pool is 16
  * (CONFIG_LWIP_MAX_SOCKETS ceiling) shared with the page httpd, broker
- * clients, DNS, and mDNS. Two concurrent browser MQTT sessions — professor
- * dashboard + one IDE — is the tier-2 reality; the Pi is the classroom-scale
- * hub. First-hardware lesson 2026-07-13: the old budget let one page load
- * starve mosquitto's accept loop. */
-#define MAX_BRIDGES  2
+ * clients, DNS, and mDNS. The dashboard holds ONE session per page (sign-in
+ * ends its anonymous fleet-view client) — before that fix a single signed-in
+ * laptop held two, filled the old 2-slot table alone, and professor sign-in
+ * stalled on "No answer from the hub" (bench 2026-07-13). Three slots =
+ * dashboard + IDE + one more phone; the Pi is the classroom-scale hub. The
+ * cap itself stays hard: the same bench day showed an oversized budget lets
+ * page loads starve mosquitto's accept loop. */
+#define MAX_BRIDGES  3
 #define PUMP_BUF     1024
 
 static const char *TAG = "ws-bridge";
