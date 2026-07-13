@@ -19,6 +19,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "cJSON.h"          /* /wifi/connect speaks hubd's JSON dialect */
 #include "roles.h"          /* board_ap_t, board_wifi_scan */
 #include "rover_config.h"   /* rover_config_set_wifi, rover_config_load */
 #include "wifi_portal.h"
@@ -253,7 +254,11 @@ static esp_err_t scan_get(httpd_req_t *req)
     if (!aps) { httpd_resp_send_500(req); return ESP_FAIL; }
     int n = board_wifi_scan(aps, SCAN_MAX);
 
-    /* Each row ~ {"ssid":"<=32","rssi":-100,"open":false}, — budget generously. */
+    /* Each row ~ {"ssid":"<=32","signal":100,"security":"WPA2"}, — budget
+     * generously. The shape is the Pi hubd's /wifi/scan dialect (wifi.rs
+     * scan/map_auth) — the shared dashboard reads `signal` (0-100) and gates
+     * the password box on `security === "NO"`; the old {rssi, open} keys
+     * rendered as "undefined%" and asked open networks for a password. */
     size_t cap = 32 + (size_t)n * 96;
     char *json = malloc(cap);
     if (!json) { free(aps); httpd_resp_send_500(req); return ESP_FAIL; }
@@ -271,8 +276,14 @@ static esp_err_t scan_get(httpd_req_t *req)
             esc[e++] = (char)*p;
         }
         esc[e] = 0;
-        off += snprintf(json + off, cap - off, "%s{\"ssid\":\"%s\",\"rssi\":%d,\"open\":%s}",
-                        i ? "," : "", esc, aps[i].rssi, aps[i].open ? "true" : "false");
+        /* dBm → percent, the common 2×(rssi+100) clamp: -50 dBm ≥ 100%,
+         * -100 dBm = 0%. The scan can't distinguish WPA flavors (only
+         * open/locked), so locked networks badge as the common case. */
+        int pct = 2 * (aps[i].rssi + 100);
+        if (pct > 100) pct = 100;
+        if (pct < 0) pct = 0;
+        off += snprintf(json + off, cap - off, "%s{\"ssid\":\"%s\",\"signal\":%d,\"security\":\"%s\"}",
+                        i ? "," : "", esc, pct, aps[i].open ? "NO" : "WPA2");
     }
     snprintf(json + off, cap - off, "]");
 
@@ -362,6 +373,40 @@ static esp_err_t save_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* POST /wifi/connect — hubd's JSON dialect: body {ssid, password}, reply
+ * {"ok":true} / {"ok":false,"error":…}. The shared dashboard's Set-up-Wi-Fi
+ * panel drives THIS path on both hubs (dashboard.html wifi-connect); the
+ * form-POST /wifi/save above stays as the portal page's own submit. Same
+ * effect: persist to NVS (the hub role's uplink prefers stored creds over
+ * compile-time — hub_role.c) and config-apply reboot. The reply goes out
+ * before the reboot task fires, same as save_post. */
+static esp_err_t connect_post(httpd_req_t *req)
+{
+    char body[256];
+    read_form_body(req, body, sizeof body);   /* raw body reader, despite the name */
+
+    cJSON *j = cJSON_Parse(body);
+    const cJSON *jssid = j ? cJSON_GetObjectItem(j, "ssid") : NULL;
+    const cJSON *jpass = j ? cJSON_GetObjectItem(j, "password") : NULL;
+    char ssid[33] = "", pass[65] = "";
+    if (cJSON_IsString(jssid)) snprintf(ssid, sizeof ssid, "%s", jssid->valuestring);
+    if (cJSON_IsString(jpass)) snprintf(pass, sizeof pass, "%s", jpass->valuestring);
+    cJSON_Delete(j);
+
+    httpd_resp_set_type(req, "application/json");
+    if (!ssid[0]) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"missing ssid\"}");
+    }
+    if (rover_config_set_wifi(ssid, pass) != ESP_OK)
+        return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"could not save credentials\"}");
+
+    ESP_LOGI(TAG, "saved uplink '%s' via /wifi/connect — restarting to join it", ssid);
+    httpd_resp_sendstr(req, "{\"ok\":true}");
+    xTaskCreate(reboot_task, "cfg-reboot", 2048, NULL, 5, NULL);
+    return ESP_OK;
+}
+
 /* ── Board role (#2 tier-2 designate) ─────────────────────────────────────────
  * role_pref selects the boot dispatch (main.c): auto/rover → board_run, hub →
  * hub_role_run. Exposing it here is what lets a professor turn any board into the
@@ -439,12 +484,12 @@ void wifi_portal_start(void)
      * one IDE page load starve the broker's accept loop (2026-07-13). The
      * IDE bundle is built to load within this (ide-v7 script concat). */
     cfg.max_open_sockets = 3;
-    /* True peak on THIS shared handle: /wifi{,/scan,/save,/role×2,/status} + /
-     * + the 4 captive-portal probe paths below = 11 registered right after this
-     * function returns; start_ws_mqtt_bridge later drops / (-1) then adds back
-     * / (dashboard) + /fleet + /ide/?* (+3) = 13 peak. +1 headroom over that
-     * measured peak, not a round-number guess. */
-    cfg.max_uri_handlers = 14;
+    /* True peak on THIS shared handle: /wifi{,/scan,/save,/connect,/role×2,/status}
+     * + / + the 4 captive-portal probe paths below = 12 registered right after
+     * this function returns; start_ws_mqtt_bridge later drops / (-1) then adds
+     * back / (dashboard) + /fleet + /ide/?* (+3) = 14 peak. +1 headroom over
+     * that measured peak, not a round-number guess. */
+    cfg.max_uri_handlers = 15;
     cfg.lru_purge_enable = true;
     /* Wildcard matcher for the bridge's /ide/?* route (ws_mqtt_bridge.c
      * registers onto this shared handle); URIs without '*' — everything
@@ -458,7 +503,8 @@ void wifi_portal_start(void)
     }
     httpd_uri_t u_page  = { .uri = "/wifi",        .method = HTTP_GET,  .handler = page_get };
     httpd_uri_t u_scan  = { .uri = "/wifi/scan",   .method = HTTP_GET,  .handler = scan_get };
-    httpd_uri_t u_save  = { .uri = "/wifi/save",   .method = HTTP_POST, .handler = save_post };
+    httpd_uri_t u_save  = { .uri = "/wifi/save",    .method = HTTP_POST, .handler = save_post };
+    httpd_uri_t u_conn  = { .uri = "/wifi/connect", .method = HTTP_POST, .handler = connect_post };
     httpd_uri_t u_rget  = { .uri = "/wifi/role",   .method = HTTP_GET,  .handler = role_get };
     httpd_uri_t u_rpost = { .uri = "/wifi/role",   .method = HTTP_POST, .handler = role_post };
     httpd_uri_t u_stat  = { .uri = "/wifi/status", .method = HTTP_GET,  .handler = status_get };
@@ -475,6 +521,7 @@ void wifi_portal_start(void)
     httpd_register_uri_handler(s_http, &u_page);
     httpd_register_uri_handler(s_http, &u_scan);
     httpd_register_uri_handler(s_http, &u_save);
+    httpd_register_uri_handler(s_http, &u_conn);
     httpd_register_uri_handler(s_http, &u_rget);
     httpd_register_uri_handler(s_http, &u_rpost);
     httpd_register_uri_handler(s_http, &u_stat);
