@@ -71,17 +71,26 @@
       -webkit-backdrop-filter: saturate(180%) blur(20px);
       backdrop-filter: saturate(180%) blur(20px);
     }
-    .topbar h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
-    h1 .logo-accent { font-weight: 700; color: var(--ink); }
-    h1 .logo-base { font-weight: 400; color: var(--ink-muted); }
+    /* The bar never wraps: the brand is fixed, the host chip gives way first
+       (ellipsis), then the right cluster's chip labels — a 50px bar with a
+       long venue SSID must shed characters, not lines. */
+    .topbar h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0;
+      display: flex; align-items: baseline; min-width: 0; white-space: nowrap; flex: 1 1 auto; }
+    h1 .logo-accent { font-weight: 700; color: var(--ink); flex: none; }
+    h1 .logo-base { font-weight: 400; color: var(--ink-muted); flex: none; }
     /* Top-right status cluster — ambient state lives in the chrome (the
        identity chip is the standard account-corner; the network chip is the
        uplink's steady-state home, the .notice row below stays the exception
        surface). Chips are text-bearing on purpose: a bare glyph is a claim a
        first-time student can't read. Tapping a chip opens its control. */
-    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+    /* Shrink order under pressure: the SSID chip gives way (3× shrink weight)
+       before the host token — "hub-a2f5"'s suffix is what tells two hubs
+       apart — and the Sign in / identity label never truncates at all. */
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.5rem;
+      min-width: 0; flex: 0 3 auto; }
+    #signin-chip, #id-chip { flex: none; }
     .tchip {
-      display: none; align-items: center; gap: 0.4rem; max-width: 11rem;
+      display: none; align-items: center; gap: 0.4rem; max-width: 11rem; min-width: 0;
       font-size: 0.78rem; font-weight: 600; cursor: pointer;
       border: 0.5px solid var(--border-default); border-radius: var(--radius-pill);
       padding: 0.25rem 0.7rem; background: var(--inset); color: var(--ink);
@@ -235,7 +244,7 @@
     /* Which host serves this page — one glanceable token matching the Wi-Fi
        name the user just joined (two hubs on the air look identical otherwise). */
     #host-chip { font-size: 0.75rem; font-weight: 400; opacity: 0.6; margin-left: 0.8rem;
-                 letter-spacing: 0.02em; vertical-align: middle; }
+                 letter-spacing: 0.02em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     /* Pending-request badge: the professor's attention hook lives in the sticky
        bar, because the queue itself renders far below the fold. */
     #req-badge { display: none; cursor: pointer; font-size: 0.8rem; font-weight: 600;
@@ -357,6 +366,9 @@
     #drive-target { background: var(--inset); color: var(--ink); font: inherit;
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
       padding: 0.5rem 0.7rem; min-height: var(--tap); max-width: 20rem; width: 100%; }
+    /* The target picker and the input-mode switch are separate decisions —
+       give them the panel's 0.85rem beat (scope-label's rhythm) between them. */
+    #drive-target-row { margin-bottom: 0.85rem; }
     /* Team scope reads pad-first: their whole world is one rover. */
     body.scope-one main { display: flex; flex-direction: column; }
     body.scope-one #robots { order: 2; }
@@ -526,6 +538,10 @@
     /* Phone: single column, full-width controls, comfortable spacing. */
     @media (max-width: 32rem) {
       main { padding: 1.25rem 1rem 4rem; }
+      /* Phone bar: a venue SSID can be arbitrarily long — chips ellipsize
+         at a tighter cap so brand + host + both chips share one line. */
+      .topbar { padding: 0 1rem; }
+      .tchip { max-width: 7.5rem; }
       #robots { grid-template-columns: 1fr; }
       .summary-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
       /* auto-fit's 24rem min track (#controls) exceeds a phone's width and would
