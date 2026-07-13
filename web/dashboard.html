@@ -126,6 +126,7 @@
     .summary-card strong { display: block; font-size: 1.2rem; line-height: 1.1; }
     .summary-card span { color: var(--ink-muted); font-size: 0.78rem; }
     button.summary-card { cursor: pointer; }
+    button.summary-card:hover { border-color: var(--border-strong); }
     button.summary-card[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--border-strong); }
     button.summary-card[aria-pressed="true"] span { color: var(--link); }
     .robot {
@@ -139,11 +140,6 @@
       font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em;
       display: flex; align-items: center; gap: 0.55rem;
     }
-    .card-status { margin-left: auto; font-size: 0.76rem; font-weight: 700; color: var(--success); }
-    .offline .card-status, .card-status.warn { color: var(--warn-ink); }
-    /* Pool is a normal state (fresh boards await assignment), not a warning —
-       it gets the muted category ink, never the warn tint. */
-    .card-status.pool { color: var(--ink-muted); }
     .card-meta { color: var(--ink-muted); font-size: 0.8rem; margin-top: 0.2rem; }
     .offline-label {
       color: var(--warn-ink); font-size: 0.75rem; font-weight: 700;
@@ -360,6 +356,8 @@
     /* Team scope reads pad-first: their whole world is one rover. */
     body.scope-one main { display: flex; flex-direction: column; }
     body.scope-one #robots { order: 2; }
+    /* Their rover card rides right under the pad; diagnostics close the page. */
+    body.scope-one #student-details { order: 3; }
     #wire-log, #tel-feed {
       height: 11rem; overflow-y: auto; background: var(--inset);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
@@ -399,8 +397,10 @@
     .cchip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cchip svg { flex: none; }
     .cchip-team { color: var(--accent-text); }
-    .cchip-team.pool { color: var(--warn-ink);
-      border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+    /* Pool is a normal state, not a warning — amber means "something's wrong"
+       everywhere else on this page. A placeholder identity wears muted ink;
+       a real team wears accent. */
+    .cchip-team.pool { color: var(--ink-muted); }
     /* The team-scoped viewer's own rover — the one card that's theirs. */
     .robot.mine { box-shadow: 0 0 0 2px var(--accent-text); }
     /* Assign/repair form: its own hairline-divided block (it follows the
@@ -3395,7 +3395,7 @@ safe-buffer/index.js:
     // while the cabinet is closed; code hygiene must not wait for power-on.
     function teamOnlyCard(id) {
       return `<div class="robot offline team-only">
-        <h2><span class="dot"></span>${esc(id)}<span class="card-status">Needs rover</span></h2>
+        <h2><span class="dot"></span>${esc(id)}</h2>
         <div class="card-meta">No rover connected</div>
         <div class="remedy">Assign an unassigned rover or power this team's rover on.</div>
         <div class="card-actions">${teamOps(id, true)}</div>
@@ -3453,7 +3453,7 @@ safe-buffer/index.js:
         actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(team)}" data-board="${esc(board)}">${icon("camera")} Camera</button>`);
       if (prof) {
         const more = [];
-        more.push(`<button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">${icon("activity")} Diagnostics</button>`);
+        more.push(`<button class="btn-tile" data-tel="${esc(team)}" data-tel-board="${esc(board)}">${icon("activity")} Telemetry</button>`);
         if (!offline) more.push(`<button class="btn-tile" data-blink="${esc(board)}" data-bteam="${esc(team)}">${icon("zap")} Identify rover</button>`);
         if (!isPool) more.push(`<button class="btn-tile btn-danger" data-unassign="${esc(board)}" data-uteam="${esc(team)}">Unassign rover…</button>`);
         actions.push(`<details class="card-more"><summary aria-label="More rover actions">•••</summary><div class="card-more-menu">${more.join("")}</div></details>`);
@@ -3480,9 +3480,8 @@ safe-buffer/index.js:
       // the req-badge sheet.
       const req = prof ? pendingRequests.find(q => !q.join && q.board === board) : null;
       return `<div class="robot${offline ? " offline" : ""}${mine ? " mine" : ""}">
-        <h2><span class="dot"></span>${esc(mine ? displayTeam : board)}<span class="card-status${offline ? "" : isPool ? " pool" : shared ? " warn" : ""}">${offline ? "Offline" : isPool ? "Needs team" : shared ? "Check setup" : "Ready"}</span></h2>
+        <h2><span class="dot"></span>${esc(mine ? displayTeam : board)}${offline ? '<span class="offline-label">offline</span>' : ""}${chips}</h2>
         <div class="card-meta">${mine ? `Rover ${esc(board)}` : esc(sys.hw || "unknown board")}${sys.name ? ` · ${esc(sys.name)}` : ""}</div>
-        ${chips}
         ${shared ? `<div class="warn-note">${icon("warn", 12)} ${teamCounts.get(team)} boards wear this team — every drive command moves all of them.</div>` : ""}
         ${req ? `<div class="pool-actions"><span class="req-line"><b>${esc(req.name)}</b> claims this rover</span>
             <button class="btn-tile" data-approve="${esc(req.name)}">Approve</button>
