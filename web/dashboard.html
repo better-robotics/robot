@@ -402,6 +402,12 @@
     body.scope-one #robots { order: 2; }
     /* Their rover card rides right under the pad; diagnostics close the page. */
     body.scope-one #student-details { order: 3; }
+    /* The rover card sits in the drive card's column: same track math as
+       #controls, auto-fill so the phantom second track holds the half width
+       (auto-fit would collapse it and balloon the lone card to full width). */
+    body.scope-one #robots { gap: 1rem;
+      grid-template-columns: repeat(auto-fill, minmax(min(24rem, 100%), 1fr)); }
+    body.scope-one .robot { max-width: none; }
     #wire-log, #tel-feed {
       height: 11rem; overflow-y: auto; background: var(--inset);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
