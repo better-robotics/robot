@@ -164,7 +164,6 @@
       .dot, #req-status.waiting::before, .claim-wait::before { animation: none; }
     }
 
-    .hw { color: var(--ink-muted); font-size: 0.82rem; margin-bottom: 0.7rem; }
     /* Telemetry as an iOS inset-grouped list: a filled panel with hairline row
        separators, label left / value right. */
     dl {
@@ -196,7 +195,7 @@
     input, button { font: inherit; }
     #code-gate { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     #code-input, #assign-form input, .pins-grid input, #hub-host-input, #wifi-pass,
-    #codes-user, #codes-pass, #req-name, .claim-name, .copy-fallback {
+    #codes-user, #codes-pass, #req-name, #prof-code, .claim-name, .copy-fallback {
       background: var(--inset); color: var(--ink);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
       padding: 0.6rem 0.85rem; min-height: var(--tap);
@@ -206,7 +205,7 @@
     input::placeholder { color: var(--ink-faint); }
 
     /* Primary (filled) button. Active press = subtle scale, the HIG tap feedback. */
-    #connect-btn, #assign-btn, #hub-host-save, #wifi-connect, #codes-add, #req-send {
+    #connect-btn, #assign-btn, #hub-host-save, #wifi-connect, #codes-add, #req-send, #prof-go {
       font-weight: 600; cursor: pointer; min-height: var(--tap);
       padding: 0.6rem 1.25rem; border-radius: var(--radius); border: none;
       color: var(--accent-ink); background: var(--accent); transition: transform 0.08s ease, filter 0.15s ease;
@@ -218,7 +217,7 @@
        action (scripts and the delegated #robots handler match on it). */
     .btn-accent {
       cursor: pointer; font-weight: 600; font-size: 0.9rem; min-height: 2.2rem;
-      padding: 0.4rem 0.9rem; border-radius: var(--radius); border: none; margin-top: 0.7rem;
+      padding: 0.4rem 0.9rem; border-radius: var(--radius); border: none;
       color: var(--link); background: var(--accent-soft); transition: transform 0.08s ease, filter 0.15s ease;
     }
     .btn-accent:hover { filter: brightness(1.15); }
@@ -238,7 +237,7 @@
                  border: none; border-radius: var(--radius-pill); padding: 0.3rem 0.8rem;
                  background: var(--accent); color: var(--accent-ink); }
     #team-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
-    .chip { padding: 0.45rem 0.9rem; border-radius: 999px; border: 1px solid var(--border-strong);
+    .chip { padding: 0.45rem 0.9rem; border-radius: var(--radius-pill); border: 0.5px solid var(--border-strong);
             background: transparent; color: inherit; cursor: pointer; font-size: 0.9rem;
             min-height: var(--tap); /* full tap target — and level with the gate row's input/button */ }
     .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
@@ -248,7 +247,7 @@
     .codes-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.65rem;
       font-size: 0.95rem; background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
     .codes-row .spacer { flex: 1; }
-    .codes-row button { padding: 0.35rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+    .codes-row button { padding: 0.35rem 0.8rem; border-radius: var(--radius-sm); border: 0.5px solid var(--border-strong);
             background: transparent; color: inherit; cursor: pointer; }
     /* Approve is the professor's most consequential tap — it wears the filled style. */
     .codes-row button[data-approve], #join-approve {
@@ -346,10 +345,10 @@
       font-size: 0.8rem; color: var(--ink-muted); }
     .wire-head .spacer { flex: 1; }
     #wire-pause, #wire-beacons { cursor: pointer; font-size: 0.78rem; padding: 0.2rem 0.7rem; border-radius: var(--radius-sm);
-      border: 1px solid var(--border-strong); background: transparent; color: var(--ink-muted); }
+      border: 0.5px solid var(--border-strong); background: transparent; color: var(--ink-muted); }
     #wire-pause[aria-pressed="true"], #wire-beacons[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
     #wire-filter { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: var(--radius-sm);
-      border: 1px solid var(--border-strong); background: var(--inset); color: var(--ink); max-width: 9rem; }
+      border: 0.5px solid var(--border-strong); background: var(--inset); color: var(--ink); max-width: 9rem; }
     #drive-target { background: var(--inset); color: var(--ink); font: inherit;
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
       padding: 0.5rem 0.7rem; min-height: var(--tap); max-width: 20rem; width: 100%; }
@@ -378,9 +377,6 @@
        the team lives; #teams below is the professor's codes desk (mint,
        requests, share card), display gated by scope. */
     #teams { display: none; }
-    .team-ops { margin-left: auto; display: flex; gap: 0.3rem; }
-    .team-ops button { padding: 0.3rem 0.7rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
-      background: transparent; color: inherit; cursor: pointer; font-size: 0.78rem; }
     /* A team whose code exists but whose rover is silent: present (the class
        exists while robots sit in the cabinet) but visibly idle. */
     .robot.team-only { opacity: 0.85; }
@@ -420,7 +416,7 @@
     #assign-advanced { flex-basis: 100%; padding: 0.6rem 0; border-top: 0.5px solid var(--border-default); }
     #assign-advanced > summary { cursor: pointer; color: var(--ink-muted); font-weight: 600; }
     #assign-advanced > .field { margin-top: 0.7rem; }
-    #assign-pins-wrap summary { cursor: pointer; color: var(--ink-muted); font-size: 0.85rem; }
+    #assign-pins-wrap summary { cursor: pointer; color: var(--ink-muted); font-size: 0.85rem; font-weight: 600; }
     .pins-help { color: var(--ink-muted); font-size: 0.78rem; margin: 0.5rem 0; }
     .pins-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
     .pins-grid label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.72rem; color: var(--ink-muted); }
@@ -450,7 +446,6 @@
     .claim-err { color: var(--danger-text); font-size: 0.85rem; flex-basis: 100%; }
     .pool-note { color: var(--ink-muted); font-size: 0.85rem; margin-top: 0.45rem; }
     .warn-note { color: var(--warn-ink); font-size: 0.85rem; margin-top: 0.45rem; }
-    .robot.collision { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 
     /* Per-card action row: Camera / Wi-Fi & role / Drive as tinted tiles. */
     .card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }
@@ -534,8 +529,7 @@
       .segmented button { flex: 1; }
       /* Full 44px tap targets on touch — including the secondary controls the
          professor taps most (tiles, Approve/Rotate/✕, Log out, modal close). */
-      .btn-accent, .btn-tile, .codes-row button,
-      .team-ops button, .segmented button { min-height: var(--tap); }
+      .btn-accent, .btn-tile, .codes-row button, .segmented button { min-height: var(--tap); }
       #modal-close { width: var(--tap); height: var(--tap); }
       .dpad { grid-template-columns: repeat(3, 4rem); grid-template-rows: repeat(3, 4rem); }
     }
@@ -546,6 +540,10 @@
     <span class="topbar-right">
       <button id="req-badge" aria-live="polite"></button>
       <button id="net-chip" class="tchip" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9.3a15 15 0 0 1 19 0"/><path d="M5.5 13a11 11 0 0 1 13 0"/><path d="M8.7 16.6a6 6 0 0 1 6.6 0"/><circle cx="12" cy="19.7" r="1.3" fill="currentColor" stroke="none"/></svg><span id="net-chip-label"></span></button>
+      <!-- Signed-out: the professor's door lives in the account corner. Teams
+           never sign in here — their paths are Claim on the rover card and the
+           QR sign-in card. Swaps for #id-chip once a session exists. -->
+      <button id="signin-chip" class="tchip" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-5 8-5s8 1.7 8 5v1H4z"/></svg><span>Sign in</span></button>
       <button id="id-chip" class="tchip" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-5 8-5s8 1.7 8 5v1H4z"/></svg><span id="id-chip-name"></span></button>
     </span>
   </header>
@@ -576,17 +574,17 @@
   <div id="wifi-setup" class="notice" style="display:none; flex-direction:column; align-items:stretch; gap:0.5rem">
     <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap">
       <span id="wifi-status" style="flex:1; min-width:12rem"></span>
-      <button id="wifi-open" class="btn-accent" style="margin:0">Set up Wi-Fi</button>
+      <button id="wifi-open" class="btn-accent">Set up Wi-Fi</button>
     </div>
     <div id="wifi-panel" style="display:none; flex-direction:column; gap:0.5rem">
       <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
-        <button id="wifi-scan" class="btn-accent" style="margin:0">Scan for networks</button>
+        <button id="wifi-scan" class="btn-accent">Scan for networks</button>
       </div>
       <div id="wifi-list" style="display:flex; flex-direction:column; gap:0.25rem"></div>
       <div id="wifi-join" style="display:none; gap:0.5rem; align-items:center; flex-wrap:wrap">
         <strong id="wifi-join-ssid"></strong>
         <input id="wifi-pass" type="password" placeholder="network password" aria-label="Network password" autocomplete="off">
-        <button id="wifi-connect" class="btn-accent" style="margin:0">Connect</button>
+        <button id="wifi-connect">Connect</button>
       </div>
       <p id="wifi-msg" class="hint" role="status"></p>
     </div>
@@ -3331,7 +3329,7 @@ safe-buffer/index.js:
         msg.textContent = nets.length ? "" : "No networks found.";
         // SSIDs come off the air — escape before they touch innerHTML.
         list.innerHTML = nets.map(n =>
-          `<button class="btn-accent wifi-net" style="margin:0; text-align:left"
+          `<button class="btn-accent wifi-net" style="text-align:left"
              data-ssid="${esc(n.ssid)}" data-open="${n.security === "NO"}">
              ${esc(n.ssid)} <span class="hint">${n.security === "NO" ? "open" : esc(n.security)} · ${n.signal}%</span>
            </button>`).join("");
@@ -3726,6 +3724,8 @@ safe-buffer/index.js:
       document.getElementById("identity-name").textContent = username;
       document.getElementById("id-chip-name").textContent = username;
       document.getElementById("id-chip").classList.add("show");
+      document.getElementById("signin-chip").classList.remove("show");
+      closeChipPop();   // the sign-in popover's job is done
       document.getElementById("id-menu-scope").textContent = myScope.scope === "all"
         ? "Professor — full fleet control." : `Team scope — drives ${myScope.robot} only.`;
       document.getElementById("drive-panel").style.display = "block";
@@ -4214,6 +4214,10 @@ safe-buffer/index.js:
     document.getElementById("pins-test-spin").addEventListener("click", () => testPulse(-130, 130, "spin in place to the LEFT"));
 
     function gateMsg(text) {
+      // While the professor sign-in popover is open, messages belong to it
+      // alone — a professor's typo must not paint the students' gate red.
+      const pop = document.getElementById("prof-pop-status");
+      if (pop) { pop.textContent = text; return; }
       const el = document.getElementById("gate-error");
       el.textContent = text;
       el.style.display = text ? "block" : "none";
@@ -4225,6 +4229,7 @@ safe-buffer/index.js:
     // before its rover is assigned tomorrow. Fleet-only on hosts without the
     // /codes API (ESP32 hub, standalone copy).
     let chipUser = localStorage.getItem("hubUser") || "";
+    if (chipUser === "professor") chipUser = "";   // that chip no longer exists — see renderChips
     let myCred = null;   // {user, pass} after a successful connect
     let knownTeams = []; // /codes/list usernames, when hub-served by the Pi
     let codesApi = false;
@@ -4254,9 +4259,11 @@ safe-buffer/index.js:
     function renderChips() {
       const box = document.getElementById("team-chips");
       if (!box || myCred) return;
+      // No professor chip: the professor's door is the topbar sign-in. The
+      // gate is the teams' fallback (borrowed phone, lost card) — and the
+      // name:code hatch in submitCode still admits anyone.
       const teams = [...new Set([...robots.keys(), ...knownTeams])]
-        .filter(t => t !== "unassigned").sort();
-      if (!teams.includes("professor")) teams.push("professor");
+        .filter(t => t !== "unassigned" && t !== "professor").sort();
       const html = teams.map(t =>
         `<button class="chip" data-user="${esc(t)}" aria-pressed="${String(t === chipUser)}">${esc(t)}</button>`).join("");
       if (html !== lastChipsHtml) { lastChipsHtml = html; box.innerHTML = html; }
@@ -4361,6 +4368,7 @@ safe-buffer/index.js:
       document.getElementById("sum-unassigned-card").setAttribute("aria-pressed", "false");
       pendingRequests = [];
       document.getElementById("id-chip").classList.remove("show");
+      document.getElementById("signin-chip").classList.add("show");
       closeChipPop();         // the logout button lives in the account popover
       document.getElementById("req-badge").style.display = "none";
       localStorage.removeItem("hubCred");
@@ -4409,6 +4417,27 @@ safe-buffer/index.js:
       openChipPop(document.getElementById("id-chip"), menu,
                   () => { menu.hidden = true; document.body.append(menu); });
     });
+
+    // Signed-out account corner → the professor's sign-in. Same connect() as
+    // the gate; errors mirror into the popover via gateMsg's second sink.
+    document.getElementById("signin-chip").addEventListener("click", () => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `<p><b>Professor sign-in</b></p>
+        <input id="prof-code" type="password" placeholder="professor code" aria-label="Professor code"
+               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+        <button id="prof-go">Sign in</button>
+        <p class="hint" id="prof-pop-status" role="status" aria-live="polite"></p>
+        <p class="hint">On a team? Tap <b>Claim</b> on your rover, or scan your team's sign-in card.</p>`;
+      openChipPop(document.getElementById("signin-chip"), wrap);
+      const go = () => {
+        const v = wrap.querySelector("#prof-code").value.trim();
+        if (v) connect("professor", v); else gateMsg("Enter the professor code first.");
+      };
+      wrap.querySelector("#prof-go").addEventListener("click", go);
+      wrap.querySelector("#prof-code").addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+      wrap.querySelector("#prof-code").focus();
+    });
+    document.getElementById("signin-chip").classList.add("show"); // signed out at boot; onScope hides it
 
     // ---- Access requests, gate side: POST the knock, poll the token, and an
     // approval signs this browser in by itself. The token survives reloads in
