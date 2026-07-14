@@ -51,12 +51,14 @@ jobs:
       - name: Build ${{ matrix.env }}
         run: pio run -e ${{ matrix.env }}
 
-      - name: Static analysis (esp32dev = the union build; config in platformio.ini)
-        if: matrix.env == 'esp32dev'
-        run: pio check -e esp32dev --fail-on-defect=medium --fail-on-defect=high
-
+      # Upload BEFORE `pio check`: with no cached idedata (every CI run) check
+      # re-runs the IDF configure into the same .pio/build/<env>/ and the just-built
+      # images don't survive it (run 29349751780). continue-on-error because the
+      # artifact is a convenience — org storage quota exhaustion must not redden
+      # the build guard.
       - name: Upload flashable image
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: firmware-${{ matrix.env }}
           path: |
@@ -64,3 +66,8 @@ jobs:
             .pio/build/${{ matrix.env }}/bootloader.bin
             .pio/build/${{ matrix.env }}/partitions.bin
           if-no-files-found: error
+          retention-days: 7
+
+      - name: Static analysis (esp32dev = the union build; config in platformio.ini)
+        if: matrix.env == 'esp32dev'
+        run: pio check -e esp32dev --fail-on-defect=medium --fail-on-defect=high
