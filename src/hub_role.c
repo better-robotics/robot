@@ -76,6 +76,9 @@ static volatile bool s_want_connect = false;   /* gate auto-reconnect so it does
 static esp_ip4_addr_t s_gw;                    /* DHCP gateway — on a hub's AP, the hub/broker */
 static esp_timer_handle_t s_redial_timer;      /* deferred redial (backoff) — see wifi_events */
 static volatile int s_redial_fails;            /* consecutive STA failures; 0 on got-IP / fresh join */
+static volatile uint8_t s_last_disc_reason;    /* why the last STA attempt fell — feeds try_join's verdict */
+static volatile bool s_portal_trial = false;   /* a portal trial-join owns the radio: hub-watch must not
+                                                  scan (or worse, yield-restart) under it */
 
 /* ── /wifi/status facts (roles.h board_net_state_t) ──────────────────────────
  * Owned here because every input is this file's: the broker decision (board_run),
@@ -301,6 +304,7 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
         if (s_want_connect) esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         s_sta_got_ip = false;
+        s_last_disc_reason = ((wifi_event_sta_disconnected_t *)data)->reason;
         s_uplink_verdict = BOARD_UPLINK_NONE;   /* a lost lease is a hard fact — no debounce */
         if (s_want_connect) {
             /* Redial with backoff, not immediately: every attempt at an absent
@@ -601,6 +605,76 @@ bool board_wifi_redial(const char *ssid, const char *pass)
     return true;
 }
 
+/* Trial-join for the portal (board/rover mode, where the apply is still a
+ * config-apply reboot): attempt the credentials on the STA leg and block
+ * until an IP lands or ~20 s passes. In APSTA the AP — and the portal page
+ * on it — stays up throughout, which is the whole point: a wrong password
+ * becomes feedback in place instead of a reboot into a dead uplink with the
+ * bad credentials saved. Returns NULL on success; otherwise a short human
+ * verdict, after re-dialing whatever uplink was configured before
+ * (best-effort — a fresh island has nothing to restore). s_portal_trial
+ * parks hub-watch for the duration: its blocking scan would mute the join,
+ * and a mid-trial yield-restart would cut this page off exactly the way the
+ * trial exists to prevent. */
+const char *board_wifi_try_join(const char *ssid, const char *pass)
+{
+    static char verdict[64];   /* one portal caller at a time — httpd serializes */
+    s_portal_trial = true;
+    s_want_connect = false;    /* gate OFF before touching config, same as redial */
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    wifi_config_t old = {0};
+    esp_wifi_get_config(WIFI_IF_STA, &old);
+
+    wifi_config_t sta = {0};
+    memcpy(sta.sta.ssid, ssid, strnlen(ssid, sizeof sta.sta.ssid));
+    memcpy(sta.sta.password, pass, strnlen(pass, sizeof sta.sta.password));
+    sta.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+    if (esp_wifi_set_config(WIFI_IF_STA, &sta) != ESP_OK) {
+        s_portal_trial = false;
+        return "the radio is busy — try again";
+    }
+    s_sta_got_ip = false;
+    s_last_disc_reason = 0;
+    s_redial_fails = 0;
+    s_want_connect = true;     /* the event handler's fast retries ride along */
+    esp_wifi_connect();
+    for (int i = 0; i < 80 && !s_sta_got_ip; i++) vTaskDelay(pdMS_TO_TICKS(250));
+
+    if (s_sta_got_ip) {
+        s_portal_trial = false;
+        ESP_LOGI(TAG, "trial join '%s' verified (IP acquired) — caller may now persist + reboot", ssid);
+        return NULL;
+    }
+
+    /* Verdict from the last disconnect reason, then put the old uplink back. */
+    s_want_connect = false;
+    esp_wifi_disconnect();
+    switch (s_last_disc_reason) {
+    case WIFI_REASON_NO_AP_FOUND:
+        snprintf(verdict, sizeof verdict, "network not found — is it in range?"); break;
+    case WIFI_REASON_AUTH_FAIL:
+    case WIFI_REASON_AUTH_EXPIRE:
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:
+        snprintf(verdict, sizeof verdict, "wrong password?"); break;
+    case 0:
+        snprintf(verdict, sizeof verdict, "joined but got no address from it"); break;
+    default:
+        snprintf(verdict, sizeof verdict, "couldn't join (reason %u)", s_last_disc_reason);
+    }
+    ESP_LOGW(TAG, "trial join '%s' failed: %s", ssid, verdict);
+    if (old.sta.ssid[0]) {
+        if (esp_wifi_set_config(WIFI_IF_STA, &old) == ESP_OK) {
+            s_want_connect = true;
+            esp_wifi_connect();   /* fire-and-forget; the event handler owns retries */
+        }
+    }
+    s_portal_trial = false;
+    return verdict;
+}
+
 /* ── hub-watch: an island yields to a real hub.
  * A board islanded because it saw no hub — but one may appear just after (a Pi
  * boots ~30-60 s slower than an ESP; a professor's hub is switched on; or our own
@@ -660,6 +734,9 @@ static void hub_watch_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(HUB_WATCH_SCAN_MS));
         if (rover_ms_since_drive() < HUB_WATCH_DRIVE_QUIET_MS)
             continue;    /* being driven — don't hiccup the link with a scan */
+        if (s_portal_trial)
+            continue;    /* a portal trial-join owns the radio — and a yield-
+                            restart now would cut that page off mid-verdict */
         if (sees_hub_to_yield_to(self_bssid)) {
             vTaskDelay(pdMS_TO_TICKS(500));
             esp_restart();   /* clean restart → board_run → discovery → join the hub */

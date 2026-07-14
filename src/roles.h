@@ -92,6 +92,14 @@ int board_wifi_scan(board_ap_t *out, int max);
  * panel. Returns false outside hub mode (caller falls back to the reboot). */
 bool board_wifi_redial(const char *ssid, const char *pass);
 
+/* Trial-join (wifi_portal's POST /wifi/connect, board/rover mode): attempt
+ * the credentials live — the AP and the portal page stay up — blocking up
+ * to ~20 s for an IP. NULL = verified (caller persists + reboots to apply);
+ * otherwise a short human verdict ("wrong password?"), with the previous
+ * uplink re-dialed best-effort. Validates BEFORE the config-apply reboot so
+ * bad credentials are never saved and rebooted into. */
+const char *board_wifi_try_join(const char *ssid, const char *pass);
+
 /* Camera (camera.c). Inits the OV2640 and serves MJPEG at :81/stream — a no-op
  * unless built with HAS_CAMERA (the esp32cam board). Call after Wi-Fi is up
  * (connection-first: camera fits in what memory is left, or fails loudly).

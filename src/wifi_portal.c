@@ -397,10 +397,14 @@ static esp_err_t forget_post(httpd_req_t *req)
 /* POST /wifi/connect — hubd's JSON dialect: body {ssid, password}, reply
  * {"ok":true} / {"ok":false,"error":…}. The shared dashboard's Set-up-Wi-Fi
  * panel drives THIS path on both hubs (dashboard.html wifi-connect); the
- * form-POST /wifi/save above stays as the portal page's own submit. Same
- * effect: persist to NVS (the hub role's uplink prefers stored creds over
- * compile-time — hub_role.c) and config-apply reboot. The reply goes out
- * before the reboot task fires, same as save_post. */
+ * form-POST /wifi/save above stays as the portal page's own submit.
+ * ok now means VERIFIED, matching the Pi hubd (whose nmcli connect blocks
+ * until the join lands): the dedicated hub re-dials live and lets its panel
+ * watch the join; board/rover mode trial-joins first — the AP and this page
+ * stay up through the attempt — and only a verified join is persisted to
+ * NVS and config-apply rebooted. A failed trial replies with the verdict
+ * ("wrong password?") and saves nothing, so a typo can no longer be saved
+ * and rebooted into. */
 static esp_err_t connect_post(httpd_req_t *req)
 {
     char body[256];
@@ -419,18 +423,30 @@ static esp_err_t connect_post(httpd_req_t *req)
         httpd_resp_set_status(req, "400 Bad Request");
         return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"missing ssid\"}");
     }
-    if (rover_config_set_wifi(ssid, pass) != ESP_OK)
-        return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"could not save credentials\"}");
-
     /* The dedicated hub re-dials live — the AP (and the phone on it, and this
      * very panel) stays up; the panel's status re-read shows the join land.
-     * Rover/board mode falls back to the config-apply reboot, same as
-     * /wifi/save: its loop owns the radio mid-session. */
+     * Its loop doesn't own the radio, so the swap is safe fire-and-forget. */
     if (board_wifi_redial(ssid, pass)) {
+        if (rover_config_set_wifi(ssid, pass) != ESP_OK)
+            return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"could not save credentials\"}");
         ESP_LOGI(TAG, "saved uplink '%s' via /wifi/connect — re-dialing live", ssid);
         return httpd_resp_sendstr(req, "{\"ok\":true}");
     }
-    ESP_LOGI(TAG, "saved uplink '%s' via /wifi/connect — restarting to join it", ssid);
+
+    /* Board/rover mode: the apply is still a config-apply reboot, but the
+     * credentials are trial-joined FIRST (blocking, up to ~20 s; the AP and
+     * this page ride through it). Only a verified join is persisted — a
+     * typo'd password comes back as this reply's error instead of being
+     * saved, rebooted into, and discovered as a dead board. */
+    const char *why = board_wifi_try_join(ssid, pass);
+    if (why) {
+        char reply[128];
+        snprintf(reply, sizeof reply, "{\"ok\":false,\"error\":\"%s\"}", why);
+        return httpd_resp_sendstr(req, reply);
+    }
+    if (rover_config_set_wifi(ssid, pass) != ESP_OK)
+        return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"could not save credentials\"}");
+    ESP_LOGI(TAG, "uplink '%s' verified via /wifi/connect — saving + restarting to settle in", ssid);
     httpd_resp_sendstr(req, "{\"ok\":true}");
     xTaskCreate(reboot_task, "cfg-reboot", 2048, NULL, 5, NULL);
     return ESP_OK;
@@ -679,26 +695,30 @@ static const char WELCOME[] =
 "});"
 "document.getElementById('connect-go').addEventListener('click',async()=>{"
 "if(!chosen)return;"
-"msg.textContent='Connecting to '+chosen+'\\u2026';"
+/* /wifi/connect now blocks through a live trial join (board mode) — ok means
+ * VERIFIED. The AP and this page stay up during the trial; only the
+ * config-apply reboot AFTER a verified join blips the AP, and a captive
+ * sheet (this page's usual viewer) dies with its network — the phone then
+ * often hops to a remembered network instead of waiting the ~10 s for
+ * rover-… to return. So: recovery steps, never an auto-reconnect promise.
+ * The reload below is best-effort for a regular browser tab whose phone did
+ * re-join the rover. */
+"msg.textContent='Trying to join '+chosen+'\\u2026 (this takes up to ~20 seconds)';"
 "let res;try{res=await(await fetch('/wifi/connect',{method:'POST',"
 "headers:{'Content-Type':'application/json'},"
 "body:JSON.stringify({ssid:chosen,password:pass.value})})).json()}"
 "catch(e){msg.textContent='Connect request failed \\u2014 try again.';return}"
 "if(res.ok){hold=true;"
-/* The AP blips off during the config-apply reboot, and a captive sheet (this
- * page's usual viewer) dies with its network — the phone then often hops to a
- * remembered network instead of waiting the ~10 s for rover-… to return. So:
- * recovery steps, never an auto-reconnect promise. The reload below is
- * best-effort for a regular browser tab whose phone did re-join the rover. */
 "if(chosen.indexOf('hub-')==0){"
-"msg.textContent='Saved \\u2014 restarting to join '+chosen+'. This pop-up won\\u2019t survive the "
-"restart \\u2014 close it, join '+chosen+' yourself, and open hub.local: the rover appears on "
-"the dashboard there.';"
+"msg.textContent='Joined \\u2713 \\u2014 saved; restarting to settle in. This pop-up won\\u2019t "
+"survive the restart \\u2014 close it, join '+chosen+' yourself, and open hub.local: the rover "
+"appears on the dashboard there.';"
 "}else{"
-"msg.textContent='Saved \\u2014 restarting to use '+chosen+' for internet. The rover stays your "
-"Wi-Fi, but it blips off for ~10 seconds and this pop-up won\\u2019t survive that \\u2014 close it. "
-"If your phone doesn\\u2019t re-join the rover\\u2019s Wi-Fi by itself, pick it again in Wi-Fi "
-"settings, then open rover.local in your browser.';}"
+"msg.textContent='Joined \\u2713 \\u2014 saved; restarting to settle in. The rover stays your "
+"Wi-Fi ('+chosen+' is only its internet uplink), but it blips off for ~10 seconds and this "
+"pop-up won\\u2019t survive that \\u2014 close it. If your phone doesn\\u2019t re-join the "
+"rover\\u2019s Wi-Fi by itself, pick it again in Wi-Fi settings, then open rover.local in "
+"your browser.';}"
 "setTimeout(()=>location.reload(),12000)"
 "}else{msg.textContent='Couldn\\u2019t join: '+(res.error||'check the password and try again.')}"
 "});"
