@@ -667,8 +667,20 @@ static const char WELCOME[] =
 "body:JSON.stringify({ssid:chosen,password:pass.value})})).json()}"
 "catch(e){msg.textContent='Connect request failed \\u2014 try again.';return}"
 "if(res.ok){hold=true;"
-"msg.textContent='Saved \\u2014 this board is restarting to use it. Reconnecting is automatic, "
-"give it about 10 seconds\\u2026';"
+/* The AP blips off during the config-apply reboot, and a captive sheet (this
+ * page's usual viewer) dies with its network — the phone then often hops to a
+ * remembered network instead of waiting the ~10 s for rover-… to return. So:
+ * recovery steps, never an auto-reconnect promise. The reload below is
+ * best-effort for a regular browser tab whose phone did re-join the rover. */
+"if(chosen.indexOf('hub-')==0){"
+"msg.textContent='Saved \\u2014 restarting to join '+chosen+'. This pop-up won\\u2019t survive the "
+"restart \\u2014 close it, join '+chosen+' yourself, and open hub.local: the rover appears on "
+"the dashboard there.';"
+"}else{"
+"msg.textContent='Saved \\u2014 restarting to use '+chosen+' for internet. The rover stays your "
+"Wi-Fi, but it blips off for ~10 seconds and this pop-up won\\u2019t survive that \\u2014 close it. "
+"If your phone doesn\\u2019t re-join the rover\\u2019s Wi-Fi by itself, pick it again in Wi-Fi "
+"settings, then open rover.local in your browser.';}"
 "setTimeout(()=>location.reload(),12000)"
 "}else{msg.textContent='Couldn\\u2019t join: '+(res.error||'check the password and try again.')}"
 "});"
