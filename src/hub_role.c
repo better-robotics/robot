@@ -30,6 +30,7 @@
 #include "freertos/task.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_timer.h"           /* deferred STA redial — never vTaskDelay in the event task */
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
@@ -73,6 +74,8 @@ static esp_netif_t *sta_netif;
 static volatile bool s_sta_got_ip = false;
 static volatile bool s_want_connect = false;   /* gate auto-reconnect so it doesn't fight a scan */
 static esp_ip4_addr_t s_gw;                    /* DHCP gateway — on a hub's AP, the hub/broker */
+static esp_timer_handle_t s_redial_timer;      /* deferred redial (backoff) — see wifi_events */
+static volatile int s_redial_fails;            /* consecutive STA failures; 0 on got-IP / fresh join */
 
 /* ── /wifi/status facts (roles.h board_net_state_t) ──────────────────────────
  * Owned here because every input is this file's: the broker decision (board_run),
@@ -284,6 +287,14 @@ static int connect_cb(const char *client_id, const char *username,
  * outlive state changes), and on a captive venue it handed phones a resolver
  * that routed their probes straight into the venue's SSO page instead of
  * /welcome. One policy point (the forwarder) beats two racing ones. */
+/* Fires from the esp_timer task — esp_wifi_connect is thread-safe, and the gate
+ * re-check means a redial armed before a scan/re-dial cleared it is a no-op. */
+static void redial_cb(void *arg)
+{
+    (void)arg;
+    if (s_want_connect) esp_wifi_connect();
+}
+
 static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
@@ -291,8 +302,29 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         s_sta_got_ip = false;
         s_uplink_verdict = BOARD_UPLINK_NONE;   /* a lost lease is a hard fact — no debounce */
-        ESP_LOGW(TAG, "uplink down — retrying (AP + broker stay up regardless)");
-        if (s_want_connect) esp_wifi_connect();
+        if (s_want_connect) {
+            /* Redial with backoff, not immediately: every attempt at an absent
+             * uplink is a full off-channel scan (~2 s) that mutes the AP, and an
+             * immediate redial per disconnect looped that scan continuously — a
+             * hub with a dead venue uplink stuttered every rover and phone on its
+             * AP for as long as the outage lasted (single radio). First retries
+             * stay immediate: a rebooting hub is the COMMON disconnect and comes
+             * back in seconds (robot#1, the 2026-07-10 AP-bounce test). The 30 s
+             * ceiling caps the AP's scan loss at ~5% while still catching a venue
+             * uplink that comes up late. */
+            int fails = ++s_redial_fails;
+            if (fails <= 3) {
+                ESP_LOGW(TAG, "uplink down — retrying (AP + broker stay up regardless)");
+                esp_wifi_connect();
+            } else {
+                int sh = fails - 4;
+                uint32_t delay_ms = sh >= 3 ? 30000 : (5000u << sh);   /* 5s,10s,20s → 30s */
+                ESP_LOGW(TAG, "uplink down — retry in %lus (AP + broker stay up regardless)",
+                         (unsigned long)(delay_ms / 1000));
+                esp_timer_stop(s_redial_timer);   /* re-arm cleanly; a no-op if idle */
+                esp_timer_start_once(s_redial_timer, (uint64_t)delay_ms * 1000);
+            }
+        }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STACONNECTED) {
         ESP_LOGI(TAG, "a device joined the AP");
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STADISCONNECTED) {
@@ -302,6 +334,7 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
         ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
         s_gw = e->ip_info.gw;
         s_sta_got_ip = true;
+        s_redial_fails = 0;   /* connected — the next outage starts at fast retries again */
         ESP_LOGI(TAG, "uplink up, got IP " IPSTR " — enabling NAT (probe decides full vs portal)",
                  IP2STR(&e->ip_info.ip));
         esp_netif_set_default_netif(sta_netif);
@@ -378,10 +411,18 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, bool ap_al
         ap.ap.authmode = WIFI_AUTH_OPEN;
     }
 
+    const esp_timer_create_args_t redial_args = { .callback = redial_cb, .name = "sta-redial" };
+    ESP_ERROR_CHECK(esp_timer_create(&redial_args, &s_redial_timer));
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_start());
+    /* Default WIFI_PS_MIN_MODEM dozes the radio between DTIM beacons — but drive
+     * commands reach a classroom rover over this STA leg, so modem sleep puts
+     * beacon-interval latency spikes on the joystick path (and delays AP-side
+     * service). The ~50 mA it saves is noise next to the motors. */
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_LOGI(TAG, "APSTA up: AP '%s' (join this). AP channel follows the uplink's (single radio).",
              ap_ssid);
 
@@ -429,6 +470,7 @@ static bool sta_join(const char *ssid, const char *pass)
         ESP_LOGE(TAG, "sta_join '%s': set_config failed (%s)", ssid, esp_err_to_name(e));
         return false;   /* caller's loop re-evaluates; the AP stays up regardless */
     }
+    s_redial_fails = 0;   /* a fresh deliberate join earns the fast retries again */
     s_want_connect = true;
     esp_wifi_connect();
     for (int i = 0; i < 120 && !s_sta_got_ip; i++) vTaskDelay(pdMS_TO_TICKS(250));
@@ -552,6 +594,7 @@ bool board_wifi_redial(const char *ssid, const char *pass)
         return false;
     }
     board_net_state_set(BOARD_NET_LOCAL, ssid, "/");
+    s_redial_fails = 0;   /* new credentials earn the fast retries again */
     s_want_connect = true;
     esp_wifi_connect();
     ESP_LOGI(TAG, "uplink re-dial -> '%s' (live — AP and dashboard stay up)", ssid);
