@@ -118,6 +118,7 @@ static volatile bool s_mqtt_up = false;   /* live session; drives dead-session s
 static volatile int s_auth_rejections = 0;
 static bool s_cred_fallback = false;
 static volatile int64_t s_last_drive_us = INT64_MIN;  /* esp_timer time of the last pwm; hub_watch reads it */
+static volatile bool s_estop = false;     /* fleet/estop latch — non-zero pwm refused while set */
 
 int64_t rover_ms_since_drive(void) {
     if (s_last_drive_us == INT64_MIN) return INT64_MAX;   /* no drive command this boot */
@@ -269,11 +270,45 @@ static void motor_apply(const char *json, int len) {
         if (ms <= 0) ms = PWM_DEFAULT_DURATION_MS;
         else if (ms > PWM_MAX_DURATION_MS) ms = PWM_MAX_DURATION_MS;
     }
+    /* Fleet e-stop latch (CONTRACT.md § Fleet e-stop): while engaged, every
+     * non-zero drive is refused — above the per-command self-expiry, which
+     * only bounds commands that were accepted. Zero drive is always honored. */
+    if (s_estop && (left || right)) {
+        motor_stop(NULL);
+        ESP_LOGW(TAG, "pwm refused — fleet e-stop engaged");
+        return;
+    }
     s_last_drive_us = esp_timer_get_time();           /* hub_watch skips its scan while driving */
     motor_drive(left, right);
     esp_timer_stop(s_motor_watchdog);                 /* no-op if not armed */
     if (ms > 0) esp_timer_start_once(s_motor_watchdog, (int64_t)ms * 1000);
     ESP_LOGI(TAG, "pwm L=%d R=%d for %d ms", left, right, ms);
+}
+
+/* fleet/estop — the room-wide retained latch (CONTRACT.md § Fleet e-stop),
+ * above the per-command self-expiry. Retained delivery on subscribe means a
+ * rover that reboots or rejoins mid-emergency latches anyway. Empty payload =
+ * clear (the delete-retained idiom); an unparseable payload = ENGAGE — parse
+ * failure fails toward stopped. */
+static void estop_apply(const char *json, int len) {
+    bool engaged = true;
+    if (len == 0) {
+        engaged = false;
+    } else {
+        cJSON *root = cJSON_ParseWithLength(json, len);
+        if (root) {   /* missing "engaged" reads as engaged, same fail-toward-stopped bias */
+            engaged = !cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(root, "engaged"));
+            cJSON_Delete(root);
+        }
+    }
+    if (engaged == s_estop) return;
+    s_estop = engaged;
+    if (engaged) {
+        motor_stop(NULL);
+        ESP_LOGW(TAG, "fleet E-STOP engaged — drive refused until cleared");
+    } else {
+        ESP_LOGW(TAG, "fleet e-stop cleared — drive re-enabled");
+    }
 }
 
 /* Post-join assignment: {"team":"team2","pass":"…","name":"Rover A"} on
@@ -447,7 +482,14 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
         esp_mqtt_client_subscribe(e->client, t, 0);
         snprintf(t, sizeof t, "robots/%s/cmd/reprovision", s_topic_id);
         esp_mqtt_client_subscribe(e->client, t, 0);
-        ESP_LOGI(TAG, "mqtt connected; subscribed pwm + cmd/{config,identify,reprovision} for %s", s_topic_id);
+        /* Resync the e-stop latch from broker state: the retained fleet/estop
+         * (if any) arrives with this subscribe and re-engages. No retained
+         * message = the room is clear (a hub restart forgets an engaged stop
+         * by design — CONTRACT.md § Fleet e-stop), so drop any stale latch
+         * rather than stranding the rover stopped with nothing to clear it. */
+        s_estop = false;
+        esp_mqtt_client_subscribe(e->client, "fleet/estop", 1);
+        ESP_LOGI(TAG, "mqtt connected; subscribed pwm + cmd/{config,identify,reprovision} for %s + fleet/estop", s_topic_id);
         break;
     }
     case MQTT_EVENT_DISCONNECTED:
@@ -457,7 +499,9 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
         ESP_LOGW(TAG, "mqtt disconnected");
         break;
     case MQTT_EVENT_DATA:
-        if (e->topic_len >= 4 && memcmp(e->topic + e->topic_len - 4, "/pwm", 4) == 0) {
+        if (e->topic_len == 11 && memcmp(e->topic, "fleet/estop", 11) == 0) {
+            estop_apply(e->data, e->data_len);
+        } else if (e->topic_len >= 4 && memcmp(e->topic + e->topic_len - 4, "/pwm", 4) == 0) {
             motor_apply(e->data, e->data_len);
         } else if (e->topic_len >= 7 && memcmp(e->topic + e->topic_len - 7, "/config", 7) == 0) {
             config_apply(e->data, e->data_len);
@@ -598,6 +642,10 @@ void rover_client_run(const char *broker_uri) {
             wifi_ap_record_t apr;
             if (esp_wifi_sta_get_ap_info(&apr) == ESP_OK)
                 snprintf(rssi, sizeof rssi, ",\"rssi_dbm\":%d", apr.rssi);
+            /* Latched e-stop acknowledgment — the fleet view verifies each
+             * rover actually heard the retained latch. Absent = clear, the
+             * same absent-key idiom as rssi. */
+            const char *es = s_estop ? ",\"estop\":true" : "";
             /* board id is metadata in the payload, not the topic (id == team). */
 #ifdef HAS_CAMERA
             /* No "pins" on the camera board: motors are structurally disabled
@@ -607,9 +655,9 @@ void rover_client_run(const char *broker_uri) {
             board_uplink_ssid_json(net);
             snprintf(buf, sizeof buf,
                      "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
-                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"net\":\"%s\",\"cam\":%s%s,\"synthetic\":false}",
+                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"net\":\"%s\",\"cam\":%s%s%s,\"synthetic\":false}",
                      (long long)up_ms, (unsigned)heap, s_id, ip, net,
-                     camera_running() ? "true" : "false", rssi);
+                     camera_running() ? "true" : "false", rssi, es);
 #else
             /* "pins" = the live motor map (NVS-or-default, what motor_init
              * ran with) — the dashboard's pin editor shows this as truth
@@ -619,10 +667,10 @@ void rover_client_run(const char *broker_uri) {
             board_uplink_ssid_json(net);
             snprintf(buf, sizeof buf,
                      "{\"uptime_ms\":%lld,\"free_heap\":%u,\"hw\":\"" HW_BOARD
-                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"net\":\"%s\",\"cam\":%s%s,\"synthetic\":false,"
+                     "\",\"board\":\"%s\",\"ip\":\"%s\",\"net\":\"%s\",\"cam\":%s%s%s,\"synthetic\":false,"
                      "\"pins\":{\"ena\":%d,\"in1\":%d,\"in2\":%d,\"enb\":%d,\"in3\":%d,\"in4\":%d}}",
                      (long long)up_ms, (unsigned)heap, s_id, ip, net,
-                     camera_running() ? "true" : "false", rssi,
+                     camera_running() ? "true" : "false", rssi, es,
                      s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4);
 #endif
             if (esp_mqtt_client_publish(cli, key, buf, 0, 0, 0) >= 0)
