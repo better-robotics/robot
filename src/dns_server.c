@@ -13,14 +13,16 @@
  * via xTaskCreate, no handle kept).
  *
  * Uplink-aware since 2026-07-14: hijacking is only ever the truth while the
- * board has no internet of its own. Once the STA uplink is up (NAPT live),
- * this server switches per-query to a plain forwarder — relay the query to
- * the uplink's real DNS, relay the answer back — because a client whose DHCP
- * lease predates the uplink still points at THIS server for up to the full
- * 120-min lease (ap_offer_dns_from_sta only fixes future leases), and
- * wildcard-answering it would leave that phone with "trusted network, but
- * every website is the robot". Checked live per query, so an uplink that
- * comes or goes flips behavior instantly, no lease races.
+ * board has no working internet. With a FULL (probe-verified) uplink this
+ * server is a plain forwarder — relay the query to the uplink's real DNS,
+ * relay the answer back — because wildcard-answering a client with real
+ * internet behind the NAT would leave it with "trusted network, but every
+ * website is the robot". With a PORTAL uplink (venue's own captive gate —
+ * see roles.h board_uplink_t) it forwards everything EXCEPT the OS probe
+ * hostnames, so the phone's captive sheet stays ours while the venue's
+ * sign-in page stays reachable through it. AP clients are always handed
+ * THIS board as their only resolver (the dhcps default); the verdict is
+ * read per query, so state changes apply instantly — no DHCP lease races.
  */
 #include <string.h>
 #include <errno.h>
@@ -41,6 +43,28 @@ static const char *TAG = "dns-server";
                              * AP's IP is fixed for the boot), but a client that
                              * lingers shouldn't hold an answer any longer than
                              * it has to either */
+
+/* The hostnames OS captive-portal detectors dial (wifi_portal.c answers the
+ * HTTP side). Hijacked even in PORTAL mode so the sheet a phone opens is
+ * always OURS, never the venue gate's — see the policy comment in the task
+ * loop. dns.msftncsi.com expects a specific A record we can't give it;
+ * answering with the AP IP just reads as "captive" to Windows, which is true. */
+static bool probe_hostname(const char *q)
+{
+    static const char *probes[] = {
+        "captive.apple.com",
+        "connectivitycheck.gstatic.com",
+        "connectivitycheck.android.com",
+        "clients3.google.com",
+        "www.msftconnecttest.com",
+        "dns.msftncsi.com",
+        "detectportal.firefox.com",
+        NULL,
+    };
+    for (int i = 0; probes[i]; i++)
+        if (strcasecmp(q, probes[i]) == 0) return true;
+    return false;
+}
 
 /* Walk the question section starting right after the 12-byte header: a
  * sequence of length-prefixed labels terminated by a zero-length label, then
@@ -193,7 +217,21 @@ static void dns_server_task(void *arg)
         char qname[80];
         question_name(rx, n, qname, sizeof qname);
 
-        if (n >= 12 && board_has_uplink() && up >= 0) {
+        /* Three-way policy, keyed on the probed uplink verdict (roles.h):
+         *   FULL   → forward everything (real internet behind the NAT).
+         *   PORTAL → forward everything EXCEPT the OS probe hostnames. The
+         *            venue's own captive gate answers HTTP in our stead, so
+         *            forwarded probes would render the VENUE's sign-in sheet
+         *            (observed live: a university SSO page where /welcome
+         *            should be). Hijacking just the probe names keeps the
+         *            sheet OURS — which then links the venue gate through
+         *            the NAT — while every other name still resolves so that
+         *            link actually works.
+         *   NONE   → hijack everything (nowhere to forward to anyway). */
+        board_uplink_t up_state = board_uplink();
+        bool fwd = up_state == BOARD_UPLINK_FULL ||
+                   (up_state == BOARD_UPLINK_PORTAL && !probe_hostname(qname));
+        if (n >= 12 && fwd && up >= 0) {
             esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
             esp_netif_dns_info_t di;
             if (sta && esp_netif_get_dns_info(sta, ESP_NETIF_DNS_MAIN, &di) == ESP_OK
@@ -218,7 +256,9 @@ static void dns_server_task(void *arg)
          * local rather than cast the sockaddr's field directly. */
         esp_ip4_addr_t from_ip = { .addr = from.sin_addr.s_addr };
         ESP_LOGI(TAG, "query '%s' from " IPSTR " -> %s", qname, IP2STR(&from_ip),
-                 tlen > 0 ? "hijacked (no uplink)" : "dropped (malformed)");
+                 tlen <= 0                          ? "dropped (malformed)" :
+                 up_state == BOARD_UPLINK_PORTAL    ? "hijacked (probe name, venue is walled)"
+                                                    : "hijacked (no uplink)");
         if (tlen > 0) sendto(sock, tx, tlen, 0, (struct sockaddr *)&from, fromlen);
     }
 }

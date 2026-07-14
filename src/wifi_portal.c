@@ -244,7 +244,7 @@ static esp_err_t landing_get(httpd_req_t *req)
  * and serialized by hub_role.c — board_status_json). */
 static esp_err_t status_get(httpd_req_t *req)
 {
-    char j[256];
+    char j[448];   /* the venue portal_url rides along since 2026-07-14 */
     board_status_json(j, sizeof j);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, j);
@@ -595,6 +595,11 @@ static const char WELCOME[] =
 "<p class=s><a class=hint href=# id=skip-go>Skip &#8212; drive it without internet</a></p>"
 "</div>"
 "<button class=btn id=go style=display:none>Continue</button>"
+/* Venue-gate path (uplink=='portal'): the network the BOARD joined has its
+ * own captive sign-in; behind the NAT every client shares the board's
+ * venue-side MAC, so one sign-in from this phone clears it for the board. */
+"<a class=btn id=venue-go style=display:none>Sign in</a>"
+"<p class=s id=repick-p style=display:none><a class=hint href=# id=repick>Pick a different network instead</a></p>"
 "<a class=btn id=dashlink0 href=/ target=_blank rel=noopener style=display:none>Open the dashboard</a></div>"
 "<div class=card id=after style=display:none><h2>You're set</h2>"
 "<p class=s>Now open the dashboard in your regular browser, not this pop-up &#8212; "
@@ -606,7 +611,7 @@ static const char WELCOME[] =
 "d0=document.getElementById('dashlink0'),picker=document.getElementById('picker'),"
 "nets=document.getElementById('nets'),join=document.getElementById('join'),"
 "pass=document.getElementById('pass'),msg=document.getElementById('wifi-msg');"
-"let chosen=null,lastDash='/',skipped=false,hold=false,tries=0;"
+"let chosen=null,lastDash='/',skipped=false,hold=false,tries=0,force=false;"
 /* ?done=1 is the post-Continue view. Continue REACHES it by a real navigation
  * (location.href), never a DOM swap: the captive sheet re-runs its probe only
  * on a full-page load, so an AJAX-only accept leaves the sheet stuck on
@@ -627,18 +632,31 @@ static const char WELCOME[] =
 "function refresh(){if(skipped||hold)return;"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
 "lastDash=j.dash||'/';"
+"let v=document.getElementById('venue-go'),rp=document.getElementById('repick-p');"
+"v.style.display='none';rp.style.display='none';"
 "if(j.uplink=='full'){tries=0;"
 "picker.style.display='none';d0.style.display='none';go.style.display='block';"
 "lede.textContent='This board is online'+(j.ssid?' via '+j.ssid:'')+'. Tap Continue to finish.'"
+"}else if(j.uplink=='portal'&&!force){"
+/* The venue's own captive gate answers for the internet until THIS board's
+ * MAC signs in — and one sign-in from here covers it (NAT: every client
+ * shares the board's venue-side MAC). Navigating in this very sheet is
+ * exactly right for once. */
+"go.style.display='none';picker.style.display='none';d0.style.display='none';"
+"lede.textContent='This board joined '+(j.ssid||'the venue Wi-Fi')+', but that network asks for its own "
+"sign-in before it gives internet. Sign in once below and this board is set for everyone.';"
+"v.href=j.portal_url||'http://example.com/';"
+"v.textContent='Sign in to '+(j.ssid||'the venue Wi-Fi');"
+"v.style.display='block';rp.style.display='block'"
 "}else if(j.state=='searching'){"
 "picker.style.display='none';go.style.display='none';"
 "lede.textContent='The board is connecting\\u2026 this takes a few seconds.'"
-"}else if(j.ssid&&++tries<7){"
+"}else if(j.ssid&&j.uplink!='portal'&&++tries<7){"
 "picker.style.display='none';go.style.display='none';"
 "lede.textContent='Reconnecting to '+j.ssid+'\\u2026'"
 "}else{"
 "go.style.display='none';picker.style.display='block';"
-"lede.textContent=j.ssid?"
+"lede.textContent=j.ssid&&!force?"
 "'Couldn\\u2019t reach '+j.ssid+' \\u2014 pick a network again, or skip.':"
 "'Give this board internet, or skip and drive it offline.'"
 "}"
@@ -683,6 +701,13 @@ static const char WELCOME[] =
 "settings, then open rover.local in your browser.';}"
 "setTimeout(()=>location.reload(),12000)"
 "}else{msg.textContent='Couldn\\u2019t join: '+(res.error||'check the password and try again.')}"
+"});"
+"document.getElementById('repick').addEventListener('click',e=>{"
+"e.preventDefault();force=true;"
+"document.getElementById('venue-go').style.display='none';"
+"document.getElementById('repick-p').style.display='none';"
+"picker.style.display='block';"
+"lede.textContent='Give this board internet, or skip and drive it offline.'"
 "});"
 "document.getElementById('skip-go').addEventListener('click',e=>{"
 "e.preventDefault();skipped=true;picker.style.display='none';go.style.display='none';"

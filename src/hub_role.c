@@ -34,6 +34,8 @@
 #include "esp_netif.h"
 #include "esp_mac.h"
 #include "lwip/ip4_addr.h"       /* IP4_ADDR — relocating the board AP off 192.168.4.0/24 */
+#include "lwip/sockets.h"        /* the uplink probe below speaks raw HTTP, like the Pi's */
+#include "lwip/netdb.h"
 #include "mosq_broker.h"
 #include "mdns.h"
 #include "roles.h"
@@ -57,8 +59,6 @@
 #ifndef PROFESSOR_PASS
 #define PROFESSOR_PASS "change-me"     /* the one gated identity — see connect_cb */
 #endif
-
-#define DHCPS_OFFER_DNS 0x02
 
 /* ws_mqtt_bridge.c — lets browsers reach the broker over MQTT-over-WebSocket */
 void start_ws_mqtt_bridge(void);
@@ -110,9 +110,111 @@ void board_uplink_ssid_json(char out[65])
     json_esc_ssid(out, 65, (const char *)s_uplink_ssid);
 }
 
+/* ── Uplink verdict (the Pi hubd's probe_uplink, ported) ─────────────────────
+ * A DHCP lease is NOT internet: on a university visitor network the STA gets
+ * an address but every HTTP request is intercepted by the venue's own captive
+ * gate until THIS BOARD's MAC signs in (observed live 2026-07-14 — the
+ * phone's captive sheet rendered the venue's SSO instead of /welcome, because
+ * "got an IP" was being reported as "full"). So probe the way phones do:
+ * fetch a known 204 endpoint over plain HTTP. 204 → FULL. Any other HTTP
+ * answer → PORTAL — and its Location header IS the venue's sign-in URL,
+ * captured so /welcome can hand it to the user. No answer → NONE. */
+static volatile board_uplink_t s_uplink_verdict = BOARD_UPLINK_NONE;
+static char s_portal_url[160];
+
+board_uplink_t board_uplink(void)
+{
+    return s_sta_got_ip ? s_uplink_verdict : BOARD_UPLINK_NONE;
+}
+
+void board_portal_url(char out[160])
+{
+    snprintf(out, 160, "%s", s_portal_url);
+}
+
 bool board_has_uplink(void)
 {
-    return s_sta_got_ip;
+    return board_uplink() == BOARD_UPLINK_FULL;
+}
+
+static board_uplink_t probe_uplink_once(void)
+{
+    /* Same endpoint and verdict rules as hub/pi/src/bin/hubd.rs probe_uplink;
+     * raw socket like the Pi (no esp_http_client dependency), plus Location
+     * capture the Pi doesn't need (its venue sheet reaches the phone via
+     * dnsmasq; ours is deliberately intercepted by dns_server.c's mixed mode,
+     * so /welcome must carry the venue link itself). */
+    static const char HOST[] = "connectivitycheck.gstatic.com";
+    struct addrinfo hints = { .ai_family = AF_INET, .ai_socktype = SOCK_STREAM };
+    struct addrinfo *ai = NULL;
+    if (getaddrinfo(HOST, "80", &hints, &ai) != 0 || !ai) return BOARD_UPLINK_NONE;
+
+    board_uplink_t verdict = BOARD_UPLINK_NONE;
+    int s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s >= 0) {
+        struct timeval tv = { .tv_sec = 8 };
+        setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+        setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+        if (connect(s, ai->ai_addr, ai->ai_addrlen) == 0) {
+            static const char req[] =
+                "GET /generate_204 HTTP/1.1\r\nHost: connectivitycheck.gstatic.com\r\n"
+                "Connection: close\r\n\r\n";
+            if (send(s, req, sizeof req - 1, 0) == (int)(sizeof req - 1)) {
+                char buf[512];
+                int n = recv(s, buf, sizeof buf - 1, 0);
+                if (n > 12) {
+                    buf[n] = 0;
+                    /* "HTTP/1.1 204 ..." — the status word decides. */
+                    char *sp = strchr(buf, ' ');
+                    if (sp && strncmp(sp + 1, "204", 3) == 0) {
+                        verdict = BOARD_UPLINK_FULL;
+                    } else if (sp) {
+                        verdict = BOARD_UPLINK_PORTAL;
+                        char *loc = strstr(buf, "\r\nLocation: ");
+                        if (!loc) loc = strstr(buf, "\r\nlocation: ");
+                        if (loc) {
+                            loc += 12;
+                            char *end = strstr(loc, "\r\n");
+                            size_t l = end ? (size_t)(end - loc) : strlen(loc);
+                            if (l >= sizeof s_portal_url) l = sizeof s_portal_url - 1;
+                            memcpy(s_portal_url, loc, l);
+                            s_portal_url[l] = 0;
+                        }
+                    }
+                }
+            }
+        }
+        close(s);
+    }
+    freeaddrinfo(ai);
+    if (verdict == BOARD_UPLINK_FULL) s_portal_url[0] = 0;
+    return verdict;
+}
+
+static void uplink_probe_task(void *arg)
+{
+    (void)arg;
+    /* The Pi's poll_uplink debounce, verbatim: recovery to FULL is instant;
+     * downgrades need 3 agreeing probes (one flaky probe on a busy uplink
+     * must not flash "no internet" at a classroom that has it). */
+    board_uplink_t last = BOARD_UPLINK_NONE;
+    int streak = 0;
+    for (;;) {
+        board_uplink_t v = s_sta_got_ip ? probe_uplink_once() : BOARD_UPLINK_NONE;
+        streak = (v == last) ? streak + 1 : 1;
+        last = v;
+        if (v == BOARD_UPLINK_FULL || streak >= 3) {
+            if (s_uplink_verdict != v) {
+                static const char *name[] = { "none", "portal", "full" };
+                ESP_LOGI(TAG, "uplink verdict: %s%s%s", name[v],
+                         v == BOARD_UPLINK_PORTAL ? " — venue gate at " : "",
+                         v == BOARD_UPLINK_PORTAL ? s_portal_url : "");
+            }
+            s_uplink_verdict = v;
+        }
+        /* Faster while not-full: someone is likely mid-onboarding on /welcome. */
+        vTaskDelay(pdMS_TO_TICKS(s_uplink_verdict == BOARD_UPLINK_FULL ? 15000 : 5000));
+    }
 }
 
 int board_status_json(char *buf, size_t len)
@@ -130,14 +232,19 @@ int board_status_json(char *buf, size_t len)
     json_esc_ssid(pesc, sizeof pesc, pin);
     /* ssid + uplink follow the Pi hubd's /wifi/status dialect — the shared
      * dashboard shows "No uplink yet" unless `ssid` is set and gates health
-     * on `uplink === "full"`. "full" here means "the STA has an address"
-     * (portal-vs-full needs an HTTP probe the Pi does — same honesty note as
-     * /fleet). The portal page's own fields ride along; its JS reads `ssid`
-     * for the network name since this change. */
+     * on `uplink === "full"`. Since 2026-07-14 `uplink` carries the real
+     * probe verdict (none/portal/full — board_uplink above), the same
+     * vocabulary the Pi reports; `portal_url` is this firmware's own extra
+     * (/welcome links the venue's sign-in gate through the NAT). */
+    board_uplink_t up = board_uplink();
+    char purl[160], puesc[200];
+    board_portal_url(purl);
+    json_esc_ssid(puesc, sizeof puesc, purl);
     return snprintf(buf, len,
-        "{\"state\":\"%s\",\"board\":\"%s\",\"role\":\"%s\",\"ssid\":\"%s\",\"uplink\":\"%s\",\"ip\":\"%s\",\"pin\":\"%s\",\"dash\":\"%s\"}",
-        st_str[s_net_state], s_board_id, role, esc, s_sta_got_ip ? "full" : "none",
-        ip, pesc, s_dash);
+        "{\"state\":\"%s\",\"board\":\"%s\",\"role\":\"%s\",\"ssid\":\"%s\",\"uplink\":\"%s\",\"ip\":\"%s\",\"pin\":\"%s\",\"dash\":\"%s\",\"portal_url\":\"%s\"}",
+        st_str[s_net_state], s_board_id, role, esc,
+        up == BOARD_UPLINK_FULL ? "full" : up == BOARD_UPLINK_PORTAL ? "portal" : "none",
+        ip, pesc, s_dash, up == BOARD_UPLINK_PORTAL ? puesc : "");
 }
 
 /* Session auth: whole-session accept/reject, the only gate this broker offers
@@ -170,28 +277,20 @@ static int connect_cb(const char *client_id, const char *username,
     return 0;
 }
 
-/* Hand AP clients a DNS server (the STA's), or they get an IP but can't resolve
- * names — the classic "connected, no internet". */
-static void ap_offer_dns_from_sta(void)
-{
-    esp_netif_dns_info_t dns;
-    if (esp_netif_get_dns_info(sta_netif, ESP_NETIF_DNS_MAIN, &dns) != ESP_OK) {
-        return;
-    }
-    uint8_t offer = DHCPS_OFFER_DNS;
-    esp_netif_dhcps_stop(ap_netif);
-    esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER,
-                           &offer, sizeof(offer));
-    esp_netif_set_dns_info(ap_netif, ESP_NETIF_DNS_MAIN, &dns);
-    esp_netif_dhcps_start(ap_netif);
-}
-
+/* AP clients always resolve through THIS board (the dhcps default offers our
+ * own IP as DNS; dns_server.c decides per query whether to hijack or forward
+ * upstream). The old design switched the DHCP offer to the venue's DNS on
+ * got-IP — removed 2026-07-14: a DHCP offer can't be un-offered (leases
+ * outlive state changes), and on a captive venue it handed phones a resolver
+ * that routed their probes straight into the venue's SSO page instead of
+ * /welcome. One policy point (the forwarder) beats two racing ones. */
 static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         if (s_want_connect) esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         s_sta_got_ip = false;
+        s_uplink_verdict = BOARD_UPLINK_NONE;   /* a lost lease is a hard fact — no debounce */
         ESP_LOGW(TAG, "uplink down — retrying (AP + broker stay up regardless)");
         if (s_want_connect) esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STACONNECTED) {
@@ -203,14 +302,13 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
         ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
         s_gw = e->ip_info.gw;
         s_sta_got_ip = true;
-        ESP_LOGI(TAG, "uplink up, got IP " IPSTR " — enabling NAT + DNS for AP clients",
+        ESP_LOGI(TAG, "uplink up, got IP " IPSTR " — enabling NAT (probe decides full vs portal)",
                  IP2STR(&e->ip_info.ip));
-        ap_offer_dns_from_sta();
         esp_netif_set_default_netif(sta_netif);
         if (esp_netif_napt_enable(ap_netif) != ESP_OK) {
             ESP_LOGE(TAG, "NAPT enable failed");
         } else {
-            ESP_LOGI(TAG, "NAT on: AP clients now route to the internet via the uplink");
+            ESP_LOGI(TAG, "NAT on: AP clients now route out the uplink");
         }
     }
 }
@@ -300,6 +398,11 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, bool ap_al
     } else {
         ESP_LOGW(TAG, "mDNS init failed (http://%s.local won't resolve; IP still works)", mdns_host);
     }
+
+    /* One probe task for the boot, both entry points — the uplink verdict
+     * (none/portal/full) that /wifi/status, dns_server.c, and the captive
+     * Accept flip all read. */
+    xTaskCreate(uplink_probe_task, "uplink-probe", 4096, NULL, 4, NULL);
 }
 
 /* Set the STA config and (re)connect, waiting up to 30 s for an IP. In APSTA a

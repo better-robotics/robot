@@ -62,11 +62,20 @@ typedef enum {
 void board_net_state_set(board_net_state_t st, const char *uplink_ssid, const char *dash);
 void board_uplink_ssid_json(char out[65]);       /* sys beacon "net" field */
 int  board_status_json(char *buf, size_t len);   /* → bytes written (snprintf) */
-bool board_has_uplink(void);   /* STA has a real address — same signal /wifi/status's
+/* Uplink verdict — the Pi hubd's probe_uplink vocabulary (hub/pi/src/bin/
+ * hubd.rs), same probe: fetch a known 204 endpoint the way phones do.
+ * 204 → FULL; any other HTTP answer → PORTAL (something answered in the
+ * endpoint's place: the venue's own captive gate — a DHCP lease is NOT
+ * internet, learned live on a university visitor network 2026-07-14);
+ * no answer / no lease → NONE. */
+typedef enum { BOARD_UPLINK_NONE, BOARD_UPLINK_PORTAL, BOARD_UPLINK_FULL } board_uplink_t;
+board_uplink_t board_uplink(void);
+void board_portal_url(char out[160]);   /* the venue gate's Location, "" unknown */
+bool board_has_uplink(void);   /* verdict == FULL — the signal /wifi/status's
                                  * "uplink":"full" reports; wifi_portal.c's captive-portal
                                  * Accept flip gates on this so it never tells iOS a
-                                 * pure-island board (no uplink at all) has internet it
-                                 * doesn't (2026-07-14). */
+                                 * board without working internet (island OR venue-walled)
+                                 * has it (2026-07-14). */
 
 /* A scanned network, deduped by SSID (strongest kept). A flat struct so the Wi-Fi
  * config panel (wifi_portal.c) can list networks without pulling in esp_wifi.h.

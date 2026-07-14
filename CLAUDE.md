@@ -338,6 +338,23 @@ chosen-against:
       connect-reboot the sheet reopens mid-join and a single check showed the
       picker again; now it walks connecting → reconnecting → Continue, with a
       7-poll fallback back to the picker.
+  - **Third pass — a DHCP lease is not internet (2026-07-14, found live on a
+    university visitor network).** With "uplink" meaning "STA got an
+    address", a board joined to a venue whose network has its OWN captive
+    gate reported `full`, forwarded the phone's probes into the venue's
+    walled garden, and the student's captive sheet rendered the venue's SSO
+    where /welcome should be. Fix is Pi parity: the board now runs hubd's
+    probe_uplink (same endpoint, same none/portal/full verdicts, same
+    debounce — hub/pi/src/bin/hubd.rs) and everything gates on the verdict,
+    not the lease. In `portal` state the DNS responder goes mixed: probe
+    hostnames hijack (the sheet stays ours), everything else forwards — so
+    /welcome can link the venue's captured gate URL through the NAT, and one
+    tap-through authorizes the board's venue-side MAC for the whole
+    classroom. The on-uplink DHCP-DNS switch (`ap_offer_dns_from_sta`) is
+    deleted: an offer can't be un-offered, and it was handing re-leasing
+    phones the venue's resolver directly, bypassing the whole portal. Full
+    chain verified live the same day: `uplink verdict: portal — venue gate at
+    https://dukereg.duke.edu/login/aup`, probes hijacked, /welcome served.
   - **Known limitations, researched and accepted (2026-07-14), don't re-fix:**
     some Samsung builds treat a 302'd `generate_204` as a dead network and
     never open the portal (answering 204 honestly would lie to every other
