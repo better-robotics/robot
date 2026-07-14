@@ -85,7 +85,8 @@
        first-time student can't read. Tapping a chip opens its control. */
     /* Shrink order under pressure: the SSID chip gives way (3× shrink weight)
        before the host token — "hub-a2f5"'s suffix is what tells two hubs
-       apart — and the Sign in / identity label never truncates at all. */
+       apart. The Professor / identity labels never ellipsize; on phones the
+       locked chip drops to icon-only instead (the 480px rule below). */
     .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.5rem;
       min-width: 0; flex: 0 3 auto; }
     #signin-chip, #id-chip { flex: none; }
@@ -96,6 +97,11 @@
       padding: 0.25rem 0.7rem; background: var(--inset); color: var(--ink);
     }
     .tchip.show { display: inline-flex; }
+    /* Island-served page (a lone rover's own AP — /fleet reports a rover-XXXX
+       SSID): there is no fleet and no professor role, and joining the rover's
+       AP already means holding the robot. The professor door would be a false
+       affordance — no code exists that an island accepts. */
+    body.solo #signin-chip { display: none; }
     .tchip > svg { flex: none; }
     .tchip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .tchip.warn { color: var(--warn-ink); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
@@ -103,10 +109,14 @@
        asks for attention, this one takes an action. Professor-only. */
     .tchip.danger { color: var(--danger-text);
       border-color: color-mix(in srgb, var(--danger-text) 55%, transparent); }
-    /* Compact widths: the chip gives way to icon-only BEFORE the identity
-       label (the topbar's shrink-order doctrine) — the red octagon is the
-       meaning, aria-label keeps the name. */
-    @media (max-width: 480px) { #estop-chip > span { display: none; } }
+    /* Compact widths: chips give way to icon-only BEFORE the identity
+       label (the topbar's shrink-order doctrine) — the red octagon and the
+       account-corner person glyph are the meaning, aria-label keeps the
+       name. The locked Professor chip joins the e-stop here ("Professor"
+       overflows a 320 bar that "Sign in" once fit); the UNLOCKED #id-chip
+       keeps its span — it carries the reconnecting words, and a warn tint
+       alone would be color-only state. */
+    @media (max-width: 480px) { #estop-chip > span, #signin-chip > span { display: none; } }
     #id-menu p { margin-bottom: 0.5rem; }
 
     /* Centered reading column; the fleet is a card grid, so width buys
@@ -264,7 +274,7 @@
       color: var(--link); cursor: pointer; }
     .link-btn:hover { text-decoration: underline; }
     #gate-error { display: none; color: var(--danger-text); font-size: 0.85rem; margin-top: 0.6rem; }
-    /* Login chips: who-are-you comes from the live fleet, not typing. */
+    /* Corner chips: who-are-you comes from the live fleet, not typing. */
     /* Which host serves this page — one glanceable token matching the Wi-Fi
        name the user just joined (two hubs on the air look identical otherwise). */
     #host-chip { font-size: 0.75rem; font-weight: 400; opacity: 0.6; margin-left: 0.8rem;
@@ -552,7 +562,7 @@
       .segmented { display: flex; width: 100%; }
       .segmented button { flex: 1; }
       /* Full 44px tap targets on touch — including the secondary controls the
-         professor taps most (tiles, Log out, modal close). */
+         professor taps most (tiles, Lock, modal close). */
       .btn-accent, .btn-tile, .segmented button { min-height: var(--tap); }
       #modal-close { width: var(--tap); height: var(--tap); }
       .dpad { grid-template-columns: repeat(3, 4rem); grid-template-rows: repeat(3, 4rem); }
@@ -576,10 +586,11 @@
            visible only to a signed-in professor, and while engaged the
            banner (with its Clear) takes over. -->
       <button id="estop-chip" class="tchip danger" aria-label="Emergency stop — halt every rover"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 2.5h8.2l5.4 5.4v8.2l-5.4 5.4H7.9l-5.4-5.4V7.9z"/></svg><span>Stop all</span></button>
-      <!-- Signed-out: the professor's door lives in the account corner. Robots
-           never sign in here — their paths are Claim on the rover card and the
-           sign-in link. Swaps for #id-chip once a session exists. -->
-      <button id="signin-chip" class="tchip" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-5 8-5s8 1.7 8 5v1H4z"/></svg><span>Sign in</span></button>
+      <!-- Locked: the professor's door lives in the account corner. It isn't a
+           sign-in — one shared code unlocks the professor role; robots need no
+           credential at all (Claim on the rover card, Drive for anyone).
+           Swaps for #id-chip once a session exists. -->
+      <button id="signin-chip" class="tchip" aria-label="Professor — unlock fleet controls" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-5 8-5s8 1.7 8 5v1H4z"/></svg><span>Professor</span></button>
       <button id="id-chip" class="tchip" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-5 8-5s8 1.7 8 5v1H4z"/></svg><span id="id-chip-name"></span></button>
     </span>
   </header>
@@ -588,10 +599,10 @@
   <div id="chip-pop" hidden tabindex="-1"></div>
   <!-- The identity chip's menu (replaced the old in-page "Signed in as" row). -->
   <div id="id-menu" hidden>
-    <p>Signed in as <b id="identity-name"></b></p>
+    <p>Unlocked as <b id="identity-name"></b></p>
     <p class="hint" id="id-menu-scope"></p>
     <p class="hint" id="id-menu-conn" role="status"></p>
-    <button id="logout-btn" class="btn-tile">Log out &amp; switch</button>
+    <button id="logout-btn" class="btn-tile">Lock</button>
   </div>
   <main>
   <div id="hub-host-gate" class="notice" style="gap:0.5rem; align-items:center; flex-wrap:wrap">
@@ -930,6 +941,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // leaves each fetch pending ~75 s while new ones enqueue behind it for
     // hours) and an in-flight guard (skip the tick, don't stack).
     let uplinkBusy = false, fleetFails = 0, fleetSeen = false;
+    let firstFleet = null;   // first /fleet round-trip — the auto-unlock below awaits it
     let renderUplinkChip = null;   // assigned by initWifiSetup once hub-served is known
     async function refreshUplink() {
       if (uplinkBusy) return;
@@ -960,6 +972,11 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         return;
       }
       uplinkBusy = false;
+      // Island-served (a lone rover's own AP): /fleet's ssid is the live AP
+      // config, so rover-XXXX is the board's own word that it's an island —
+      // the same signal setHostChip already trusts. body.solo hides the
+      // professor door (CSS above): one board, no fleet, no role to unlock.
+      document.body.classList.toggle("solo", !!(data.ssid && data.ssid.startsWith("rover-")));
       setHostChip(data.ssid, data.host);
       if (renderUplinkChip) renderUplinkChip(data.uplink);
       const uplinkEl = document.getElementById("uplink");
@@ -1285,7 +1302,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     }
 
     if (!standalone) {
-      refreshUplink();
+      firstFleet = refreshUplink();
       // 10 s, not the fleet's 2 s clock: the uplink pill changes on a minutes
       // scale — the offline banner may appear up to 10 s late, an accepted trade.
       setInterval(refreshUplink, 10000);
@@ -1674,7 +1691,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     function blinkBoard(board, robot) {
       if (!driveClient || !driveClient.connected) {
         const status = document.getElementById("codes-status");
-        status.textContent = "Not connected — sign in as professor first.";
+        status.textContent = "Not connected — unlock professor controls first.";
         status.className = "assign-err";
         return;
       }
@@ -1691,7 +1708,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     function unassignBoard(board, robot) {
       if (!driveClient || !driveClient.connected) {
         const status = document.getElementById("codes-status");
-        status.textContent = "Not connected — sign in as professor first.";
+        status.textContent = "Not connected — unlock professor controls first.";
         status.className = "assign-err";
         return;
       }
@@ -1987,7 +2004,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       document.getElementById("id-chip-name").textContent =
         state === "reconnecting" ? "reconnecting…" : who;
       chip.setAttribute("aria-label", `${who} — ${state === "live" ? "connected"
-        : state === "reconnecting" ? "reconnecting" : "signed out"}`);
+        : state === "reconnecting" ? "reconnecting" : "locked"}`);
       document.getElementById("id-menu-conn").textContent =
         state === "live" ? "Connected" : state === "reconnecting" ? "Reconnecting…" : "";
     }
@@ -1999,7 +2016,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // on screen at all.
       const btn = document.getElementById("prof-go");
       if (btn) { btn.disabled = true; btn.textContent = "Connecting…"; }
-      const restore = () => { if (btn) { btn.disabled = false; btn.textContent = "Sign in"; } };
+      const restore = () => { if (btn) { btn.disabled = false; btn.textContent = "Unlock"; } };
       // One live client, ever: a second connect() (double-Enter, sign-in link
       // racing the silent auto-login) must not leave an orphan whose stall/error
       // handlers later kill the session that DID succeed — so tear down the
@@ -2051,7 +2068,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         else {
           // Explain the surprise logout instead of silently showing the gate.
           localStorage.removeItem("hubCred");
-          gateMsg("Your saved code no longer works — it may have been rotated. Sign in again.");
+          gateMsg("Your saved code no longer works — it may have been rotated. Enter it again.");
         }
       });
       client.on("close", () => {
@@ -2119,18 +2136,18 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
                   () => { menu.hidden = true; document.body.append(menu); });
     });
 
-    // Signed-out account corner → the professor's sign-in — the only sign-in
-    // that exists. Robots never sign in; naming/driving them needs no
-    // credential (see the Claim chip and Drive button on each card).
+    // Locked account corner → the professor code — the only credential that
+    // exists. Robots never need one; naming/driving them is open (see the
+    // Claim chip and Drive button on each card).
     document.getElementById("signin-chip").addEventListener("click", () => {
       const wrap = document.createElement("div");
       // Reuses the gate's own form grammar (.gate-row): input flexes, button
       // rides beside it, and the phone breakpoint stacks them full-width.
-      wrap.innerHTML = `<p><b>Professor sign-in</b></p>
+      wrap.innerHTML = `<p><b>Unlock professor controls</b></p>
         <div class="gate-row">
           <input id="prof-code" type="password" placeholder="professor code" aria-label="Professor code"
                  autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
-          <button id="prof-go">Sign in</button>
+          <button id="prof-go">Unlock</button>
         </div>
         <p class="hint" id="prof-pop-status" role="status" aria-live="polite"></p>`;
       openChipPop(document.getElementById("signin-chip"), wrap);
@@ -2558,13 +2575,17 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       if (e.target.closest("button[data-drive]") && (e.key === "Enter" || e.key === " ")) dpadStop();
     });
 
-    // ---- Professor sign-in shortcuts, tried in order of intent strength ----
+    // ---- Professor unlock shortcuts, tried in order of intent strength ----
     // 1. #code=user:pass in the URL — a shared-link path (only "professor"
-    //    ever signs in now, but the decoder stays generic). Scrubbed from
+    //    ever unlocks now, but the decoder stays generic). Scrubbed from
     //    the address bar immediately; the credential lives on only in
-    //    localStorage like any other login.
-    // 2. A remembered credential — locked phones and reloads land signed in.
-    {
+    //    localStorage like any saved code. Explicit intent — honored even
+    //    before /fleet answers.
+    // 2. A remembered code — locked phones and reloads land unlocked. This
+    //    one waits for the first /fleet verdict: an island-served page has
+    //    no professor role, so a code saved from the classroom hub must not
+    //    dial a lone rover's broker and masquerade as fleet control.
+    (async () => {
       const m = location.hash.match(/^#code=(.+)$/);
       if (m) {
         history.replaceState(null, "", location.pathname + location.search);
@@ -2572,12 +2593,14 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         const sep = code.indexOf(":");
         if (sep > 0) connect(code.slice(0, sep), code.slice(sep + 1));
       } else {
+        try { await firstFleet; } catch {}
+        if (document.body.classList.contains("solo")) return;
         try {
           const saved = JSON.parse(localStorage.getItem("hubCred"));
           if (saved && saved.user) connect(saved.user, saved.pass, { silent: true });
         } catch {}
       }
-    }
+    })();
 </script>
 </body>
 </html>
