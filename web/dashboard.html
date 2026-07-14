@@ -176,7 +176,7 @@
       100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 0%, transparent); }
     }
     @media (prefers-reduced-motion: reduce) {
-      .dot, #req-status.waiting::before, .claim-wait::before { animation: none; }
+      .dot { animation: none; }
     }
 
     /* Telemetry as an iOS inset-grouped list: a filled panel with hairline row
@@ -203,28 +203,31 @@
       background: var(--surface); border: 0.5px solid var(--border-default);
       border-radius: var(--radius-lg); padding: 1.25rem 1.4rem; box-shadow: var(--shadow-card);
     }
+    /* Hidden by default — it holds nothing but a professor sign-in error
+       (#gate-error), so it must not render as an empty padded card for every
+       visitor who never signs in. updateSigninVisibility() reveals it only
+       when there's something to say. */
+    #signin { display: none; }
     .assign-help { color: var(--ink-muted); font-size: 0.88rem; margin-bottom: 1rem; }
 
     /* --- Form controls: iOS-style fills, 44px tap targets, filled/tinted buttons --- */
     input, button { font: inherit; }
-    #code-gate { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-    #code-input, #assign-form input, .pins-grid input, #hub-host-input, #wifi-pass,
-    #codes-user, #codes-pass, #req-name, #prof-code, .claim-name, .copy-fallback {
+    #assign-form input, .pins-grid input, #hub-host-input, #wifi-pass,
+    #prof-code, .claim-name {
       background: var(--inset); color: var(--ink);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
       padding: 0.6rem 0.85rem; min-height: var(--tap);
     }
-    #code-input { min-width: 13rem; }
     :focus-visible { outline: 2.5px solid var(--focus); outline-offset: 2px; }
     input::placeholder { color: var(--ink-faint); }
 
     /* Primary (filled) button. Active press = subtle scale, the HIG tap feedback. */
-    #connect-btn, #assign-btn, #hub-host-save, #wifi-connect, #codes-add, #req-send, #prof-go {
+    #assign-btn, #hub-host-save, #wifi-connect, #prof-go {
       font-weight: 600; cursor: pointer; min-height: var(--tap);
       padding: 0.6rem 1.25rem; border-radius: var(--radius); border: none;
       color: var(--accent-ink); background: var(--accent); transition: transform 0.08s ease, filter 0.15s ease;
     }
-    #connect-btn:hover, #assign-btn:hover, #codes-add:hover, #req-send:hover { filter: brightness(1.08); }
+    #assign-btn:hover { filter: brightness(1.08); }
     #assign-btn:disabled { opacity: 0.55; cursor: default; filter: none; }
     button:active { transform: scale(0.97); }
     /* Tinted (secondary) button — accent text on a soft accent wash.
@@ -250,53 +253,8 @@
        name the user just joined (two hubs on the air look identical otherwise). */
     #host-chip { font-size: 0.75rem; font-weight: 400; opacity: 0.6; margin-left: 0.8rem;
                  letter-spacing: 0.02em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    /* Pending-request badge: the professor's attention hook lives in the sticky
-       bar, because the queue itself renders far below the fold. */
-    #req-badge { display: none; cursor: pointer; font-size: 0.8rem; font-weight: 600;
-                 border: none; border-radius: var(--radius-pill); padding: 0.3rem 0.8rem;
-                 background: var(--accent); color: var(--accent-ink); }
-    #robot-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
-    .chip { padding: 0.45rem 0.9rem; border-radius: var(--radius-pill); border: 0.5px solid var(--border-strong);
-            background: transparent; color: inherit; cursor: pointer; font-size: 0.9rem;
-            min-height: var(--tap); /* full tap target — and level with the gate row's input/button */ }
-    .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
     .gate-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
     .gate-row input { flex: 1 1 11rem; min-width: 0; }
-    #codes-nag { display: none; color: var(--danger-text); font-size: 0.9rem; margin: 0.4rem 0 0.8rem; }
-    .codes-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.65rem;
-      font-size: 0.95rem; background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
-    .codes-row .spacer { flex: 1; }
-    .codes-row button { padding: 0.35rem 0.8rem; border-radius: var(--radius-sm); border: 0.5px solid var(--border-strong);
-            background: transparent; color: inherit; cursor: pointer; }
-    /* Approve is the professor's most consequential tap — it wears the filled style. */
-    .codes-row button[data-approve], #join-approve {
-            background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
-    #codes-form { display: none; margin-top: 0.9rem; }
-    #codes-add { flex: 1 0 auto; }
-    /* Access requests: the knock (gate side) and the answer (the codes panel). */
-    #gate-lede { display: none; flex-basis: 100%; margin: 0; font-size: 0.95rem; }
-    #gate-lede a { color: var(--link); }
-    /* display:contents keeps chips + code row laid out as direct flex
-       children of #code-gate, exactly as before the collapse existed. */
-    #manual-gate { display: contents; }
-    #req-access { display: none; flex-basis: 100%; font-size: 0.88rem; margin-top: 0.2rem; }
-    #req-access a { color: var(--link); }
-    #req-form { display: none; flex-basis: 100%; }
-    #req-status { display: none; flex-basis: 100%; font-size: 0.9rem; margin: 0.3rem 0 0; }
-    /* Shared waiting spinner — also on .claim-wait in the pool rows. */
-    #req-status.waiting::before, .claim-wait::before {
-      content: ""; display: inline-block; width: 0.65rem; height: 0.65rem;
-      margin-right: 0.45rem; border-radius: 50%; border: 2px solid var(--accent);
-      border-top-color: transparent; animation: reqspin 0.9s linear infinite; vertical-align: -0.05rem; }
-    @keyframes reqspin { to { transform: rotate(360deg); } }
-    #codes-req-list .codes-row { border-left: 3px solid var(--accent); }
-    .req-board { color: var(--ink-muted); font-size: 0.82rem; }
-    /* Join grant: a signed-in robot's one-tap approval of a knock on its own
-       name (another browser, an AI bridge pairing from its chat). */
-    #join-req { display: none; border-left: 3px solid var(--accent); margin-top: 0.6rem; }
-    .pair-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.15em; }
-    #codes-share { margin-top: 0.8rem; }
-    .copy-fallback { display: block; width: 100%; margin: 0.5rem 0; }
     /* Orientation buttons publish immediately (unlike the fields above, which
        commit on Assign) — the divider marks the change of contract. */
     #orient-row { flex-basis: 100%; border-top: 0.5px solid var(--border-default);
@@ -392,17 +350,6 @@
     #wire-pause[aria-pressed="true"], #wire-beacons[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
     #wire-filter { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: var(--radius-sm);
       border: 0.5px solid var(--border-strong); background: var(--inset); color: var(--ink); max-width: 9rem; }
-    /* Solo scope reads card-first: their whole world is one rover. */
-    body.scope-one main { display: flex; flex-direction: column; }
-    body.scope-one #robots { order: 2; }
-    /* Their rover card is the page; diagnostics close it. */
-    body.scope-one #student-details { order: 3; }
-    /* The rover card sits in the drive card's column: same track math as
-       #controls, auto-fill so the phantom second track holds the half width
-       (auto-fit would collapse it and balloon the lone card to full width). */
-    body.scope-one #robots { gap: 1rem;
-      grid-template-columns: repeat(auto-fill, minmax(min(24rem, 100%), 1fr)); }
-    body.scope-one .robot { max-width: none; }
     #wire-log, #tel-feed {
       height: 11rem; overflow-y: auto; background: var(--inset);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
@@ -419,13 +366,9 @@
     .log-in { color: var(--success); }
 
     /* Robots live as cards in the fleet grid — each robot's identity is a
-       card. Per-robot code actions (Rotate/✕) sit in the card header where
-       the robot lives; #codes below is the professor's codes desk (mint,
-       requests, share card), display gated by scope. */
+       card. #codes below is hidden storage for the professor's Assign sheet
+       (moved in/out on open/close), never rendered as its own page section. */
     #codes { display: none; }
-    /* A robot whose code exists but whose rover is silent: present (the class
-       exists while robots sit in the cabinet) but visibly idle. */
-    .robot.code-only { opacity: 0.85; }
     /* Card chips — a card's corner is the rover's own topbar: network +
        identity, the grammar the page chrome taught, one scale down. */
     .card-chips { margin-left: auto; display: flex; gap: 0.3rem; min-width: 0; }
@@ -441,7 +384,7 @@
     button.cchip, .tchip, #wire-pause, #wire-beacons { position: relative; }
     button.cchip::after, .tchip::after, #wire-pause::after, #wire-beacons::after {
       content: ""; position: absolute; inset: -10px -2px; }
-    .btn-tile svg, .warn-note svg, #codes-nag svg { vertical-align: -0.15em; margin-right: 0.1rem; }
+    .btn-tile svg, .warn-note svg { vertical-align: -0.15em; margin-right: 0.1rem; }
     button.cchip:hover { filter: brightness(1.25); }
     .cchip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cchip svg { flex: none; }
@@ -453,12 +396,9 @@
     .cchip-robot { color: var(--ink); }
     .cchip-robot.pool, .cchip-claim { color: var(--warn-ink);
       border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
-    /* The solo-scoped viewer's own rover — the one card that's theirs. */
-    .robot.mine { box-shadow: 0 0 0 2px var(--accent-text); }
-    /* Assign/repair form: its own hairline-divided block (it follows the
-       Set-code form — without the divider the two read as one broken form),
-       labeled fields on the pins-grid pattern (an anonymous placeholder box
-       loses its name on the first keystroke), equal widths via flex-grow. */
+    /* Assign/repair form: its own hairline-divided block, labeled fields on
+       the pins-grid pattern (an anonymous placeholder box loses its name on
+       the first keystroke), equal widths via flex-grow. */
     #assign-form { display: none; flex-wrap: wrap; gap: 0.6rem; align-items: stretch;
       border-top: 0.5px solid var(--border-default); padding-top: 1rem; margin-top: 1.25rem; }
     #assign-selected { flex-basis: 100%; color: var(--ink); font-weight: 600; font-size: 0.95rem; margin-bottom: 0.25rem; }
@@ -482,7 +422,7 @@
     #assign-form .pins-grid input.dirty {
       border-color: var(--warn-ink); box-shadow: inset 0 0 0 1px var(--warn-ink); }
     #codes-status { font-size: 0.85rem; margin-top: 0.6rem; }
-    /* Outcome colors, shared by every status line (#codes-status, #req-status). */
+    /* Outcome colors, shared by every status line. */
     .assign-ok { color: var(--success); }
     .assign-err { color: var(--danger-text); }
 
@@ -494,9 +434,6 @@
     .pool-actions .btn-tile { margin: 0; }
     /* Inline claim: the name field lives in the rover's own row. */
     .pool-actions .claim-name { flex: 1 1 8rem; min-width: 0; padding: 0.4rem 0.7rem; min-height: 2.2rem; }
-    .claim-wait { color: var(--ink-muted); font-size: 0.85rem; }
-    .req-line { color: var(--ink-muted); font-size: 0.85rem; }
-    .req-line b { color: var(--ink); }
     .claim-err { color: var(--danger-text); font-size: 0.85rem; flex-basis: 100%; }
     .warn-note { color: var(--warn-ink); font-size: 0.85rem; margin-top: 0.45rem; }
 
@@ -570,17 +507,15 @@
       /* auto-fit's 24rem min track (#controls) exceeds a phone's width and would
          force a horizontal scroll — collapse to one column below 32rem. */
       #controls { grid-template-columns: 1fr; }
-      #code-gate { flex-direction: column; align-items: stretch; }
       .gate-row { flex-direction: column; align-items: stretch; }
       /* The row's flex-basis (a WIDTH hint) must not survive the column flip,
          where it becomes a 176px HEIGHT — the giant-empty-input bug. */
       .gate-row input { flex-basis: auto; }
-      #code-input, #connect-btn { width: 100%; }
       .segmented { display: flex; width: 100%; }
       .segmented button { flex: 1; }
       /* Full 44px tap targets on touch — including the secondary controls the
-         professor taps most (tiles, Approve/Rotate/✕, Log out, modal close). */
-      .btn-accent, .btn-tile, .codes-row button, .segmented button { min-height: var(--tap); }
+         professor taps most (tiles, Log out, modal close). */
+      .btn-accent, .btn-tile, .segmented button { min-height: var(--tap); }
       #modal-close { width: var(--tap); height: var(--tap); }
       .dpad { grid-template-columns: repeat(3, 4rem); grid-template-rows: repeat(3, 4rem); }
     }
@@ -589,7 +524,7 @@
        catches touch at ANY width, so the card action row, the drive mode
        switch, and the diagnostics controls all clear 44pt on the iPad too. */
     @media (pointer: coarse) {
-      .btn-accent, .btn-tile, .codes-row button, .segmented button,
+      .btn-accent, .btn-tile, .segmented button,
       #wire-filter, #wire-beacons, #wire-pause { min-height: var(--tap); }
     }
   </style>
@@ -597,7 +532,6 @@
 <body>
   <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span><span id="host-chip"></span></h1>
     <span class="topbar-right">
-      <button id="req-badge" aria-live="polite"></button>
       <button id="net-chip" class="tchip" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9.3a15 15 0 0 1 19 0"/><path d="M5.5 13a11 11 0 0 1 13 0"/><path d="M8.7 16.6a6 6 0 0 1 6.6 0"/><circle cx="12" cy="19.7" r="1.3" fill="currentColor" stroke="none"/></svg><span id="net-chip-label"></span></button>
       <!-- Fleet e-stop: one tap engages the retained fleet/estop latch
            (CONTRACT.md § Fleet e-stop). Direct action, not a popover chip;
@@ -619,7 +553,6 @@
     <p>Signed in as <b id="identity-name"></b></p>
     <p class="hint" id="id-menu-scope"></p>
     <p class="hint" id="id-menu-conn" role="status"></p>
-    <button id="menu-newrobot" class="btn-tile" style="display:none">New robot code…</button>
     <button id="logout-btn" class="btn-tile">Log out &amp; switch</button>
   </div>
   <main>
@@ -666,46 +599,16 @@
 
   <div id="controls">
   <section id="signin">
-    <p class="assign-help" id="gate-help">Pick your robot and enter its code.</p>
-    <div id="code-gate">
-      <!-- Claim-first gate (Pi-served only): the lede replaces the manual
-           chips+code block, which collapses behind one link — it's the
-           fallback (borrowed phone, professor on a new device, the Claim
-           flow's auto-landed sign-in didn't reach this screen), not the
-           arrival path. On hosts without the /codes API the manual block
-           stays expanded and this lede never shows. -->
-      <p id="gate-lede"><b>Connect to your rover.</b> New robot? Tap <b>Claim</b> on your rover above.
-        Already have one?
-        <button type="button" class="link-btn" id="gate-toggle" aria-expanded="false">sign in with a code</button>.</p>
-      <div id="manual-gate">
-        <div id="robot-chips"></div>
-        <div class="gate-row">
-          <input id="code-input" type="password" placeholder="code" aria-label="Sign-in code" autocomplete="off">
-          <button id="connect-btn">Sign in</button>
-        </div>
-        <p id="req-access">No code yet? <button type="button" class="link-btn" id="req-access-link" aria-expanded="false">Request access</button></p>
-      </div>
-      <!-- The knock form + waiting status live OUTSIDE the collapsible block:
-           Claim (the primary path) opens them while manual sign-in is hidden. -->
-      <div id="req-form" class="gate-row">
-        <input id="req-name" placeholder="robot name" aria-label="Robot name"
-               autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
-        <button id="req-send">Request</button>
-      </div>
-      <p id="req-status" role="status" aria-live="polite"></p>
-    </div>
+    <!-- Every visitor already has anonymous read+write on robots/# — driving
+         and claiming need no sign-in at all. The only remaining door is the
+         professor's (the topbar chip); this box stays empty and hidden
+         except to surface a professor sign-in error (updateSigninVisibility). -->
     <p id="gate-error" role="alert">Wrong code, or the hub isn't accepting drive connections.</p>
-    <div id="join-req" class="codes-row">
-      <span id="join-req-text"></span>
-      <span class="spacer"></span>
-      <button id="join-approve">Approve</button>
-      <button id="join-deny" title="Dismiss this request" aria-label="Dismiss this request">&#10005;</button>
-    </div>
   </section>
 
   <!-- Drive controls: parked here, hidden, until a card's Drive button moves them
        into the modal (openDrive()) — same "move into sheets on demand, returning
-       here on close" pattern as #codes' assign-form/codes-share. -->
+       here on close" pattern as #codes' assign-form. -->
   <div id="drive-store" hidden>
     <div id="drive-panel">
       <div id="drive-status">
@@ -757,38 +660,16 @@
   </div>
   </section>
 
-  <!-- Professor-only. One roster for the whole classroom: requests arrive at
-       the top, each robot row carries its code actions (hub-served only —
-       hubd /codes/* wraps mosquitto_passwd + reload) and its rovers, and
-       tapping a rover opens the repair form below. The link appears when a
-       code is (re)set — that's the only moment the plaintext exists here. -->
-  <!-- Hidden storage, not a page section: robot management lives in the flows
-       now — the robot chip on each card (assign/rotate via the sheet), the
-       request badge (approvals sheet), the account popover (new robot code).
-       These nodes keep their ids and listeners and MOVE into sheets on
-       demand, returning here on close. -->
+  <!-- Professor-only Assign sheet, hidden storage (not a page section): the
+       robot chip on each card opens it, moved into the modal on demand and
+       returned here on close. Naming an unassigned board otherwise needs no
+       sign-in at all — see the Claim row on the board's own card. -->
   <section id="codes" hidden>
-    <div id="codes-nag"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> This class is still running the placeholder codes it shipped with — rotate them before students arrive.</div>
-    <!-- Access requests, professor side: Approve mints a code and delivers it
-         to the requester's screen — nothing to read out or type. -->
-    <div id="codes-requests" style="display:none">
-      <p class="assign-help" style="margin-bottom:0.2rem">Access requests — approve and the robot lands signed in on their own screen.</p>
-      <div id="codes-req-list"></div>
-    </div>
-    <div class="gate-row" id="codes-form">
-      <input id="codes-user" placeholder="robot name" aria-label="Robot name"
-             autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
-      <input id="codes-pass" placeholder="code — blank to auto-generate" aria-label="Code, blank to auto-generate"
-             autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
-      <button id="codes-add">Set code</button>
-    </div>
     <div id="assign-form">
       <p id="assign-selected"></p>
       <label class="field">Robot name
         <input id="assign-name" placeholder="robot3"
                autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off"></label>
-      <label class="field">Code — blank rotates it &amp; mints a new sign-in card
-        <input id="assign-pass" type="password" placeholder="" autocomplete="off"></label>
       <details id="assign-advanced">
       <summary>Advanced rover setup</summary>
       <!-- Rogue-hub guard, TOFU at assignment time: lock the board to one exact
@@ -832,22 +713,14 @@
       <button id="assign-btn">Assign</button>
     </div>
     <p id="codes-status" role="status" aria-live="polite"></p>
-    <div id="codes-share" style="display:none">
-      <!-- Captioned: two mints in a row must not leave an anonymous link — and
-           the card carries a plaintext credential, so it's dismissible on purpose. -->
-      <p id="codes-share-title" class="assign-help" style="margin-bottom:0.4rem"></p>
-      <button id="codes-copy" class="btn-tile">Copy sign-in link</button>
-      <button id="codes-share-close" class="btn-tile">Hide card</button>
-    </div>
   </section>
   </div>
 
   <!-- The bus view: everything this session's subscription carries — its own
        full-width row below the controls, a verbose surface that deserves the
-       whole column. In student scope its order:3 lands it last ("diagnostics
-       close the page"); in professor scope it reads as "Advanced diagnostics".
-       Per-rover reading lives in each card's telemetry sheet; this is the
-       classroom's raw wire, the teaching tap. -->
+       whole column. Shown only once signed in as professor ("Advanced
+       diagnostics"). Per-rover reading lives in each card's telemetry sheet;
+       this is the classroom's raw wire, the teaching tap. -->
   <details id="student-details">
     <!-- The age hint tells you the link is healthy without opening the row;
          it lives in its own span because signIn retitles the label by role. -->
@@ -1150,37 +1023,15 @@ safe-buffer/index.js:
     // distinct, instead of a normal card whose last-writer-wins telemetry
     // flaps between boards. Blink = robots/<name>/cmd/identify targeted by
     // board id; Assign preselects the board in the assign panel. Both are
-    // professor actions (the pool's credential is deliberately not a student's).
-    // Per-robot code actions, in the card header — the old roster's Rotate/✕,
-    // now living where the robot lives. Professor + hub-served (/codes) only.
-    // Rotate also mints a code for a live-but-codeless name (set = rotate).
-    // ✕ exists ONLY on robot-less names (the rmdir rule: detach, then delete)
-    // — wherever it's visible it can mean exactly one thing, and a fast tap
-    // can't nuke a code while meaning "swap the robot".
-    function codeOps(id, deletable) {
-      if (!codesApi || !myScope || myScope.scope !== "all" || id === "unassigned") return "";
-      return `<button class="btn-tile" data-rotate="${esc(id)}">Rotate code…</button>
-        ${deletable && knownRobots.includes(id) ? `<button class="btn-tile btn-danger" data-delcode="${esc(id)}">Delete…</button>` : ""}`;
-    }
-    // A name whose code exists but whose robot is silent — the class exists
-    // while the cabinet is closed; code hygiene must not wait for power-on.
-    function codeOnlyCard(id) {
-      return `<div class="robot offline code-only">
-        <h2><span class="dot"></span>${esc(id)}</h2>
-        <div class="card-meta">No rover connected</div>
-        <div class="remedy">Assign an unassigned rover or power this robot's rover on.</div>
-        <div class="card-actions">${codeOps(id, true)}</div>
-      </div>`;
-    }
+    // professor actions.
 
     // ── Device cards: one card per physical board — the grid mirrors the desk.
     // A card is permanent across assignments; the NAME is something the device
     // WEARS, as a chip. A card's corner is the rover's own topbar — network +
     // identity, the same grammar the page chrome taught, one scale down; the
     // chips tap through to the flows that already exist (board Wi-Fi panel,
-    // the assign sheet). Ghost cards (codeOnlyCard) remain for names whose
-    // code exists but whose robot is off. This one renderer replaced the
-    // pool card, the collision card, and the single-robot card.
+    // the assign sheet). This one renderer replaced the pool card, the
+    // collision card, and the single-robot card.
     // Inline icon pack (feather-style strokes, currentColor) — one drawing
     // system for every glyph. Emoji render platform-colored and clash with
     // the monochrome chrome; the icons inherit the ink they sit in, warn
@@ -1205,17 +1056,18 @@ safe-buffer/index.js:
       const offline = ageMs > 10000;   /* boards publish every 2 s */
       const prof = myScope && myScope.scope === "all";
       const isPool = robot === "unassigned";
-      const mine = myScope && myScope.scope === "one" && robot === myScope.robot;
-      const claimable = isPool && !myCred && codesApi;
+      // Naming an unassigned board needs no sign-in at all — anonymous
+      // already carries write on robots/#. Hidden only while the professor
+      // is signed in, who gets the fuller Assign sheet (pins, hub lock)
+      // instead — one entry point per viewer, not two on the same card.
+      const claimable = isPool && !myCred;
       // The corner is the rover's own topbar — network + identity, the same
       // grammar the page chrome taught. A claimed board wears its name in
       // plain ink (settled); an unclaimed board wears its "Unassigned" state,
       // and an arriving robot gets the amber Claim call-to-action. The professor
       // assigns from a button in the action row, not the corner — Identify and
-      // Assign belong together where the work happens. The student's own card
-      // wears the name as its title, no chip.
-      const idChip = mine ? ""
-        : !isPool
+      // Assign belong together where the work happens.
+      const idChip = !isPool
           ? (prof
               ? `<button class="cchip cchip-robot" data-assign="${esc(board)}" data-brobot="${esc(robot)}" title="Reassign">${PERSON_SVG}<span>${esc(robot)}</span></button>`
               : `<span class="cchip cchip-robot">${PERSON_SVG}<span>${esc(robot)}</span></span>`)
@@ -1246,37 +1098,25 @@ safe-buffer/index.js:
         actions.push(`<button class="btn-tile" data-tel="${esc(robot)}" data-tel-board="${esc(board)}">${icon("activity")} Telemetry</button>`);
         if (!offline) actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-brobot="${esc(robot)}">${icon("zap")} Identify rover</button>`);
         actions.push(`<button class="btn-tile btn-danger" data-unassign="${esc(board)}" data-urobot="${esc(robot)}">Unassign rover…</button>`);
-      } else if (mine) {
+      } else if (!isPool) {
         actions.push(`<button class="btn-tile" data-tel="${esc(robot)}" data-tel-board="${esc(board)}">Details</button>`);
       }
-      // Claim: the signed-out arrival path. The amber corner chip is the one
-      // entry (no idle-state button — one CTA per card); this row only shows
-      // the in-progress states. The .pool-row class stays — the claim Enter
-      // handler anchors on it.
-      let claimRow = "";
-      if (claimable) {
-        claimRow = claimingBoard === board ? `<div class="pool-actions pool-row">
+      // Claim: no sign-in, no approval — type a name and it's published.
+      // The amber corner chip is the one entry (no idle-state button — one
+      // CTA per card); this row only shows the inline name field once tapped.
+      // The .pool-row class stays — the claim Enter handler anchors on it.
+      const claimRow = claimable && claimingBoard === board
+        ? `<div class="pool-actions pool-row">
             <input class="claim-name" placeholder="robot name" aria-label="Robot name" value="${esc(claimDraft)}"
               autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
-            <button class="btn-tile" data-claimsend="${esc(board)}">Request</button>
+            <button class="btn-tile" data-claimsend="${esc(board)}">Claim</button>
             ${claimErr ? `<span class="claim-err">${esc(claimErr)}</span>` : ""}</div>`
-          : localStorage.getItem("hubReqBoard") === board && reqTimer
-            ? `<div class="pool-actions"><span class="claim-wait">waiting for the professor…</span></div>`
-            : "";
-      }
+        : "";
       const shared = !isPool && robotCounts.get(robot) > 1;
-      // A pending claim renders on the claimed rover itself — the professor is
-      // looking at the physical board the request is about; approve where the
-      // grid mirrors the desk. Join/pair requests carry no board and stay in
-      // the req-badge sheet.
-      const req = prof ? pendingRequests.find(q => !q.join && q.board === board) : null;
-      return `<div class="robot${offline ? " offline" : ""}${mine ? " mine" : ""}">
-        <h2><span class="dot"></span>${esc(mine ? robot : board)}${offline ? '<span class="offline-label">offline</span>' : ""}${chips}</h2>
-        <div class="card-meta">${mine ? `Rover ${esc(board)}` : esc(sys.hw || "unknown board")}${sys.name ? ` · ${esc(sys.name)}` : ""}</div>
+      return `<div class="robot${offline ? " offline" : ""}">
+        <h2><span class="dot"></span>${esc(board)}${offline ? '<span class="offline-label">offline</span>' : ""}${chips}</h2>
+        <div class="card-meta">${esc(sys.hw || "unknown board")}${sys.name ? ` · ${esc(sys.name)}` : ""}</div>
         ${shared ? `<div class="warn-note">${icon("warn", 12)} ${robotCounts.get(robot)} boards wear this name — every drive command moves all of them.</div>` : ""}
-        ${req ? `<div class="pool-actions"><span class="req-line"><b>${esc(req.name)}</b> claims this rover</span>
-            <button class="btn-tile" data-approve="${esc(req.name)}">Approve</button>
-            <button class="btn-tile" data-denyreq="${esc(req.name)}" aria-label="Dismiss request from ${esc(req.name)}">&#10005;</button></div>` : ""}
         ${offline ? `<div class="remedy">Last seen ${fmtUptime(ageMs)} ago. Check power or battery.</div>` : ""}
         ${claimRow}
         ${actions.length ? `<div class="card-actions">${actions.join("")}</div>` : ""}
@@ -1284,47 +1124,29 @@ safe-buffer/index.js:
     }
 
     let lastRobotsHtml = "";
-    let pendingRequests = [];   // the /codes/requests queue — cards render board-matched claim rows
     function renderRobots() {
       // Cards repaint every 2 s, which would wipe an inline claim input mid-typing
       // — hold the repaint while one is live inside the grid.
       const active = document.activeElement;
       if (active && active.tagName === "INPUT" && document.getElementById("robots").contains(active)) return;
       let entries = [...boards.entries()];
-      // A signed-in student sees one stable mental model: their rover, not the classroom fleet.
-      if (myScope && myScope.scope === "one") entries = entries.filter(([, r]) => r.robot === myScope.robot);
       const robotCounts = new Map();
       for (const [, rec] of entries)
         if (Date.now() - rec.seenAt < 10000)
           robotCounts.set(rec.robot, (robotCounts.get(rec.robot) || 0) + 1);
-      const seenRobots = new Set(entries.map(([, r]) => r.robot));
       // Legacy/sim beacons carry no board id — those names get a name-keyed card.
-      let legacy = [...robots.entries()]
+      const legacy = [...robots.entries()]
         .filter(([t, r]) => !r.sys.board && t !== "unassigned").sort();
-      if (myScope && myScope.scope === "one") legacy = legacy.filter(([t]) => t === myScope.robot);
-      for (const [t] of legacy) seenRobots.add(t);
-      // Ghost cards: a code with no robot on the air (professor only) — the
-      // 7am case; code hygiene must not wait for power-on.
-      const ghosts = (myScope && myScope.scope === "all")
-        ? knownRobots.filter(t => t !== "professor" && !seenRobots.has(t)).sort()
-        : [];
       // Desk order is sacred: cards sort by board id and never move — a card
       // is permanent across assignments (see deviceCard). The grid never
       // reshuffles under a reaching hand on the 2 s clock; warn tints on the
       // cards carry attention at classroom scale.
       entries.sort((a, b) => (a[0] < b[0] ? -1 : 1));
       document.getElementById("empty").style.display =
-        entries.length || legacy.length || ghosts.length ? "none" : "block";
-      document.getElementById("empty").firstChild.textContent = myScope && myScope.scope === "one"
-        ? "Your rover is not online yet. Check its power or ask your professor for help. "
-        : "No rovers yet — power one on near the hub and it appears here within seconds. ";
-      // The flash-a-new-board hint serves arrivals, not a signed-in student.
-      document.querySelector("#empty .hint").style.display =
-        myScope && myScope.scope === "one" ? "none" : "";
+        entries.length || legacy.length ? "none" : "block";
       const html =
         entries.map(([b, rec]) => deviceCard(b, rec, robotCounts)).join("") +
-        legacy.map(([t, rec]) => deviceCard(t, { sys: rec.sys, robot: t, seenAt: rec.seenAt }, robotCounts)).join("") +
-        ghosts.map(codeOnlyCard).join("");
+        legacy.map(([t, rec]) => deviceCard(t, { sys: rec.sys, robot: t, seenAt: rec.seenAt }, robotCounts)).join("");
       // Skip identical repaints: innerHTML assignment resets scroll, CSS
       // animations, and — for keyboard users — whichever button held focus.
       if (html !== lastRobotsHtml) {
@@ -1350,15 +1172,19 @@ safe-buffer/index.js:
       const cutoff = Date.now() - EVICT_MS;
       for (const [id, rec] of robots) if (rec.seenAt < cutoff) robots.delete(id);
       for (const [b, rec] of boards) if (rec.seenAt < cutoff) boards.delete(b);
-      renderRobots(); renderChips(); watchAssign(); syncPinsPanel(false);
+      renderRobots(); watchAssign(); syncPinsPanel(false);
       syncWireFilter(); telemetrySync?.();
       renderDriveStatus(); renderLiveStatus(); renderDetailsAge(); renderFleetDiag();
     }, 2000);
 
-    // Anonymous mqtt.js connection, scoped by Mosquitto's ACL to read-only
-    // robots/+/sys — the same "public fleet view, no login needed" contract
-    // hubd's /fleet used to serve, now enforced by the broker instead of a
-    // Rust relay (mosquitto-acl.example.conf's top-level rule).
+    // Anonymous mqtt.js connection — Mosquitto's ACL grants every connection,
+    // no MQTT username/password at all, full read+write on robots/# and
+    // pair/# (mosquitto-acl.example.conf's top-level rule). This is now
+    // sufficient for every non-professor interaction: driving, claiming an
+    // unassigned board, reading the fleet. Only fleet/estop stays gated to
+    // the "professor" credential (driveClient below), so this client's
+    // subscription still doubles as the public "no login needed" fleet view
+    // hubd's old /fleet endpoint used to serve.
     const wsPort = "9001"; // fixed convention, same host — see mosquitto.example.conf
     let publicClient = null;
     // Feed the rover cards from any /sys message, whichever client carried it.
@@ -1517,32 +1343,22 @@ safe-buffer/index.js:
       if (sel.value !== cur) { wireRobot = sel.value; applyWireFilters(); }
     }
 
+    // Only ever called for "professor" — the sole identity anyone signs in
+    // as now. myScope stays truthy ({scope:"all"}) for as long as the many
+    // "myScope && myScope.scope === 'all'" checks elsewhere expect.
     function onScope(username) {
-      myScope = username === "professor" ? { scope: "all" } : { scope: "one", robot: username };
-      document.getElementById("code-gate").style.display = "none";
-      // The gate's help line has no job once signed in (hub-served pages hide
-      // it earlier via the claim-first presentation; standalone never did).
-      document.getElementById("gate-help").style.display = "none";
+      myScope = { scope: "all" };
       gateMsg("");
       document.getElementById("identity-name").textContent = username;
       document.getElementById("id-chip-name").textContent = username;
       document.getElementById("id-chip").classList.add("show");
       document.getElementById("signin-chip").classList.remove("show");
       closeChipPop();   // the sign-in popover's job is done
-      document.getElementById("id-menu-scope").textContent = myScope.scope === "all"
-        ? "Professor — full fleet control." : `Drives ${myScope.robot} only.`;
+      document.getElementById("id-menu-scope").textContent = "Professor — full fleet control.";
       document.getElementById("wire").style.display = "block";
       document.getElementById("student-details").style.display = "block";
-      document.getElementById("details-label").textContent =
-        myScope.scope === "all" ? "Advanced diagnostics" : "Live messages";
-      // Solo scope reorders the page around the driver (CSS .scope-one):
-      // renderRobots filters the rest of the fleet out of a student's view
-      // entirely and lands them on their own card, where Drive is a tap away.
-      document.body.classList.toggle("scope-one", myScope.scope === "one");
-      if (myScope.scope === "one")
-        document.getElementById("robots").scrollIntoView({ behavior: SCROLL, block: "start" });
-      if (myScope.scope === "all" && !standalone) loadCodes(); // codes flows arm when /codes exists
-      renderRobots(); // re-render cards now that scope is known (adds the Drive button)
+      document.getElementById("details-label").textContent = "Advanced diagnostics";
+      renderRobots(); // re-render cards now that scope is known (adds professor actions)
     }
 
     function selectTarget(id, board) {
@@ -1608,14 +1424,13 @@ safe-buffer/index.js:
       // Same diff-skip as the fleet grid: identical repaints cost focus/scroll.
       if (facts.dataset.html !== html) { facts.dataset.html = html; facts.innerHTML = html; }
     }
-    // The collapsed row's pulse: link health without opening it. The driver's
-    // own rover in solo scope; the freshest beacon fleet-wide for the professor.
+    // The collapsed row's pulse: link health without opening it — the
+    // freshest beacon fleet-wide.
     function renderDetailsAge() {
       const el = document.getElementById("details-age");
       if (!myScope) { el.textContent = ""; return; }
       let last = 0;
-      if (myScope.scope === "one") { const rec = driveRec(); last = rec ? rec.seenAt : 0; }
-      else for (const r of robots.values()) last = Math.max(last, r.seenAt);
+      for (const r of robots.values()) last = Math.max(last, r.seenAt);
       el.textContent = last ? `· last message ${fmtUptime(Date.now() - last)} ago` : "";
     }
     // Professor fleet vitals — only painted while the details row is open.
@@ -1668,65 +1483,11 @@ safe-buffer/index.js:
       applyDriveMode();
     });
 
-    // ---- Robot roster: every classroom identity in one list — the union of
-    // the broker's codes (a name minted tonight has no rover yet) and the live
-    // board map (a fleet robot still shows on hosts without the /codes API).
-    // Select-then-act (mirrors the drive panel): the LIST re-renders on a
-    // clock, but the FORMS are separate and static so a re-render never wipes
-    // a half-typed credential.
+    // ---- Robot roster: the live board map is the whole roster now — there's
+    // no broker-side codes list to union with it. Select-then-act (mirrors
+    // the drive panel): the LIST re-renders on a clock, but the FORM is
+    // separate and static so a re-render never wipes a half-typed name.
     let assignTarget = null; // { board, robot } — the board's *current* name
-
-    // Robot management lives in sheets — the #codes section is hidden storage.
-    // openCodesSheet MOVES the mint form (+ nag, status, share card) into the
-    // modal and returns them on close; the share card minting inside it is
-    // therefore visible where the mint happened.
-    function openCodesSheet(title) {
-      const nag = document.getElementById("codes-nag");
-      const form = document.getElementById("codes-form");
-      const status = document.getElementById("codes-status");
-      const share = document.getElementById("codes-share");
-      const wrap = document.createElement("div");
-      wrap.className = "assign-sheet";
-      form.style.display = "flex";
-      openModal(title || "Robot codes", wrap);   // flushes any previous sheet's restore first
-      wrap.append(nag, form, status, share);
-      modalRestore = () => document.getElementById("codes").append(nag, form, status, share);
-    }
-    function rotateCode(t) {
-      openCodesSheet(`Rotate ${t}'s code`);
-      document.getElementById("codes-user").value = t;
-      const status = document.getElementById("codes-status");
-      status.textContent = `Rotating ${t} — enter a new code, or leave blank to auto-generate.`;
-      status.className = "";
-      document.getElementById("codes-pass").focus();
-    }
-    async function delCode(t) {
-      const status = document.getElementById("codes-status");
-      // The ✕ only renders on robot-less cards, but a robot can rejoin while
-      // the confirm sits open — re-check the live map at act time.
-      const occupied = [...boards.values()].some(rec =>
-        rec.robot === t && Date.now() - rec.seenAt < 10000);
-      if (occupied) {
-        // codes-status lives in hidden storage between sheets — this rare
-        // race (a robot rejoined under the open confirm) needs a dialog.
-        alert(`${t} has a rover attached — Unassign it first, then delete.`);
-        return;
-      }
-      if (!confirm(`Delete ${t}? Its sign-in code stops working.`)) return;
-      // Tell the robot's boards FIRST, while they can still hear it — once the
-      // credential is gone they can never authenticate to be told. They clear
-      // their stored identity and reboot into the pool. Boards offline at this
-      // moment are caught by the firmware's not-authorized fallback instead.
-      if (driveClient && driveClient.connected) {
-        const topic = `robots/${t}/cmd/reprovision`;
-        driveClient.publish(topic, "{}", { qos: 1, retain: false });
-        logLine("out", `${topic} {}`);
-      }
-      const r = await codesPost("/codes/del", { user: t });
-      status.textContent = r.ok ? `Deleted ${t}.` : r.error;
-      status.className = r.ok ? "assign-ok" : "assign-err";
-      loadCodes();
-    }
 
     // Select a board for repair/move — preselected by a card's "Assign…"
     // (pool row, collision row, or an assigned rover's own card).
@@ -1742,20 +1503,16 @@ safe-buffer/index.js:
         // Fleet-card invocation: the form comes to the tap as a modal sheet
         // (deep task, deep container) instead of long-scrolling to the codes
         // workspace. #codes-status rides along — Assign writes its outcome
-        // there. From the roster (scroll=false) the form stays in place: the
-        // tap happened inside the codes panel already.
+        // there.
         const status = document.getElementById("codes-status");
-        const share = document.getElementById("codes-share");
         const wrap = document.createElement("div");
         wrap.className = "assign-sheet";
         // Populate the wrap ONLY AFTER openModal — it runs the previous
         // sheet's restore, which would steal just-claimed nodes back to
-        // storage (both orderings of this bug hit tonight's bench). The
-        // share card rides along: a blank-code assign mints a fresh code
-        // and its link must appear where the mint happened.
+        // storage (both orderings of this bug hit tonight's bench).
         openModal(`Assign ${board}`, wrap);
-        wrap.append(form, status, share);
-        modalRestore = () => document.getElementById("codes").append(form, status, share);
+        wrap.append(form, status);
+        modalRestore = () => document.getElementById("codes").append(form, status);
       }
       document.getElementById("assign-name").focus({ preventScroll: scroll });
     }
@@ -1795,39 +1552,17 @@ safe-buffer/index.js:
       logLine("out", `${topic} ${payload}`);
     }
 
-    // Authenticated POST to a hubd /codes/* endpoint — this session's code is
-    // the auth. Resolves to the parsed verdict; a transport failure resolves to
-    // { error: errMsg } so every call site renders one shape either way.
-    async function codesPost(path, extra, errMsg = "The hub didn't answer — try again.") {
-      try {
-        return await (await fetch(path, { method: "POST", signal: AbortSignal.timeout(4000),
-          body: JSON.stringify({ auth: myCred.pass, ...extra }) })).json();
-      } catch { return { error: errMsg }; }
-    }
-
-    // One listener for the whole roster: board chips open the repair form,
-    // Rotate…/✕ are the per-robot code actions (rendered only when /codes exists).
+    // One listener for the whole roster: board chips open the repair form.
     document.getElementById("assign-btn").addEventListener("click", async () => {
       const status = document.getElementById("codes-status");
       const setErr = m => { status.textContent = m; status.className = "assign-err"; };
       if (!assignTarget) return setErr("Pick a board first.");
       if (!driveClient || !driveClient.connected) return setErr("Connect as professor first.");
       const name = document.getElementById("assign-name").value.trim().toLowerCase();
-      let pass = document.getElementById("assign-pass").value;
       if (!name) return setErr("A robot name is required.");
-      // Blank code = rotate & send: codes are shown once at mint and never
-      // again, so "move this robot to blue" used to be a memory test. Same
-      // meaning blank already has at mint. The share card re-mints so the
-      // robot's people get their new sign-in immediately. (A blank pass SENT
-      // would store an empty credential on the board — never useful.)
-      if (!pass) {
-        if (!codesApi) return setErr("Enter the robot's code — this copy can't mint one.");
-        const r = await codesPost("/codes/set", { user: name, pass: "" });
-        if (!r.ok) return setErr(r.error);
-        pass = r.pass;
-        mintShareCard(name, pass);
-      }
-      const cfg = { target: assignTarget.board, name, pass };
+      // No credential — a robot's name is a topic address now, not a
+      // password; the hub's own Wi-Fi is the security boundary.
+      const cfg = { target: assignTarget.board, name };
       // Hub pin: empty = leave as-is, "-" = clear (sends ""), else set. The
       // rover refuses a non-hub-* value, so a typo can't strand the board.
       const hubPin = document.getElementById("assign-hub").value.trim();
@@ -1865,18 +1600,18 @@ safe-buffer/index.js:
       status.className = "";
       // Pin fields are NOT cleared: they display the rover's live map, and
       // the 2 s sync repaints them once the reboot lands.
-      ["assign-name", "assign-pass", "assign-hub"]
+      ["assign-name", "assign-hub"]
         .forEach(i => document.getElementById(i).value = "");
     });
 
     // ---- Assign transit watcher: three terminals, all read from the live
     // boards map, never a timer guessing. Back under the new name = success
     // (the sheet closes once the confirmation has been readable). Rebooted
-    // but on another subtree = the firmware's auth-rejection fallback put it
-    // in the pool — almost always a wrong robot code. Silence past 30 s = it
-    // never came back. Success needs proof of an actual reboot: an uptime
-    // reset, or a name change (an identity can't move subtrees without one) —
-    // otherwise a same-name re-assign would "succeed" off pre-reboot beacons.
+    // but landed under a different name = something else claimed or renamed
+    // it mid-transit. Silence past 30 s = it never came back. Success needs
+    // proof of an actual reboot: an uptime reset, or a name change (an
+    // identity can't move subtrees without one) — otherwise a same-name
+    // re-assign would "succeed" off pre-reboot beacons.
     let assignPending = null;
     function watchAssign() {
       if (assignTarget) {
@@ -1907,7 +1642,7 @@ safe-buffer/index.js:
         settle(`${assignPending.board} is back under ${rec.robot}.`, "assign-ok");
         setTimeout(closeAssignSheet, 1600);   // readable, then out of the way
       } else if (rebooted && rec.robot !== assignPending.robot) {
-        settle(`${assignPending.board} rebooted but landed under ${rec.robot} — wrong robot code?`, "assign-err");
+        settle(`${assignPending.board} rebooted but landed under ${rec.robot} — try again.`, "assign-err");
       } else if (Date.now() - assignPending.sentAt > 30000) {
         settle(`No sign of ${assignPending.board} after 30 s — check its power and Wi-Fi, then try again.`, "assign-err");
       }
@@ -2061,18 +1796,16 @@ safe-buffer/index.js:
 
     // #signin has no content of its own once signed in — #drive-panel moved
     // out to its own store (openDrive()), so the section would otherwise sit
-    // there as an empty padded box. Show it only while there's something in
-    // it: the gate itself (not yet signed in), an active error, or a pending
-    // join request (a second device asking to join this same robot identity).
+    // there as an empty padded box. Show it only while there's an active
+    // professor sign-in error to report; a visitor who never signs in never
+    // sees this box at all.
     function updateSigninVisibility() {
-      const show = !myScope
-        || document.getElementById("gate-error").style.display !== "none"
-        || document.getElementById("join-req").style.display !== "none";
+      const show = document.getElementById("gate-error").style.display !== "none";
       document.getElementById("signin").style.display = show ? "" : "none";
     }
     function gateMsg(text) {
       // While the professor sign-in popover is open, messages belong to it
-      // alone — a professor's typo must not paint the students' gate red.
+      // alone.
       const pop = document.getElementById("prof-pop-status");
       const el = document.getElementById("gate-error");
       if (pop) {
@@ -2090,59 +1823,7 @@ safe-buffer/index.js:
       updateSigninVisibility();
     }
 
-    // ---- Who-are-you chips: identities come from the live fleet (anonymous
-    // read already carries every robot id) UNIONED with the broker's codes list
-    // when the serving hub exposes it — so a robot minted tonight has its chip
-    // before its rover is assigned tomorrow. Fleet-only on hosts without the
-    // /codes API (ESP32 hub, standalone copy).
-    let chipUser = localStorage.getItem("hubUser") || "";
-    if (chipUser === "professor") chipUser = "";   // that chip no longer exists — see renderChips
-    let myCred = null;   // {user, pass} after a successful connect
-    let knownRobots = []; // /codes/list usernames, when hub-served by the Pi
-    let codesApi = false;
-    // The one /codes/list reader: updates the shared state (codesApi,
-    // knownRobots) + the gate presentation, and returns the parsed response so
-    // loadCodes() can layer its professor-panel presentation on top.
-    // Returns undefined when the serving host has no /codes API.
-    async function refreshKnownRobots() {
-      try {
-        const r = await (await fetch("/codes/list")).json();
-        knownRobots = r.users.filter(u => u !== "unassigned");
-        codesApi = true;
-        document.getElementById("req-access").style.display = (myCred || reqTimer) ? "none" : "block";
-        if (!myCred) {
-          // Claim-first presentation: lede up, manual block collapsed —
-          // unless this browser has manually signed in before (hubUser).
-          document.getElementById("gate-lede").style.display = "block";
-          document.getElementById("gate-help").style.display = "none";
-          if (!localStorage.getItem("hubUser"))
-            document.getElementById("manual-gate").style.display = "none";
-        }
-        renderChips();
-        return r;
-      } catch { /* no /codes API here */ }
-    }
-    let lastChipsHtml = "";
-    function renderChips() {
-      const box = document.getElementById("robot-chips");
-      if (!box || myCred) return;
-      // No professor chip: the professor's door is the topbar sign-in. The
-      // gate is the robots' fallback (borrowed phone, lost card) — and the
-      // name:code hatch in submitCode still admits anyone.
-      const names = [...new Set([...robots.keys(), ...knownRobots])]
-        .filter(t => t !== "unassigned" && t !== "professor").sort();
-      const html = names.map(t =>
-        `<button class="chip" data-user="${esc(t)}" aria-pressed="${String(t === chipUser)}">${esc(t)}</button>`).join("");
-      if (html !== lastChipsHtml) { lastChipsHtml = html; box.innerHTML = html; }
-    }
-    document.getElementById("robot-chips").addEventListener("click", (e) => {
-      const chip = e.target.closest(".chip");
-      if (!chip) return;
-      chipUser = chip.dataset.user;
-      localStorage.setItem("hubUser", chipUser);
-      renderChips();
-      document.getElementById("code-input").focus();
-    });
+    let myCred = null;   // {user:"professor", pass} after a successful sign-in
 
     // Session-alive signal on the identity chip (mqtt.js reconnects silently —
     // without this, dragging a dead joystick looks identical to driving).
@@ -2163,9 +1844,12 @@ safe-buffer/index.js:
     function connect(username, password, { silent = false } = {}) {
       if (!hubHost) return gateMsg("No hub address set — enter one above first.");
       gateMsg("");
-      const btn = document.getElementById("connect-btn");
-      btn.disabled = true; btn.textContent = "Connecting…";
-      const restore = () => { btn.disabled = false; btn.textContent = "Sign in"; };
+      // #prof-go only exists while the sign-in popover is open — a silent
+      // auto-login (saved credential, shared link) may fire with no button
+      // on screen at all.
+      const btn = document.getElementById("prof-go");
+      if (btn) { btn.disabled = true; btn.textContent = "Connecting…"; }
+      const restore = () => { if (btn) { btn.disabled = false; btn.textContent = "Sign in"; } };
       // One live client, ever: a second connect() (double-Enter, sign-in link
       // racing the silent auto-login) must not leave an orphan whose stall/error
       // handlers later kill the session that DID succeed — so tear down the
@@ -2203,11 +1887,7 @@ safe-buffer/index.js:
         localStorage.setItem("hubCred", JSON.stringify(myCred));
         onScope(username);      // before setConnPill: the chip label reads identity-name
         setConnPill("live");
-        const filter = myScope.scope === "all" ? "robots/+/#" : `robots/${username}/#`;
-        client.subscribe(filter);
-        // Solo scope's filter misses other rovers' beacons; the professor's
-        // robots/+/# already carries them (no double subscription).
-        if (myScope.scope === "one") client.subscribe("robots/+/sys");
+        client.subscribe("robots/+/#");
         client.subscribe("fleet/estop", { qos: 1 });   // the retained latch re-arrives here
         renderEstop();   // the chip appears for a professor as soon as the session is live
       });
@@ -2235,21 +1915,6 @@ safe-buffer/index.js:
         logLine("in", `${topic} ${payload.toString()}`);
       });
     }
-    function submitCode() {
-      if (document.getElementById("connect-btn").disabled) return; // already connecting (Enter bypasses a disabled button)
-      const code = document.getElementById("code-input").value.trim();
-      if (!code) return gateMsg("Enter your code first.");
-      // Power-user escape hatch: a full name:code line works with no chip.
-      const sep = code.indexOf(":");
-      if (sep > 0 && sep < code.length - 1) return connect(code.slice(0, sep), code.slice(sep + 1));
-      if (!chipUser) return gateMsg("Pick your robot first — tap a name above.");
-      connect(chipUser, code);
-    }
-    document.getElementById("connect-btn").addEventListener("click", submitCode);
-    document.getElementById("code-input").addEventListener("keydown", e => {
-      if (e.key === "Enter") submitCode();
-    });
-
     document.getElementById("logout-btn").addEventListener("click", () => {
       try { driveClient.end(true); } catch {}
       driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
@@ -2257,22 +1922,14 @@ safe-buffer/index.js:
       startPublicClient();      // signed-out cards go back to the anonymous sys feed
       if (!modal.hidden) closeModal();   // an open Drive/Camera/Telemetry sheet must not survive sign-out
       setConnPill("");
-      document.body.classList.remove("scope-one");   // back to the fleet-first order
       document.getElementById("student-details").style.display = "none";
-      pendingRequests = [];
       document.getElementById("id-chip").classList.remove("show");
       document.getElementById("signin-chip").classList.add("show");
       closeChipPop();         // the logout button lives in the account popover
-      document.getElementById("req-badge").style.display = "none";
       localStorage.removeItem("hubCred");
-      document.getElementById("menu-newrobot").style.display = "none";
-      for (const id of ["join-req", "wire"])
-        document.getElementById(id).style.display = "none";
-      document.getElementById("code-gate").style.display = "";
-      document.getElementById("code-input").value = "";
+      document.getElementById("wire").style.display = "none";
       updateSigninVisibility();
-      if (codesApi) { document.getElementById("req-access").style.display = "block"; refreshKnownRobots(); }
-      renderChips(); renderRobots();
+      renderRobots();
     });
 
     // Chip popover: one mechanism for everything the topbar chips open. A
@@ -2312,8 +1969,9 @@ safe-buffer/index.js:
                   () => { menu.hidden = true; document.body.append(menu); });
     });
 
-    // Signed-out account corner → the professor's sign-in. Same connect() as
-    // the gate; errors mirror into the popover via gateMsg's second sink.
+    // Signed-out account corner → the professor's sign-in — the only sign-in
+    // that exists. Robots never sign in; naming/driving them needs no
+    // credential (see the Claim chip and Drive button on each card).
     document.getElementById("signin-chip").addEventListener("click", () => {
       const wrap = document.createElement("div");
       // Reuses the gate's own form grammar (.gate-row): input flexes, button
@@ -2324,9 +1982,7 @@ safe-buffer/index.js:
                  autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
           <button id="prof-go">Sign in</button>
         </div>
-        <p class="hint" id="prof-pop-status" role="status" aria-live="polite"></p>
-        ${codesApi ? `<p class="hint">On a robot? Tap <b>Claim</b> on your rover, or scan its sign-in card.</p>`
-                   : `<p class="hint">On a robot? Sign in below with its code.</p>`}`;
+        <p class="hint" id="prof-pop-status" role="status" aria-live="polite"></p>`;
       openChipPop(document.getElementById("signin-chip"), wrap);
       const go = () => {
         const v = wrap.querySelector("#prof-code").value.trim();
@@ -2338,165 +1994,33 @@ safe-buffer/index.js:
     });
     document.getElementById("signin-chip").classList.add("show"); // signed out at boot; onScope hides it
 
-    // ---- Access requests, gate side: POST the knock, poll the token, and an
-    // approval signs this browser in by itself. The token survives reloads in
-    // localStorage so a locked phone resumes waiting instead of re-knocking.
-    let reqTimer = null;
-    function reqStatus(text, cls) {
-      const el = document.getElementById("req-status");
-      el.textContent = text;
-      el.className = cls || "";
-      el.style.display = text ? "block" : "none";
-    }
-    function stopRequestWait(msg, cls) {
-      clearInterval(reqTimer); reqTimer = null;
-      localStorage.removeItem("hubReqToken"); localStorage.removeItem("hubReqName");
-      localStorage.removeItem("hubReqBoard");
-      localStorage.removeItem("hubReqPair"); localStorage.removeItem("hubReqJoin");
-      reqStatus(msg || "", cls);
-    }
-    let pollBusy = false;
-    async function pollRequest() {
-      const token = localStorage.getItem("hubReqToken");
-      if (!token || myCred) return stopRequestWait();
-      if (pollBusy) return;
-      pollBusy = true;
-      let r;
-      try { r = await (await fetch("/codes/poll", { method: "POST", signal: AbortSignal.timeout(2500), body: JSON.stringify({ token }) })).json(); }
-      catch { pollBusy = false; return; } // transient — keep waiting
-      pollBusy = false;
-      // Inline claims watch their own pool row, not the gate — land the
-      // verdict where the student is looking (the waiting badge they watched
-      // would otherwise just vanish).
-      const claimBoard = localStorage.getItem("hubReqBoard");
-      const rowVerdict = msg => {
-        if (!claimBoard) return;
-        claimingBoard = claimBoard; claimDraft = localStorage.getItem("hubReqName") || ""; claimErr = msg;
-        renderRobots();
-      };
-      if (r.status === "approved") {
-        stopRequestWait();
-        document.getElementById("req-form").style.display = "none";
-        connect(r.user, r.pass); // one-shot delivery; connect() remembers it
-      } else if (r.status === "denied") {
-        rowVerdict("The professor didn't approve this request.");
-        stopRequestWait("The professor didn't approve this request.", "assign-err");
-      } else if (r.status === "unknown") {
-        rowVerdict("Request expired — try again.");
-        stopRequestWait("Request expired — send it again.", "assign-err");
-      } // "waiting" → keep polling
-    }
-    function startRequestWait(name) {
-      // The pairing code is the human match: the approving screen shows the
-      // same four characters, so a knock can't be blind-approved for someone else.
-      const pair = localStorage.getItem("hubReqPair");
-      const who = localStorage.getItem("hubReqJoin")
-        ? `${name}'s signed-in screen` : "the professor";
-      reqStatus(`Waiting for ${who} to approve “${name}”…`
-        + (pair ? ` Your pairing code is ${pair}.` : "") + " Keep this page open.", "waiting");
-      document.getElementById("req-access").style.display = "none";
-      if (!reqTimer) reqTimer = setInterval(pollRequest, 3000);
-      pollRequest();
-    }
-    document.getElementById("req-access-link").addEventListener("click", (e) => {
-      const form = document.getElementById("req-form");
-      const open = form.style.display !== "flex";
-      form.style.display = open ? "flex" : "none";
-      e.target.setAttribute("aria-expanded", String(open));
-      if (open) reqStatus("");
-      document.getElementById("req-name").focus();
-    });
-    // One knock for both doors: the gate's name-only request and the pool
-    // row's inline claim. Returns whether the request was accepted.
-    async function knock(name, board) {
-      const body = board ? { name, board } : { name };
-      let r;
-      try { r = await (await fetch("/codes/request", { method: "POST", body: JSON.stringify(body) })).json(); }
-      catch { return "The hub didn't answer — are you on its Wi-Fi?"; }
-      if (!r.ok) return r.error;
-      localStorage.setItem("hubReqToken", r.token);
-      localStorage.setItem("hubReqName", name);
-      if (board) localStorage.setItem("hubReqBoard", board);
-      if (r.pair) localStorage.setItem("hubReqPair", r.pair);
-      if (r.join) localStorage.setItem("hubReqJoin", "1");
-      startRequestWait(name);
-      return null;
-    }
-    async function sendRequest() {
-      const name = document.getElementById("req-name").value.trim().toLowerCase();
-      if (!name) return reqStatus("Enter your robot name first.", "assign-err");
-      const fail = await knock(name);
-      if (fail) return reqStatus(fail, "assign-err");
-      document.getElementById("req-form").style.display = "none";
-    }
-    document.getElementById("req-send").addEventListener("click", sendRequest);
-    document.getElementById("req-name").addEventListener("keydown", e => {
-      if (e.key === "Enter") sendRequest();
-    });
-
-    // ---- Join requests, robot side: while signed in, watch the public request
-    // list for a knock on OUR name (a second browser, or an AI bridge pairing
-    // from its chat) and offer a one-tap grant. Granting re-shares this
-    // session's own code (/codes/grant authenticates with it) — nothing is
-    // minted, the rover's credential is untouched. The pairing code shown must
-    // match the requester's screen; that comparison is the whole check.
-    let joinShown = null; // pair currently offered, or "hold" during the post-answer beat
-    let joinBusy = false;
-    async function watchJoinRequests() {
-      const box = document.getElementById("join-req");
-      if (joinShown === "hold" || joinBusy) return;
-      if (!codesApi || !myCred || myCred.user === "professor") {
-        box.style.display = "none"; joinShown = null; updateSigninVisibility(); return;
-      }
-      joinBusy = true;
-      let r;
-      try { r = await (await fetch("/codes/requests", { signal: AbortSignal.timeout(2500) })).json(); }
-      catch { joinBusy = false; return; }
-      joinBusy = false;
-      const mine = r.requests.find(q => q.join && q.name === myCred.user);
-      if (!mine) { box.style.display = "none"; joinShown = null; updateSigninVisibility(); return; }
-      if (joinShown === mine.pair) return;
-      joinShown = mine.pair;
-      document.getElementById("join-req-text").innerHTML =
-        `Someone — your own AI, maybe — asks to join as <b>${esc(myCred.user)}</b>. ` +
-        `Approve only if their screen shows the pairing code <b class="pair-code">${esc(mine.pair)}</b>.`;
-      box.querySelectorAll("button").forEach(b => b.style.display = "");
-      box.style.display = "flex";
-      updateSigninVisibility();
-    }
-    setInterval(watchJoinRequests, 4000);
-    async function answerJoin(endpoint, doneMsg) {
-      const box = document.getElementById("join-req");
-      let r;
-      try { r = await (await fetch(endpoint, { method: "POST",
-        body: JSON.stringify({ auth: myCred.pass, name: myCred.user }) })).json(); }
-      catch { r = { error: "the hub didn't answer" }; }
-      document.getElementById("join-req-text").textContent = r.ok ? doneMsg : r.error;
-      box.querySelectorAll("button").forEach(b => b.style.display = "none");
-      joinShown = "hold";
-      setTimeout(() => { box.style.display = "none"; joinShown = null; updateSigninVisibility(); }, 5000);
-    }
-    document.getElementById("join-approve").addEventListener("click", () =>
-      answerJoin("/codes/grant", "Granted — they're in, with this robot's scope."));
-    document.getElementById("join-deny").addEventListener("click", () =>
-      answerJoin("/codes/deny", "Dismissed."));
-
     // ---- Inline claim on the pool row: Claim swaps the button for a name
-    // field IN the row; Request knocks with the board attached; the row shows
-    // the waiting badge. State lives here (not the DOM) because the cards
-    // re-render — renderRobots() repaints from these on every pass.
+    // field IN the row; typing a name and submitting publishes it directly
+    // via the anonymous client — no sign-in, no approval, no knock. State
+    // lives here (not the DOM) because the cards re-render — renderRobots()
+    // repaints from these on every pass.
     let claimingBoard = null; // row currently showing the inline name field
     let claimDraft = "";      // its input value, preserved across repaints
     let claimErr = "";        // inline error, rendered under the field
     async function sendClaim(board) {
-      // Lowercase silently: names are broker usernames (lowercase-only), and
+      // Lowercase silently: names are topic segments (lowercase-only), and
       // phone keyboards capitalize despite autocapitalize="none" (bench
       // 2026-07-12: "Jonas" bounced with the format error).
       const name = claimDraft.trim().toLowerCase();
       if (!name) { claimErr = "Enter your robot name first."; renderRobots(); return; }
+      if (!publicClient || !publicClient.connected) {
+        claimErr = "Not connected to the hub yet — try again in a moment.";
+        renderRobots();
+        return;
+      }
       claimErr = "";
-      const fail = await knock(name, board);
-      if (fail) { claimErr = fail; renderRobots(); return; }
+      // Published on the pool's own subtree, targeted by board id — the same
+      // cmd/config shape the professor's Assign sheet sends, minus the
+      // credential neither flow carries anymore.
+      const topic = "robots/unassigned/cmd/config";
+      const payload = JSON.stringify({ target: board, name });
+      publicClient.publish(topic, payload, { qos: 1, retain: false });
+      logLine("out", `${topic} ${payload}`);
       claimingBoard = null; claimDraft = "";
       renderRobots();
     }
@@ -2510,210 +2034,14 @@ safe-buffer/index.js:
       }
     });
 
-    // ---- Claim-first gate: when the serving hub can mint codes, the lede
-    // replaces the manual chips+code block (still one tap away — and always
-    // expanded on hosts with no /codes API, where manual entry is the only door).
-    document.getElementById("gate-toggle").addEventListener("click", (e) => {
-      document.getElementById("manual-gate").style.display = "contents";
-      e.target.setAttribute("aria-expanded", "true");
-      document.getElementById("code-input").focus();
-    });
-
-    // ---- Code actions on the roster (professor + hub-served only): broker
-    // identities managed in place via hubd /codes/* (mosquitto_passwd + SIGHUP
-    // behind it). Off the hub the fetch fails and the roster stays fleet-only.
-    async function loadCodes() {
-      const r = await refreshKnownRobots();
-      if (r) {
-        document.getElementById("codes-nag").style.display = r.placeholders ? "block" : "none";
-        document.getElementById("codes-form").style.display = "flex";
-        document.getElementById("menu-newrobot").style.display = "";  // codes flows exist here
-        renderRobots();   // knownRobots changed — code-only cards join/leave the grid
-      }
-      loadRequests();
-    }
-    // The only moment a plaintext code exists in this panel — mint the sign-in
-    // link now; it can't be recovered from the broker later. This is the
-    // fallback for when Claim's request-and-auto-land flow didn't happen —
-    // a manual set/rotate, or an approval the requester's own screen missed.
-    function mintShareCard(user, pass) {
-      const share = document.getElementById("codes-share");
-      const link = `http://${location.host}/#code=${encodeURIComponent(`${user}:${pass}`)}`;
-      document.getElementById("codes-share-title").textContent =
-        `${user}'s sign-in link — share it with them to sign in as ${user}.`;
-      share.style.display = "block";
-      share.querySelector(".copy-fallback")?.remove();   // a re-mint must not keep the previous link
-      const copyBtn = document.getElementById("codes-copy");
-      // navigator.clipboard exists only in secure contexts, and this dashboard is
-      // deliberately plain-http (hub.local) — so try it, fall back to the
-      // execCommand path, and failing both show the link to copy by hand.
-      copyBtn.onclick = async () => {
-        let ok = false;
-        try { await navigator.clipboard.writeText(link); ok = true; } catch (_) {}
-        if (!ok) {
-          const ta = document.createElement("textarea");
-          ta.value = link;
-          ta.setAttribute("readonly", "");
-          ta.style.cssText = "position:fixed;opacity:0";
-          document.body.append(ta);
-          ta.select();
-          try { ok = document.execCommand("copy"); } catch (_) {}
-          ta.remove();
-        }
-        copyBtn.textContent = ok ? "Copied" : "Couldn't copy — link below:";
-        if (!ok && !share.querySelector(".copy-fallback")) {
-          const inp = document.createElement("input");
-          inp.className = "copy-fallback";
-          inp.readOnly = true;
-          inp.value = link;
-          inp.onclick = () => inp.select();
-          copyBtn.after(inp);
-          inp.select();
-        }
-      };
-      copyBtn.textContent = "Copy sign-in link";
-    }
-    // The card carries a plaintext credential — on a projected dashboard it
-    // must not linger past its moment.
-    document.getElementById("codes-share-close").addEventListener("click", () => {
-      document.getElementById("codes-share").style.display = "none";
-    });
-
-    // Pending access requests (professor side). Refreshed with loadCodes and
-    // on a light clock while the panel is open, so a knock shows up unasked.
-    let requestsBusy = false, lastReqListHtml = "";
-    async function loadRequests() {
-      if (!myScope || myScope.scope !== "all" || !codesApi) return;
-      if (requestsBusy) return;
-      requestsBusy = true;
-      try {
-        const r = await (await fetch("/codes/requests", { signal: AbortSignal.timeout(2500) })).json();
-        // The queue renders below the fold; the badge in the sticky bar is how
-        // a professor mid-scroll learns someone is waiting on them.
-        const pending = r.requests.filter(q => !q.join).length;
-        pendingRequests = r.requests;
-        const badge = document.getElementById("req-badge");
-        badge.style.display = pending ? "inline-block" : "none";
-        badge.textContent = pending === 1 ? "1 request waiting" : `${pending} requests waiting`;
-        document.getElementById("codes-requests").style.display = r.requests.length ? "block" : "none";
-        const reqHtml = r.requests
-          .map(q => `<div class="codes-row"><b>${esc(q.name)}</b>
-             ${q.board ? `<span class="req-board">claims ${esc(q.board)}</span>` : ""}
-             ${q.join ? `<span class="req-board">rejoin — the robot grants it from its own signed-in screen</span>` : ""}
-             ${q.pair ? `<span class="req-board">pair <span class="pair-code">${esc(q.pair)}</span></span>` : ""}
-             <span class="spacer"></span>
-             ${q.board ? `<button data-blinkreq="${esc(q.board)}" title="Blink the claimed board" aria-label="Blink ${esc(q.board)}">&#128161;</button>` : ""}
-             ${q.join ? "" : `<button data-approve="${esc(q.name)}">Approve</button>`}
-             <button data-denyreq="${esc(q.name)}" aria-label="Dismiss request from ${esc(q.name)}">&#10005;</button></div>`).join("");
-        if (reqHtml !== lastReqListHtml) {
-          lastReqListHtml = reqHtml;
-          document.getElementById("codes-req-list").innerHTML = reqHtml;
-        }
-      } catch { /* not hub-served */ }
-      requestsBusy = false;
-    }
-    setInterval(loadRequests, 5000);
-    // The badge is the attention hook; the queue itself opens as a sheet —
-    // the approvals list moves in (listeners riding along) and back on close.
-    document.getElementById("req-badge").addEventListener("click", () => {
-      const reqs = document.getElementById("codes-requests");
-      const status = document.getElementById("codes-status");
-      const share = document.getElementById("codes-share");
-      const wrap = document.createElement("div");
-      wrap.className = "assign-sheet";
-      reqs.style.display = "block";
-      openModal("Access requests", wrap);      // flushes any previous sheet's restore first
-      wrap.append(reqs, status, share);
-      modalRestore = () => document.getElementById("codes").append(reqs, status, share);
-    });
-
-    // Account popover → mint a robot name with no rover yet (the 7am pre-provision).
-    document.getElementById("menu-newrobot").addEventListener("click", () => {
-      closeChipPop();
-      openCodesSheet("Robot codes");
-      document.getElementById("codes-user").focus();
-    });
-    // Shared by the req-badge sheet AND the fleet cards' claim rows — same
-    // buttons, two surfaces.
-    document.getElementById("codes-req-list").addEventListener("click", handleRequestAction);
-    async function handleRequestAction(e) {
-      const app = e.target.closest("[data-approve]");
-      const den = e.target.closest("[data-denyreq]");
-      const blq = e.target.closest("[data-blinkreq]");
-      const status = document.getElementById("codes-status");
-      if (blq) {
-        // Verify which physical rover is being claimed before approving.
-        const rec = boards.get(blq.dataset.blinkreq);
-        blinkBoard(blq.dataset.blinkreq, rec ? rec.robot : "unassigned");
-      } else if (app) {
-        const r = await codesPost("/codes/approve", { name: app.dataset.approve },
-          "The hub didn't answer — the request is still waiting.");
-        if (r.ok && r.board) {
-          // The claim's second half: push the freshly minted credential to the
-          // claimed rover over this professor session — same cmd/config the
-          // repair form publishes, targeted at the board on its current name
-          // topic. One tap = code delivered + rover renamed. Report what
-          // actually happened: "on its way" while the publish was skipped or
-          // the board is dark is a false confirmation on the flow's key step.
-          const rec = boards.get(r.board);
-          const fresh = rec && Date.now() - rec.seenAt < 10000;
-          if (driveClient && driveClient.connected && fresh) {
-            const topic = `robots/${rec.robot}/cmd/config`;
-            const cfg = { target: r.board, name: r.user, pass: r.pass };
-            driveClient.publish(topic, JSON.stringify(cfg), { qos: 1, retain: false });
-            logLine("out", `${topic} ${JSON.stringify(cfg)}`);
-            status.textContent = `${r.user} approved — code on its way; ${r.board} reboots under ${r.user} in a few seconds.`;
-          } else {
-            status.textContent = `${r.user} approved and their code is on their screen — but ${r.board} `
-              + (fresh ? "couldn't be reached from this session" : "looks offline")
-              + `; once it's back, assign it to ${r.user} below.`;
-          }
-        } else {
-          status.textContent = r.ok
-            ? `${r.user} approved — the code is on its way to their screen.` : r.error;
-        }
-        status.className = r.ok ? "assign-ok" : "assign-err";
-        if (r.ok) mintShareCard(r.user, r.pass); // backup card, in case the auto-landed sign-in didn't reach their screen
-        loadCodes(); loadRequests();
-      } else if (den) {
-        if (!confirm(`Dismiss the request from ${den.dataset.denyreq}?`)) return;
-        const r = await codesPost("/codes/deny", { name: den.dataset.denyreq });
-        status.textContent = r.ok ? `Request from ${den.dataset.denyreq} dismissed.` : r.error;
-        status.className = r.ok ? "assign-ok" : "assign-err";
-        loadRequests();
-      }
-    }
-    document.getElementById("codes-add").addEventListener("click", async () => {
-      const user = document.getElementById("codes-user").value.trim();
-      const pass = document.getElementById("codes-pass").value;
-      const status = document.getElementById("codes-status");
-      const share = document.getElementById("codes-share");
-      // Same button, two severities: a new name creates, an existing name
-      // ROTATES — cutting off that robot's rover and signed-in phones. Say so.
-      if (knownRobots.includes(user) &&
-          !confirm(`${user} already has a code — this rotates it, and their rover and signed-in phones lose access until you re-share. Continue?`)) return;
-      share.style.display = "none";
-      const r = await codesPost("/codes/set", { user, pass });
-      status.textContent = r.ok ? `${user} is set.` : r.error;
-      status.className = r.ok ? "assign-ok" : "assign-err";
-      if (!r.ok) return;
-      loadCodes();
-      mintShareCard(user, r.pass); // r.pass = the typed code, or the generated one on blank
-      document.getElementById("codes-user").value = "";
-      document.getElementById("codes-pass").value = "";
-    });
     document.getElementById("robots").addEventListener("click", (e) => {
       // Delegated on #robots (which persists across re-renders); the buttons inside
       // are rebuilt every 2s, so we match on closest, not the exact target.
-      // Claim rows on cards reuse the request sheet's buttons and handler.
-      if (e.target.closest("[data-approve], [data-denyreq]")) return handleRequestAction(e);
       const cam = e.target.closest("[data-cam-ip]");
       const cfg = e.target.closest("[data-cfg-ip]");
       const blk = e.target.closest("[data-blink]");
       const asg = e.target.closest("[data-assign]");
       const una = e.target.closest("[data-unassign]");
-      const rot = e.target.closest("[data-rotate]");
-      const del = e.target.closest("[data-delcode]");
       const tel = e.target.closest("[data-tel]");
       const drv = e.target.closest("[data-drive-open]");
       const clm = e.target.closest("[data-claim]");
@@ -2724,8 +2052,6 @@ safe-buffer/index.js:
       else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp, cfg.dataset.board);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.brobot);
       else if (una) unassignBoard(una.dataset.unassign, una.dataset.urobot);
-      else if (rot) rotateCode(rot.dataset.rotate);
-      else if (del) delCode(del.dataset.delcode);
       else if (asg) preselectAssign(asg.dataset.assign, asg.dataset.brobot, true);
       else if (clm) {
         claimingBoard = clm.dataset.claim; claimDraft = ""; claimErr = "";
@@ -2930,10 +2256,15 @@ safe-buffer/index.js:
       frame.addEventListener("load", () => { loaded = true; goodPanel(); });
     }
 
+    // Whichever client this page currently holds carries the drive — the
+    // professor's authenticated session once signed in, the anonymous public
+    // client otherwise (it now carries write on robots/# too, no sign-in
+    // required to drive any rover). "One page, one connection" (see
+    // startPublicClient/connect) means exactly one of the two is ever live.
     function sendPwm({ left, right }) {
-      if (!driveClient || !driveClient.connected) return;
-      if (myScope.scope === "all" && !target) return;
-      const robot = target ?? myScope.robot;
+      if (!target) return;
+      const client = (myScope && driveClient && driveClient.connected) ? driveClient : publicClient;
+      if (!client || !client.connected) return;
       const pwm = {
         timestamp: Date.now() / 1000,
         left_motor: Math.round(left), right_motor: Math.round(right),
@@ -2942,8 +2273,8 @@ safe-buffer/index.js:
       // Per-board drive: pool/collision boards share one pwm topic, so the
       // firmware filters on this optional board id (same as cmd/config).
       if (targetBoard) pwm.target = targetBoard;
-      driveClient.publish(`robots/${robot}/pwm`, JSON.stringify(pwm));
-      logLine("out", `robots/${robot}/pwm ${JSON.stringify(pwm)}`);
+      client.publish(`robots/${target}/pwm`, JSON.stringify(pwm));
+      logLine("out", `robots/${target}/pwm ${JSON.stringify(pwm)}`);
     }
 
     // Pointer Events (not separate mouse/touch listeners) so drag works the
@@ -3077,9 +2408,10 @@ safe-buffer/index.js:
       if (e.target.closest("button[data-drive]") && (e.key === "Enter" || e.key === " ")) dpadStop();
     });
 
-    // ---- Sign-in shortcuts, tried in order of intent strength ----
-    // 1. #code=user:pass in the URL — the shared-link path. Scrubbed
-    //    from the address bar immediately; the credential lives on only in
+    // ---- Professor sign-in shortcuts, tried in order of intent strength ----
+    // 1. #code=user:pass in the URL — a shared-link path (only "professor"
+    //    ever signs in now, but the decoder stays generic). Scrubbed from
+    //    the address bar immediately; the credential lives on only in
     //    localStorage like any other login.
     // 2. A remembered credential — locked phones and reloads land signed in.
     {
@@ -3095,12 +2427,6 @@ safe-buffer/index.js:
           if (saved && saved.user) connect(saved.user, saved.pass, { silent: true });
         } catch {}
       }
-      renderChips();
-      refreshKnownRobots();
-      // 3. A request still waiting on the professor — resume the poll so a
-      //    locked phone lands signed in the moment it's approved.
-      if (!localStorage.getItem("hubCred") && localStorage.getItem("hubReqToken"))
-        startRequestWait(localStorage.getItem("hubReqName") || "your robot");
     }
 </script>
 </body>

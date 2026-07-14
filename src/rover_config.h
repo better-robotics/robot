@@ -15,13 +15,14 @@
 void rover_config_load(char ssid[33], char pass[65], char locator[65]);
 esp_err_t rover_config_set_wifi(const char *ssid, const char *pass);
 
-/* MQTT identity, assigned post-join over robots/<id>/cmd/config and persisted.
- * Unset → the compile-time MQTT_USER/PASS defaults. This is how a rover picks
- * up its name from the hub dashboard instead of a compile-time flag or BLE
- * onboarding. The name doubles as the human-facing label — there is no
- * separate cosmetic name. */
-void rover_config_load_identity(char user[33], char pass[65]);
-esp_err_t rover_config_set_identity(const char *user, const char *pass);
+/* Identity, assigned post-join over robots/<id>/cmd/config and persisted.
+ * Unset → the compile-time ROVER_NAME default ("unassigned"). This is how a
+ * rover picks up its name from the hub dashboard instead of a compile-time
+ * flag or BLE onboarding. No password: the name is a topic address, not a
+ * credential — the hub's own Wi-Fi is the classroom's real boundary
+ * (CONTRACT.md § Discovery & isolation). */
+void rover_config_load_identity(char name[33]);
+esp_err_t rover_config_set_identity(const char *name);
 /* Reprovision: erase the stored identity — the board boots back into the
  * unassigned pool. Wi-Fi, motor pins and the hub pin survive: venue and
  * hardware facts, not identity. */

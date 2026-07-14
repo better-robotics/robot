@@ -25,9 +25,12 @@ this repo vendors `web/dashboard.html` (drift-checked, `tools/sync-dashboard.sh`
 
 **Transport: MQTT, ported from zenoh-pico 2026-07-09.** MQTT won the bake-off
 (hub-zenoh archived); the deciding factor for *this* firmware was auth —
-zenoh-pico has no usrpwd, so a per-robot rover identity was impossible; esp-mqtt
-authenticates with username/password, which is the whole classroom isolation
-model. See git history for the zenoh-era firmware.
+zenoh-pico has no usrpwd, and esp-mqtt authenticates with username/password
+natively. That capability turned out to gate only one identity in the end:
+the classroom's real boundary is its own Wi-Fi, not a login (confirmed
+2026-07-13) — every robot and browser gets open read+write, and `professor`
+is the sole credential, scoped to `fleet/estop` alone (CONTRACT.md § Discovery
+& isolation). See git history for the zenoh-era firmware.
 
 **Naming** (repo renamed `rover`→`robot` 2026-07-04): the repo covers any MCU node
 role; robots are *role-named* — `rover-XXXX` is today's only role (a future camera
@@ -46,10 +49,11 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   `-DBUTTON_GPIO`), `esp32cam` (AI-Thinker ESP32-CAM — no USB socket, flashed
   via a plug-in USB↔UART adapter; **no BOOT button**, so its only manual
   re-entry is the `reprovision` topic; LED=GPIO33 rear red, active-low),
-  `rover-l298n` (extends esp32dev). Each passes `-DMQTT_USER`/`-DMQTT_PASS`
-  (the `unassigned` pool identity) as a *fallback* only — a rover's name is assigned post-join over
-  MQTT (`robots/<id>/cmd/config` → NVS) from the dashboard's "Assign a rover"
-  panel, so boards flash identically and get named at the hub.
+  `rover-l298n` (extends esp32dev). Each passes `-DROVER_NAME='"unassigned"'`
+  (the pool name, no credential attached) as a *fallback* only — a rover's
+  name is assigned post-join over MQTT (`robots/<id>/cmd/config` → NVS) from
+  the dashboard's "Assign a rover" panel, so boards flash identically and get
+  named at the hub.
 - Platform pinned **`espressif32@6.13.0`** (ships **IDF 5.5.3**, not 5.1 as an
   earlier note claimed) for reproducible builds — the old `<7.x` constraint was
   zenoh-pico's; the pin is now just stability (and 5.5.x is what the mosquitto
@@ -122,8 +126,9 @@ Boot is a pure function of NVS; no stored state is ever a dead end. **Nothing
 stored is fully operable**: no ssid → scan-join the strongest *open* `hub-*`
 network (the classroom AP convention is the onboarding channel); no locator →
 dial the DHCP gateway (on its own AP the hub is the gateway); no name → the
-compile-time `unassigned` pool credential (professor-drivable only — no
-student holds it) until the dashboard assigns one. Discovery results
+compile-time `unassigned` pool name (drivable by anyone on the hub's Wi-Fi —
+the open ACL doesn't single out unassigned boards, confirmed 2026-07-13)
+until the dashboard assigns one. Discovery results
 are never persisted — and **a hub in range wins over the stored network** (the
 classroom IS the venue; fixed 2026-07-10 — stored-first made a home-configured
 board reboot-loop off `hub_watch` instead of ever joining a classroom hub). A
@@ -134,11 +139,11 @@ only its own stored network (half-stale config isn't trusted by halves).
 
 ```
 boot ──► [dispatcher: role_pref] ──► rover role ──► Wi-Fi STA: discover open hub-*, else stored ssid
-         → mqtt connect(stored locator, or mqtt://<gateway>:1883) as <name>
+         → mqtt connect(stored locator, or mqtt://<gateway>:1883) — no auth, as <name>
          → LED on; publish robots/<name>/sys every 2s
          → subscribe robots/<name>/{pwm, cmd/config, cmd/reprovision}
-  │ can't join (30s) · no CONNACK in 10s (unreachable OR bad credential)
-  │ · ~20s dead session · button · reprovision message
+  │ can't join (30s) · no CONNACK in 10s (broker unreachable — no MQTT auth
+  │ to reject) · ~20s dead session · button · reprovision message
   ▼
 esp_restart() → retry the whole path   ← pre-hub power-on just loops here,
                                          rescanning, until the hub appears
@@ -165,15 +170,16 @@ locator overrides. No multicast — campus Wi-Fi filters it and isolates clients
 
 ## Identity
 Two ids, split by job (CONTRACT.md § Discovery & isolation):
-- **Topic/auth id == the name.** The rover authenticates as its name credential
-  and publishes under `robots/<name>/*`, so the Pi's `pattern robots/%u/#` ACL
-  admits it and one robot's traffic can't cross into another's. Compile-time
-  `unassigned` (`-DMQTT_USER`) is the fallback — a first-class pool identity
-  (2026-07-10; was demo `team1`, which let fresh boards collide on a real
-  robot's card and obey its student-known drive credential); the real name is
-  assigned post-join from the dashboard (`robots/<id>/cmd/config` → NVS). It
-  may be driven by one student or a few sharing the board — the protocol has
-  no notion of team size, only "whoever holds this robot's code drives it."
+- **Topic id == the name, and it's an address, not a credential** (confirmed
+  2026-07-13). The rover connects with **no MQTT auth at all** and publishes
+  under `robots/<name>/*` — every hub admits every name; the hub's own Wi-Fi
+  is the real boundary, not a per-robot login. Compile-time `unassigned`
+  (`-DROVER_NAME`) is the fallback — a first-class pool name (2026-07-10; was
+  demo `team1`, which let fresh boards collide on a real robot's card); the
+  real name is assigned post-join from the dashboard (`robots/<id>/cmd/config`
+  → NVS, `{"name":"scout"}`, no password field). It may be driven by one
+  student or a few sharing the board — the protocol has no notion of team
+  size, only "whoever's on the hub's Wi-Fi drives it."
 - **`rover-XXXX`** (last 2 MAC bytes via `rover_format_robot_id`) is a `board`
   field in the sys payload — hardware is metadata, never the topic id.
 - **`role_pref`** (NVS key `role`, one byte; `rover_config_load/set_role_pref`,
@@ -181,11 +187,17 @@ Two ids, split by job (CONTRACT.md § Discovery & isolation):
   unrecognized → `AUTO`, so stale/garbage NVS never wedges an unknown role.
 
 ## Hardware-earned traps (2026-07-04, ESP32-C3 + Pi hub)
-- **~~zenoh-pico has no usrpwd~~ → RESOLVED by the MQTT port (2026-07-09).** This
-  was the deciding scar: zenoh-pico declares `Z_CONFIG_USER/PASSWORD_KEY` but no
+- **~~zenoh-pico has no usrpwd~~ → RESOLVED by the MQTT port (2026-07-09), then
+  the identity model it enabled was itself RETIRED (2026-07-13).** This was
+  the deciding scar: zenoh-pico declares `Z_CONFIG_USER/PASSWORD_KEY` but no
   transport code consumes them, so a per-robot MCU identity was impossible (a
-  usrpwd router rejected the session in ~200 ms). esp-mqtt authenticates with
-  username/password natively — the reason the rover ships on MQTT, not Zenoh.
+  usrpwd router rejected the session in ~200 ms) — esp-mqtt's native
+  username/password support is why the rover shipped on MQTT, not Zenoh.
+  That capability turned out to matter for exactly one identity: the classroom
+  redesign (2026-07-13) dropped per-robot credentials entirely — a robot's
+  name is a topic address, not something MQTT auth gates — and kept
+  username/password for `professor` alone, gating only `fleet/estop`. The
+  rover itself now connects with no MQTT auth at all (`rover_role.c`).
 - **WPA2 join fails against the Pi's brcmfmac AP** — 4-way handshake timeout
   (`run → init (0xf00)` loop) despite correct PSK; open AP joins in ~6 s. C3 client
   vs NM/wpa_supplicant AP interop, unresolved — investigate before shipping a
@@ -217,7 +229,8 @@ correct code.
 - **Measured data only** — publish only what the board truly measures (uptime, heap).
   No faked IMU. `synthetic:false`.
 - **NVS namespace `"rover"`** — keys: `ssid`/`pass`/`locator` (network),
-  `user`/`mpass` (post-join name identity), `mpins` (6-byte motor-pin
+  `name` (post-join identity — no password field; a name is a topic address,
+  not a credential, confirmed 2026-07-13), `mpins` (6-byte motor-pin
   blob, a custom-wired chassis), `role` (boot role, § Identity), `hubpin`
   (optional exact-SSID hub lock — rogue-hub guard, set via cmd/config
   `{"hub":…}`, `rover_hub_admits`). All optional — absent falls back to the

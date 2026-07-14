@@ -91,31 +91,21 @@ void rover_button_start(void) {
 
 /* ── the esp-mqtt drive client ───────────────────────────────────────────── */
 
-/* MQTT identity. robot-id == the name credential (CONTRACT.md § Discovery &
- * isolation): the rover authenticates as its name and publishes under its own
- * robots/<name> subtree, so the Pi's `pattern robots/%u/#` ACL admits it and
- * one robot can't touch another's subtree. The MAC-derived s_id stays a
- * payload field — hardware is metadata, never the topic id.
- * Fresh boards land in the UNASSIGNED POOL, a first-class identity: flashing
- * used to default to team1, which made "factory-new" indistinguishable from a
- * real student robot — two fresh boards collided on team1's card AND both
- * obeyed team1's drive commands with a student-known credential. `unassigned`
- * has no student credential, so only the professor (robots/# rw) can drive
- * the pool; the real name is assigned post-join over robots/<id>/cmd/config. */
-/* Identity is NVS-backed: a name assigned post-join (robots/<id>/cmd/config)
- * overrides these compile-time defaults. s_topic_id tracks s_user so the
- * publish/subscribe topics follow a reassignment after the next boot. */
-static char s_user[33] = MQTT_USER;
-static char s_pass[65] = MQTT_PASS;
-static const char *s_topic_id = s_user;
+/* Topic identity — a name, not a credential (confirmed 2026-07-13; CONTRACT.md
+ * § Discovery & isolation): the rover publishes under robots/<name>, and every
+ * hub admits every name with no MQTT auth at all — the hub's own Wi-Fi is the
+ * classroom's real boundary. The MAC-derived s_id stays a payload field —
+ * hardware is metadata, never the topic id.
+ * Fresh boards land in the UNASSIGNED POOL: a shared name every board starts
+ * with, so "factory-new" reads the same on every card until a name is
+ * assigned post-join over robots/<id>/cmd/config. */
+/* Identity is NVS-backed: a name assigned post-join overrides this
+ * compile-time default. s_topic_id tracks s_name so the publish/subscribe
+ * topics follow a reassignment after the next boot. */
+static char s_name[33] = ROVER_NAME;
+static const char *s_topic_id = s_name;
 
 static volatile bool s_mqtt_up = false;   /* live session; drives dead-session self-heal */
-/* Credential-orphan escape (see rover_client_run): consecutive CONNACK
- * not-authorized rejections, and whether this session runs on the pool
- * credential instead of the stored name. RAM-only — a reboot retries the
- * stored identity from scratch. */
-static volatile int s_auth_rejections = 0;
-static bool s_cred_fallback = false;
 static volatile int64_t s_last_drive_us = INT64_MIN;  /* esp_timer time of the last pwm; hub_watch reads it */
 static volatile bool s_estop = false;     /* fleet/estop latch — non-zero pwm refused while set */
 
@@ -311,10 +301,10 @@ static void estop_apply(const char *json, int len) {
     }
 }
 
-/* Post-join assignment: {"name":"scout","pass":"…"} on robots/<id>/cmd/config.
- * Persist and reboot to reconnect under the new identity (the name changes
- * both the topic and the credential). This is the reshaped onboarding — the
- * hub dashboard assigns a rover instead of BLE/compile flags. */
+/* Post-join assignment: {"name":"scout"} on robots/<id>/cmd/config. Persist
+ * and reboot to reconnect under the new topic — no password rides along; a
+ * name is an address, not a credential. This is the reshaped onboarding —
+ * the hub dashboard assigns a rover instead of BLE/compile flags. */
 static void config_apply(const char *json, int len) {
     cJSON *root = cJSON_ParseWithLength(json, len);
     if (!root) { ESP_LOGW(TAG, "config: unparseable payload"); return; }
@@ -327,10 +317,8 @@ static void config_apply(const char *json, int len) {
     bool changed = false;
 
     const cJSON *name = cJSON_GetObjectItemCaseSensitive(root, "name");
-    const cJSON *pass = cJSON_GetObjectItemCaseSensitive(root, "pass");
     if (cJSON_IsString(name) && name->valuestring[0]) {
-        rover_config_set_identity(name->valuestring,
-                                  cJSON_IsString(pass) ? pass->valuestring : "");
+        rover_config_set_identity(name->valuestring);
         ESP_LOGW(TAG, "assigned name '%s'", name->valuestring);
         changed = true;
     }
@@ -437,13 +425,12 @@ static void identify_apply(const char *json, int len) {
     xTaskCreate(blink_task, "blink", 2048, NULL, 4, NULL);
 }
 
-/* Reprovision: authorized identity destruction. It arrives on this board's own
- * name topic (the professor, or the robot's own dashboard deleting its name),
- * so clearing NVS is correct here — unlike a rejected login, which is
- * ambiguous evidence and never wipes (the identity may be valid on the
- * board's own hub). Optional {"target":"rover-xxxx"} narrows a name-wide
- * publish to one board, the same filter cmd/config uses; no/unparseable
- * payload = every board sharing that name. */
+/* Reprovision: identity destruction. It arrives on this board's own name
+ * topic — anyone who can address robots/<name>/cmd/reprovision can send it,
+ * same openness as every other command topic now. Optional
+ * {"target":"rover-xxxx"} narrows a name-wide publish to one board, the same
+ * filter cmd/config uses; no/unparseable payload = every board sharing that
+ * name. */
 static void reprovision_apply(const char *json, int len) {
     cJSON *root = cJSON_ParseWithLength(json, len);
     if (root) {
@@ -467,10 +454,6 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     switch ((esp_mqtt_event_id_t)id) {
     case MQTT_EVENT_CONNECTED: {
         s_mqtt_up = true;
-        /* A clean connect under the STORED identity proves it valid — reset the
-         * rejection count. Under fallback the count stays: the stored name is
-         * still unknown here, and only a reboot (reassignment reboots) retries it. */
-        if (!s_cred_fallback) s_auth_rejections = 0;
         led_set(true);          /* reached the broker — visible "live" signal */
         char t[64];
         snprintf(t, sizeof t, "robots/%s/pwm", s_topic_id);
@@ -513,15 +496,10 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
             ESP_LOGW(TAG, "unhandled message on %.*s — ignoring", e->topic_len, e->topic);
         }
         break;
-    case MQTT_EVENT_ERROR:
-        /* Only CONNACK 0x05 counts: "not authorized" is the one signal that
-         * separates a bad credential from an unreachable broker. */
-        if (e->error_handle
-            && e->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED
-            && e->error_handle->connect_return_code == MQTT_CONNECTION_REFUSE_NOT_AUTHORIZED)
-            s_auth_rejections++;
-        break;
     default:
+        /* No MQTT_EVENT_ERROR handling: a rover never claims to be
+         * "professor", so no hub ever refuses its connection — nothing to
+         * count or fall back from. */
         break;
     }
 }
@@ -535,45 +513,25 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
  * reboots) when the session is dead — board_run re-evaluates in its loop. */
 void rover_client_run(const char *broker_uri) {
     /* Identity is board-local, no network needed: robot-id from the MAC, name
-     * credential from NVS (a post-join assignment) or the compile-time demo. */
+     * from NVS (a post-join assignment) or the compile-time pool default. */
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     rover_format_robot_id(mac, s_id);
-    char cu[33], cp[65];
-    rover_config_load_identity(cu, cp);
-    if (cu[0]) {
-        strncpy(s_user, cu, sizeof s_user - 1);
-        strncpy(s_pass, cp, sizeof s_pass - 1);
-    }
-    /* Credential-orphan escape: repeated not-authorized CONNACKs mean THIS
-     * broker doesn't know the stored name (deleted, or the hub was re-imaged —
-     * the bench scar 2026-07-12: a board orphaned this way retried forever and
-     * even reflashing didn't help, since identity lives in NVS). Fall back to
-     * the compile-time pool credential for this session — never wipe NVS on a
-     * rejection (it's evidence, not a command; the identity may be valid on
-     * the board's own hub). The board reappears in the dashboard's pool and
-     * reassignment (cmd/config) overwrites the stale identity properly. */
-    if (s_auth_rejections >= 2 && strcmp(s_user, MQTT_USER) != 0) {
-        ESP_LOGW(TAG, "'%s' rejected %dx by this broker — driving as '%s' (stored identity kept)",
-                 s_user, s_auth_rejections, MQTT_USER);
-        s_cred_fallback = true;
-        strncpy(s_user, MQTT_USER, sizeof s_user - 1);
-        strncpy(s_pass, MQTT_PASS, sizeof s_pass - 1);
-    }
+    char cu[33];
+    rover_config_load_identity(cu);
+    if (cu[0]) strncpy(s_name, cu, sizeof s_name - 1);
     led_set(false);   /* start dark; MQTT CONNECTED lights it */
-    ESP_LOGI(TAG, "rover client: id %s as '%s' → %s", s_id, s_user, broker_uri);
+    ESP_LOGI(TAG, "rover client: id %s as '%s' → %s", s_id, s_name, broker_uri);
 
-    /* esp-mqtt authenticates with username/password — the capability
-     * zenoh-pico lacked (usrpwd unimplemented), and the reason the rover ships
-     * on MQTT. Same firmware reaches either hub: both are raw-TCP brokers on
-     * :1883, and a rover never needs the WebSocket transport (that's the
-     * browser's constraint). */
+    /* No .credentials: every hub admits every name with no MQTT auth at all
+     * (confirmed 2026-07-13 — CONTRACT.md § Discovery & isolation). MQTT is
+     * still the transport for an unrelated, still-true reason: zenoh-pico
+     * never implemented usrpwd, which mattered when identity WAS a
+     * credential; esp-mqtt was simply the client that worked. Same firmware
+     * reaches either hub: both are raw-TCP brokers on :1883, and a rover
+     * never needs the WebSocket transport (that's the browser's constraint). */
     esp_mqtt_client_config_t mcfg = {
         .broker.address.uri = broker_uri,
-        .credentials = {
-            .username = s_user,
-            .authentication.password = s_pass,
-        },
         .session.keepalive = 15,
     };
     {   /* pins default to the macros; NVS overrides when a chassis was configured */
@@ -590,17 +548,16 @@ void rover_client_run(const char *broker_uri) {
     esp_mqtt_client_register_event(cli, ESP_EVENT_ANY_ID, mqtt_evt, NULL);
     esp_mqtt_client_start(cli);
 
-    /* First connect gates everything: it proves both reachability AND that the
-     * name credential was accepted (a bad password disconnects here, never
-     * reaching s_mqtt_up). No connect in 10 s → dead → caller retries.
-     * MUST stop+destroy on this exit: a returned-but-alive client keeps
-     * auto-reconnecting forever — each pass leaked one zombie retrying the
-     * dead credential, their DISCONNECTED events flipped the shared s_mqtt_up
-     * under the NEXT session (20 s flap), and the heap bled until the board
-     * crashed off the air (bench 2026-07-12, rover-e348/b79c). */
+    /* First connect gates everything: it proves reachability (there's no
+     * credential left to be rejected). No connect in 10 s → dead → caller
+     * retries. MUST stop+destroy on this exit: a returned-but-alive client
+     * keeps auto-reconnecting forever — each pass leaked one zombie, its
+     * DISCONNECTED events flipped the shared s_mqtt_up under the NEXT
+     * session (20 s flap), and the heap bled until the board crashed off the
+     * air (bench 2026-07-12, rover-e348/b79c). */
     for (int i = 0; i < 40 && !s_mqtt_up; i++) vTaskDelay(pdMS_TO_TICKS(250));
     if (!s_mqtt_up) {
-        ESP_LOGE(TAG, "broker unreachable or credential rejected");
+        ESP_LOGE(TAG, "broker unreachable");
         esp_mqtt_client_stop(cli);
         esp_mqtt_client_destroy(cli);
         return;

@@ -39,15 +39,13 @@ int64_t rover_ms_since_drive(void);
  * "hub-*" is a hub to join (peer islands advertise rover-<id>, never hub-*). */
 #define HUB_SSID_PREFIX     "hub-"
 
-/* Fresh boards' pool identity, normally set per-env via -DMQTT_USER/-DMQTT_PASS
- * (platformio.ini). Shared here so the on-chip broker's credential table
- * (hub_role.c) admits the same pool identity the rover client (rover_role.c)
- * dials with — rotating the build flag rotates both sides of an island. */
-#ifndef MQTT_USER
-#define MQTT_USER "unassigned"
-#endif
-#ifndef MQTT_PASS
-#define MQTT_PASS "unassigned-secret"
+/* Fresh boards' pool name, normally set per-env via -DROVER_NAME
+ * (platformio.ini). No password: a name is a topic address, not a
+ * credential (CONTRACT.md § Discovery & isolation) — every hub admits every
+ * name with no auth, so there's nothing left for the two sides of an island
+ * to share but the default string itself. */
+#ifndef ROVER_NAME
+#define ROVER_NAME "unassigned"
 #endif
 
 /* Board network state, published by hub_role.c at each broker decision and served

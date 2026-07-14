@@ -35,8 +35,8 @@ page that routes to wherever the dashboard is *right now*, and holds the
 ```
 flash ──▶ power on ──▶ unassigned pool ──▶ Blink 💡 ──▶ assigned ──▶ drives as
 browser    joins a      on the dashboard;   LED flashes:  name ·      robots/<name>
-or pio     hub, or      professor-only      match id to   hub pin ·   until told
-           islands      until assigned      desk robot    motor pins  otherwise
+or pio     hub, or      anyone on the hub's match id to   hub pin ·   until told
+           islands      Wi-Fi can drive it   desk robot    motor pins  otherwise
 ```
 
 - **Flash from a browser** — [better-robotics.github.io](https://better-robotics.github.io/)
@@ -51,14 +51,16 @@ or pio     hub, or      professor-only      match id to   hub pin ·   until tol
 
 ## The wire
 
-All topics under `robots/<name>/…` — the name IS the MQTT username, enforced
-per-subtree by the Pi broker's ACL. `▲` board publishes · `▼` board obeys:
+All topics under `robots/<name>/…` — `<name>` is a topic address, not a
+credential: the hub's own Wi-Fi is the real boundary, and every robot/browser
+gets full read+write with no MQTT auth at all (the Pi broker's ACL). `▲` board
+publishes · `▼` board obeys:
 
 | topic | | payload |
 |---|---|---|
 | `sys` | ▲ 2 s | `{"uptime_ms":…,"free_heap":…,"hw":"esp32cam","board":"rover-XXXX","ip":…,"cam":…,"rssi_dbm":…}` — `rssi_dbm` only while the STA uplink is associated |
 | `pwm` | ▼ | `{"left_motor":180,"right_motor":-180,"duration_ms":200}` — signed ±255/wheel; a watchdog coasts to a stop `duration_ms` after the last command |
-| `cmd/config` | ▼ | assign: `name` `pass` `hub` (pin; `""` clears) `pins` (L298N wiring) — optional `target` board-id addresses one of N |
+| `cmd/config` | ▼ | assign: `name` `hub` (pin; `""` clears) `pins` (L298N wiring) — no password field; optional `target` board-id addresses one of N |
 | `cmd/identify` | ▼ | blink the LED ~6 s — find the physical board |
 | `cmd/reprovision` | ▼ | remote reboot |
 
@@ -71,10 +73,10 @@ IN4=13`) and are re-wireable from the dashboard for a custom chassis.
 
 ## Identity & recovery
 
-Two ids, split by job: the **name** (MQTT credential = topic subtree; fresh
-boards are `unassigned`, a pool identity only the professor can drive — it may
-be driven by one student or a few sharing the board, the protocol has no
-notion of team size, only whoever holds this robot's code drives it) and
+Two ids, split by job: the **name** (a topic address, not a credential — fresh
+boards are `unassigned`, a pool name anyone on the hub's Wi-Fi can drive; it
+may be driven by one student or a few sharing the board, the protocol has no
+notion of team size, only whoever's on the hub's Wi-Fi drives it) and
 **`rover-XXXX`** (last 2 MAC bytes — the AP name, the `board` telemetry field,
 the serial-log token; hardware model is metadata, so boards swap without
 identity churn).

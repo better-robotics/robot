@@ -54,6 +54,10 @@
 #define AP_CHANNEL  1                  /* overridden to match STA channel in APSTA (single radio) */
 #define AP_MAX_CONN 8                  /* esp32_nat_router's documented ceiling */
 
+#ifndef PROFESSOR_PASS
+#define PROFESSOR_PASS "change-me"     /* the one gated identity — see connect_cb */
+#endif
+
 #define DHCPS_OFFER_DNS 0x02
 
 /* ws_mqtt_bridge.c — lets browsers reach the broker over MQTT-over-WebSocket */
@@ -129,40 +133,34 @@ int board_status_json(char *buf, size_t len)
         ip, pesc, s_dash);
 }
 
-/* Session auth: whole-session accept/reject, the only gate this broker offers (no
- * per-topic ACL). Isolation is connect-auth + rover convention (each rover
- * subscribes only its own robots/<id>); the Pi enforces the same per-topic. */
+/* Session auth: whole-session accept/reject, the only gate this broker offers
+ * (no per-topic ACL — CONTRACT.md § Discovery & isolation). The classroom's
+ * real boundary is the hub's own Wi-Fi perimeter, not a login: every board
+ * and browser is admitted with no credential at all — a name is a topic
+ * address, not a password. The one gated identity is "professor" — not
+ * because this port can enforce a narrower ACL for it (it can't), but so the
+ * dashboard's fleet-wide controls (Stop-all, drive-any-robot) need a real
+ * password before they light up: deliberate friction on the one set of
+ * actions that shouldn't be a stray tap. Get "professor" right → admitted;
+ * anything else, admitted too. (Confirmed 2026-07-13 — the per-robot
+ * robot1/robot2/pool credential table this replaced never enforced anything
+ * a determined student couldn't already read off a card; it just made every
+ * fresh board a manual provisioning step.) */
 static int connect_cb(const char *client_id, const char *username,
                       const char *password, int password_len)
 {
-    static const struct { const char *u, *p; } creds[] = {
-        { "professor",  "change-me" },
-        { "robot1",     "change-me-robot1" },
-        { "robot2",     "change-me-robot2" },
-        /* Fresh boards' pool identity — the same macros the rover client dials
-         * with (roles.h), so rotating the build flag can't lock an island's
-         * rover out of its own broker. No student holds this credential. */
-        { MQTT_USER, MQTT_PASS },
-    };
+    (void)password_len;
     const char *cid = client_id ? client_id : "(none)";
-    /* DEMO-ONLY: allow anonymous (no username) so the dashboard's credential-free
-     * public fleet view works against this single broker. */
-    if (!username) {
-        ESP_LOGI(TAG, "accept %s (anonymous, demo read tier)", cid);
-        return 0;
-    }
-    if (!password) {
-        ESP_LOGW(TAG, "reject %s: username with no password", cid);
-        return 1;
-    }
-    for (size_t i = 0; i < sizeof(creds) / sizeof(creds[0]); i++) {
-        if (strcmp(username, creds[i].u) == 0 && strcmp(password, creds[i].p) == 0) {
-            ESP_LOGI(TAG, "accept %s as '%s'", cid, username);
+    if (username && strcmp(username, "professor") == 0) {
+        if (password && strcmp(password, PROFESSOR_PASS) == 0) {
+            ESP_LOGI(TAG, "accept %s as professor", cid);
             return 0;
         }
+        ESP_LOGW(TAG, "reject %s: wrong professor password", cid);
+        return 1;
     }
-    ESP_LOGW(TAG, "reject %s: bad credentials for '%s'", cid, username);
-    return 1;
+    ESP_LOGI(TAG, "accept %s%s%s", cid, username ? " as " : " (anonymous)", username ? username : "");
+    return 0;
 }
 
 /* Hand AP clients a DNS server (the STA's), or they get an IP but can't resolve

@@ -33,21 +33,22 @@ esp_err_t rover_config_set_wifi(const char *ssid, const char *pass) {
     return e;
 }
 
-void rover_config_load_identity(char user[33], char pass[65]) {
-    user[0] = pass[0] = 0;
+/* No password: a robot's name is a topic address, not a credential — the
+ * hub's own Wi-Fi is the classroom's real boundary (CONTRACT.md § Discovery
+ * & isolation, confirmed 2026-07-13). */
+void rover_config_load_identity(char name[33]) {
+    name[0] = 0;
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return;
-    get_str(h, "user", user, 33);
-    get_str(h, "mpass", pass, 65);
+    get_str(h, "name", name, 33);
     nvs_close(h);
 }
 
-esp_err_t rover_config_set_identity(const char *user, const char *pass) {
-    if (!user || !user[0]) return ESP_ERR_INVALID_ARG;   // a name is required
+esp_err_t rover_config_set_identity(const char *name) {
+    if (!name || !name[0]) return ESP_ERR_INVALID_ARG;   // a name is required
     nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
     if (e != ESP_OK) return e;
-    e = nvs_set_str(h, "user", user);
-    if (e == ESP_OK) e = nvs_set_str(h, "mpass", pass ? pass : "");
+    e = nvs_set_str(h, "name", name);
     if (e == ESP_OK) e = nvs_commit(h);
     nvs_close(h);
     return e;
@@ -56,9 +57,7 @@ esp_err_t rover_config_set_identity(const char *user, const char *pass) {
 esp_err_t rover_config_clear_identity(void) {
     nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
     if (e != ESP_OK) return e;
-    /* erase_key on an absent key is fine — a fresh board reprovisions cleanly */
-    nvs_erase_key(h, "user");
-    nvs_erase_key(h, "mpass");
+    nvs_erase_key(h, "name");   /* absent key is fine — a fresh board reprovisions cleanly */
     e = nvs_commit(h);
     nvs_close(h);
     return e;
