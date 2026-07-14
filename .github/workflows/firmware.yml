@@ -1,0 +1,66 @@
+name: firmware
+
+# Guards the unified rover+hub image from a CLEAN clone: all three board images
+# build (exercising the two seams a local checkout papers over — the vendored
+# web/ide bundle and the gitignored wifi_creds.h), the provisioning-util unit
+# tests pass on the native env, and cppcheck stays clean at medium+ severity.
+# rover-l298n is not in the matrix: it extends esp32dev with only an
+# upload_port change — same binary.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  native-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PlatformIO
+        run: python3 -m pip install --quiet platformio
+
+      - name: Unit tests (native env, system gcc)
+        run: pio test -e native
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [esp32dev, esp32cam, esp32c3-supermini]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PlatformIO packages (espressif32 platform + xtensa/riscv toolchains)
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: python3 -m pip install --quiet platformio
+
+      - name: Vendor the IDE bundle (web/ide is gitignored; embed_ide.py hard-fails without it)
+        run: tools/sync-ide.sh
+
+      - name: Stand in for the gitignored venue Wi-Fi credentials
+        run: cp src/wifi_creds.example.h src/wifi_creds.h
+
+      - name: Build ${{ matrix.env }}
+        run: pio run -e ${{ matrix.env }}
+
+      - name: Static analysis (esp32dev = the union build; config in platformio.ini)
+        if: matrix.env == 'esp32dev'
+        run: pio check -e esp32dev --fail-on-defect=medium --fail-on-defect=high
+
+      - name: Upload flashable image
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.env }}
+          path: |
+            .pio/build/${{ matrix.env }}/firmware.bin
+            .pio/build/${{ matrix.env }}/bootloader.bin
+            .pio/build/${{ matrix.env }}/partitions.bin
+          if-no-files-found: error
