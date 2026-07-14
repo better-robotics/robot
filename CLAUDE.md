@@ -58,6 +58,13 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   earlier note claimed) for reproducible builds — the old `<7.x` constraint was
   zenoh-pico's; the pin is now just stability (and 5.5.x is what the mosquitto
   component resolves against).
+- **CI** (`.github/workflows/firmware.yml`, verified green 2026-07-14): on push,
+  all three board images build from a clean clone (`tools/sync-ide.sh` +
+  `wifi_creds.example.h` stand-in cover the two gitignored seams), `pio test -e
+  native` runs the Unity suite, and `pio check` (cppcheck, config in
+  platformio.ini) gates at medium+. Flashable `.bin` trios upload as 7-day
+  artifacts — the upload runs *before* check, whose cold-idedata configure
+  wipes the build dir in CI.
 - **Dashboard embed (hub role):** PlatformIO's SCons build does **not** wire an
   objcopy/`.S` embed into the link — `EMBED_TXTFILES`, `target_add_binary_data`,
   and `board_build.embed_txtfiles` all fail (missing `.S`, or generated-but-not-linked).
