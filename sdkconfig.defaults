@@ -13,9 +13,12 @@ CONFIG_LWIP_IPV4_NAPT=y
 # WebSocket server support for the hub role's WS<->TCP bridge (browser MQTT-over-WS).
 CONFIG_HTTPD_WS_SUPPORT=y
 
-# Each browser bridge uses 2 sockets (WS + broker TCP); the default 10 is too
-# tight once a few clients + the httpd listeners stack up.
-CONFIG_LWIP_MAX_SOCKETS=16
+# Each browser bridge session costs 3 sockets (WS + broker TCP + mosquitto's
+# accepted end) on top of an ~12-socket baseline (two httpds, broker, rover
+# client, DNS forwarder, mDNS, uplink probe; the camera board adds one more
+# httpd). 16 let three sessions' worth of churn exhaust the pool and wedge
+# every listener until reboot; 24 keeps the full worst case under the ceiling.
+CONFIG_LWIP_MAX_SOCKETS=24
 
 # 4 MB flash. The app partition comes from the custom partitions.csv (3 MB
 # factory) via platformio.ini; SINGLE_APP_LARGE is the idf.py fallback.

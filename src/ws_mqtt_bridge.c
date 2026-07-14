@@ -28,16 +28,16 @@
 
 #define WS_PORT      9001
 #define BROKER_PORT  1883
-/* 3, not more: every bridge session costs TWO LWIP sockets (the WS side plus a
- * local TCP pipe into mosquitto), and the chip's whole pool is 16
- * (CONFIG_LWIP_MAX_SOCKETS ceiling) shared with the page httpd, broker
- * clients, DNS, and mDNS. The dashboard holds ONE session per page (sign-in
- * ends its anonymous fleet-view client) — before that fix a single signed-in
- * laptop held two, filled the old 2-slot table alone, and professor sign-in
- * stalled on "No answer from the hub" (bench 2026-07-13). Three slots =
- * dashboard + IDE + one more phone; the Pi is the classroom-scale hub. The
- * cap itself stays hard: the same bench day showed an oversized budget lets
- * page loads starve mosquitto's accept loop. */
+/* 3, not more: every bridge session costs THREE LWIP sockets (the WS side, a
+ * local TCP pipe into mosquitto, and mosquitto's accepted end), and the
+ * chip's whole pool is 24 (CONFIG_LWIP_MAX_SOCKETS) shared with the page
+ * httpd, broker clients, DNS, and mDNS. The dashboard holds ONE session per
+ * page (sign-in ends its anonymous fleet-view client) — before that fix a
+ * single signed-in laptop held two, filled the old 2-slot table alone, and
+ * professor sign-in stalled on "No answer from the hub" (bench 2026-07-13).
+ * Three slots = dashboard + IDE + one more phone; the Pi is the
+ * classroom-scale hub. The cap itself stays hard: the same bench day showed
+ * an oversized budget lets page loads starve mosquitto's accept loop. */
 #define MAX_BRIDGES  3
 #define PUMP_BUF     1024
 
@@ -168,6 +168,22 @@ static esp_err_t ws_handler(httpd_req_t *req)
         }
         b->server = req->handle;
         b->client_fd = httpd_req_to_sockfd(req);
+        /* TCP keepalive on the browser socket — the one liveness check this
+         * session otherwise lacks. A browser that vanishes mid-session (Wi-Fi
+         * blip, roam, closed lid) leaves a zombie holding this slot plus 3
+         * LWIP sockets: the pump only notices BROKER-side death, and a client
+         * that never subscribed gets no broker traffic to fail on, so the
+         * zombie lives the full 90 s MQTT-keepalive reap. Meanwhile the page
+         * retries every few seconds, each retry burning another 3-socket
+         * session — two zombies plus churn exhausted the whole pool and
+         * wedged every listener on the board until reboot (Duke bench
+         * 2026-07-14, uplink flapping every ~20 s drove the cycle). 5s idle +
+         * 2 probes ≈ dead sockets reaped in ~15 s, well inside retry cadence. */
+        int ka = 1, idle = 5, intvl = 5, cnt = 2;
+        setsockopt(b->client_fd, SOL_SOCKET, SO_KEEPALIVE, &ka, sizeof ka);
+        setsockopt(b->client_fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof idle);
+        setsockopt(b->client_fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof intvl);
+        setsockopt(b->client_fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof cnt);
         b->broker_fd = connect_broker();
         if (b->broker_fd < 0) {
             ESP_LOGE(TAG, "broker connect failed");
