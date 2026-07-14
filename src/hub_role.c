@@ -17,7 +17,7 @@
  *       hub#2). Chosen deliberately via role_pref=HUB.
  *
  * ESP32-as-hub is the full local slice on one chip: AP+STA+NAPT + Mosquitto +
- * per-team connect-auth (feasibility validated on hardware 2026-07-09).
+ * per-robot connect-auth (feasibility validated on hardware 2026-07-09).
  *   - AP  (open)      : students/rovers/laptop join, no password.
  *   - STA (venue/home): uplink for internet (optional — the broker works offline).
  *   - NAPT            : forwards AP-side traffic out the STA leg, so joining the
@@ -137,8 +137,8 @@ static int connect_cb(const char *client_id, const char *username,
 {
     static const struct { const char *u, *p; } creds[] = {
         { "professor",  "change-me" },
-        { "team1",      "change-me-team1" },
-        { "team2",      "change-me-team2" },
+        { "robot1",     "change-me-robot1" },
+        { "robot2",     "change-me-robot2" },
         /* Fresh boards' pool identity — the same macros the rover client dials
          * with (roles.h), so rotating the build flag can't lock an island's
          * rover out of its own broker. No student holds this credential. */

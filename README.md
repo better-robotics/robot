@@ -34,10 +34,9 @@ page that routes to wherever the dashboard is *right now*, and holds the
 
 ```
 flash ──▶ power on ──▶ unassigned pool ──▶ Blink 💡 ──▶ assigned ──▶ drives as
-browser    joins a      on the dashboard;   LED flashes:  team ·      robots/<team>
-or pio     hub, or      professor-only      match id to   name ·      until told
-           islands      until assigned      desk robot    hub pin ·   otherwise
-                                                          motor pins
+browser    joins a      on the dashboard;   LED flashes:  name ·      robots/<name>
+or pio     hub, or      professor-only      match id to   hub pin ·   until told
+           islands      until assigned      desk robot    motor pins  otherwise
 ```
 
 - **Flash from a browser** — [better-robotics.github.io](https://better-robotics.github.io/)
@@ -52,14 +51,14 @@ or pio     hub, or      professor-only      match id to   name ·      until tol
 
 ## The wire
 
-All topics under `robots/<team>/…` — the team IS the MQTT username, enforced
+All topics under `robots/<name>/…` — the name IS the MQTT username, enforced
 per-subtree by the Pi broker's ACL. `▲` board publishes · `▼` board obeys:
 
 | topic | | payload |
 |---|---|---|
 | `sys` | ▲ 2 s | `{"uptime_ms":…,"free_heap":…,"hw":"esp32cam","board":"rover-XXXX","ip":…,"cam":…,"rssi_dbm":…}` — `rssi_dbm` only while the STA uplink is associated |
 | `pwm` | ▼ | `{"left_motor":180,"right_motor":-180,"duration_ms":200}` — signed ±255/wheel; a watchdog coasts to a stop `duration_ms` after the last command |
-| `cmd/config` | ▼ | assign: `team` `pass` `name` `hub` (pin; `""` clears) `pins` (L298N wiring) — optional `target` board-id addresses one of N |
+| `cmd/config` | ▼ | assign: `name` `pass` `hub` (pin; `""` clears) `pins` (L298N wiring) — optional `target` board-id addresses one of N |
 | `cmd/identify` | ▼ | blink the LED ~6 s — find the physical board |
 | `cmd/reprovision` | ▼ | remote reboot |
 
@@ -72,8 +71,10 @@ IN4=13`) and are re-wireable from the dashboard for a custom chassis.
 
 ## Identity & recovery
 
-Two ids, split by job: the **team** (MQTT credential = topic subtree; fresh
-boards are `unassigned`, a pool identity only the professor can drive) and
+Two ids, split by job: the **name** (MQTT credential = topic subtree; fresh
+boards are `unassigned`, a pool identity only the professor can drive — it may
+be driven by one student or a few sharing the board, the protocol has no
+notion of team size, only whoever holds this robot's code drives it) and
 **`rover-XXXX`** (last 2 MAC bytes — the AP name, the `board` telemetry field,
 the serial-log token; hardware model is metadata, so boards swap without
 identity churn).
@@ -95,7 +96,7 @@ src/
 ├── wifi_portal.c        the board's :80 — landing, Wi-Fi & role settings, /wifi/status
 ├── ws_mqtt_bridge.c     :9001 WebSocket↔MQTT bridge + serves the embedded dashboard
 ├── camera.c             ESP32-CAM MJPEG (:81)
-├── rover_config.c       NVS — network, team identity, motor pins, boot role, hub pin
+├── rover_config.c       NVS — network, name identity, motor pins, boot role, hub pin
 └── provisioning_util.c  pure helpers: robot id, locator, hub admission (unit-tested)
 web/dashboard.html       VENDORED from better-robotics/hub — tools/sync-dashboard.sh --check
 tools/                   dashboard embed (pre-build hook) + sync/drift-check

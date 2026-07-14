@@ -16,17 +16,18 @@ void rover_config_load(char ssid[33], char pass[65], char locator[65]);
 esp_err_t rover_config_set_wifi(const char *ssid, const char *pass);
 
 /* MQTT identity, assigned post-join over robots/<id>/cmd/config and persisted.
- * Unset → the compile-time MQTT_USER/PASS defaults; name is a human label (""
- * if unset). This is how a rover picks up its team from the hub dashboard
- * instead of a compile-time flag or BLE onboarding. */
-void rover_config_load_identity(char user[33], char pass[65], char name[33]);
-esp_err_t rover_config_set_identity(const char *user, const char *pass, const char *name);
+ * Unset → the compile-time MQTT_USER/PASS defaults. This is how a rover picks
+ * up its name from the hub dashboard instead of a compile-time flag or BLE
+ * onboarding. The name doubles as the human-facing label — there is no
+ * separate cosmetic name. */
+void rover_config_load_identity(char user[33], char pass[65]);
+esp_err_t rover_config_set_identity(const char *user, const char *pass);
 /* Reprovision: erase the stored identity — the board boots back into the
  * unassigned pool. Wi-Fi, motor pins and the hub pin survive: venue and
  * hardware facts, not identity. */
 esp_err_t rover_config_clear_identity(void);
 
-/* Motor drive pins, assigned post-join like the team — a student wires their own
+/* Motor drive pins, assigned post-join like the name — a student wires their own
  * chassis, so the pinout can't be a compile-time constant. Order is fixed:
  * {ena, in1, in2, enb, in3, in4}. load leaves `pins` untouched when nothing is
  * stored, so the caller seeds it with the compile-time defaults first (absent =

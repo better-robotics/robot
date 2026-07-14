@@ -7,7 +7,7 @@ image, always-APSTA** (self-election collapsed into an always-on AP+STA board
 
 - **`board_run`** (`hub_role.c`, the norm): every board comes up **APSTA** — its
   own open `rover-<id>` AP *and* an STA uplink — and stays that way. It's an
-  `esp-mqtt` client that drives an L298N from `robots/<id>/pwm` and takes its team
+  `esp-mqtt` client that drives an L298N from `robots/<id>/pwm` and takes its name
   + pins post-join, dialing whichever broker is reachable: a discovered `hub-*`'s
   (classroom) or its **own on-chip broker** at `127.0.0.1` (home/island). One
   image reaches either — both are raw-TCP brokers on :1883 (CONTRACT.md §
@@ -25,7 +25,7 @@ this repo vendors `web/dashboard.html` (drift-checked, `tools/sync-dashboard.sh`
 
 **Transport: MQTT, ported from zenoh-pico 2026-07-09.** MQTT won the bake-off
 (hub-zenoh archived); the deciding factor for *this* firmware was auth —
-zenoh-pico has no usrpwd, so a per-team rover identity was impossible; esp-mqtt
+zenoh-pico has no usrpwd, so a per-robot rover identity was impossible; esp-mqtt
 authenticates with username/password, which is the whole classroom isolation
 model. See git history for the zenoh-era firmware.
 
@@ -47,7 +47,7 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   via a plug-in USB↔UART adapter; **no BOOT button**, so its only manual
   re-entry is the `reprovision` topic; LED=GPIO33 rear red, active-low),
   `rover-l298n` (extends esp32dev). Each passes `-DMQTT_USER`/`-DMQTT_PASS`
-  (the `unassigned` pool identity) as a *fallback* only — a rover's team is assigned post-join over
+  (the `unassigned` pool identity) as a *fallback* only — a rover's name is assigned post-join over
   MQTT (`robots/<id>/cmd/config` → NVS) from the dashboard's "Assign a rover"
   panel, so boards flash identically and get named at the hub.
 - Platform pinned **`espressif32@6.13.0`** (ships **IDF 5.5.3**, not 5.1 as an
@@ -121,7 +121,7 @@ One radio: Wi-Fi STA + esp-mqtt (BLE removed 2026-07-09 — see below).
 Boot is a pure function of NVS; no stored state is ever a dead end. **Nothing
 stored is fully operable**: no ssid → scan-join the strongest *open* `hub-*`
 network (the classroom AP convention is the onboarding channel); no locator →
-dial the DHCP gateway (on its own AP the hub is the gateway); no team → the
+dial the DHCP gateway (on its own AP the hub is the gateway); no name → the
 compile-time `unassigned` pool credential (professor-drivable only — no
 student holds it) until the dashboard assigns one. Discovery results
 are never persisted — and **a hub in range wins over the stored network** (the
@@ -134,9 +134,9 @@ only its own stored network (half-stale config isn't trusted by halves).
 
 ```
 boot ──► [dispatcher: role_pref] ──► rover role ──► Wi-Fi STA: discover open hub-*, else stored ssid
-         → mqtt connect(stored locator, or mqtt://<gateway>:1883) as <team>
-         → LED on; publish robots/<team>/sys every 2s
-         → subscribe robots/<team>/{pwm, cmd/config, cmd/reprovision}
+         → mqtt connect(stored locator, or mqtt://<gateway>:1883) as <name>
+         → LED on; publish robots/<name>/sys every 2s
+         → subscribe robots/<name>/{pwm, cmd/config, cmd/reprovision}
   │ can't join (30s) · no CONNACK in 10s (unreachable OR bad credential)
   │ · ~20s dead session · button · reprovision message
   ▼
@@ -165,13 +165,15 @@ locator overrides. No multicast — campus Wi-Fi filters it and isolates clients
 
 ## Identity
 Two ids, split by job (CONTRACT.md § Discovery & isolation):
-- **Topic/auth id == the team.** The rover authenticates as its team credential
-  and publishes under `robots/<team>/*`, so the Pi's `pattern robots/%u/#` ACL
-  admits it and teams can't cross. Compile-time `unassigned` (`-DMQTT_USER`) is
-  the fallback — a first-class pool identity (2026-07-10; was demo `team1`,
-  which let fresh boards collide on a real team's card and obey its
-  student-known drive credential); the real team is assigned post-join from
-  the dashboard (`robots/<id>/cmd/config` → NVS).
+- **Topic/auth id == the name.** The rover authenticates as its name credential
+  and publishes under `robots/<name>/*`, so the Pi's `pattern robots/%u/#` ACL
+  admits it and one robot's traffic can't cross into another's. Compile-time
+  `unassigned` (`-DMQTT_USER`) is the fallback — a first-class pool identity
+  (2026-07-10; was demo `team1`, which let fresh boards collide on a real
+  robot's card and obey its student-known drive credential); the real name is
+  assigned post-join from the dashboard (`robots/<id>/cmd/config` → NVS). It
+  may be driven by one student or a few sharing the board — the protocol has
+  no notion of team size, only "whoever holds this robot's code drives it."
 - **`rover-XXXX`** (last 2 MAC bytes via `rover_format_robot_id`) is a `board`
   field in the sys payload — hardware is metadata, never the topic id.
 - **`role_pref`** (NVS key `role`, one byte; `rover_config_load/set_role_pref`,
@@ -181,7 +183,7 @@ Two ids, split by job (CONTRACT.md § Discovery & isolation):
 ## Hardware-earned traps (2026-07-04, ESP32-C3 + Pi hub)
 - **~~zenoh-pico has no usrpwd~~ → RESOLVED by the MQTT port (2026-07-09).** This
   was the deciding scar: zenoh-pico declares `Z_CONFIG_USER/PASSWORD_KEY` but no
-  transport code consumes them, so a per-team MCU identity was impossible (a
+  transport code consumes them, so a per-robot MCU identity was impossible (a
   usrpwd router rejected the session in ~200 ms). esp-mqtt authenticates with
   username/password natively — the reason the rover ships on MQTT, not Zenoh.
 - **WPA2 join fails against the Pi's brcmfmac AP** — 4-way handshake timeout
@@ -215,7 +217,7 @@ correct code.
 - **Measured data only** — publish only what the board truly measures (uptime, heap).
   No faked IMU. `synthetic:false`.
 - **NVS namespace `"rover"`** — keys: `ssid`/`pass`/`locator` (network),
-  `user`/`mpass`/`name` (post-join team identity), `mpins` (6-byte motor-pin
+  `user`/`mpass` (post-join name identity), `mpins` (6-byte motor-pin
   blob, a custom-wired chassis), `role` (boot role, § Identity), `hubpin`
   (optional exact-SSID hub lock — rogue-hub guard, set via cmd/config
   `{"hub":…}`, `rover_hub_admits`). All optional — absent falls back to the

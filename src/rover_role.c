@@ -91,29 +91,28 @@ void rover_button_start(void) {
 
 /* ── the esp-mqtt drive client ───────────────────────────────────────────── */
 
-/* MQTT identity. robot-id == the team credential (CONTRACT.md § Discovery &
- * isolation): the rover authenticates as its team and publishes under its own
- * robots/<team> subtree, so the Pi's `pattern robots/%u/#` ACL admits it and a
- * team can't touch another's subtree. The MAC-derived s_id stays a payload
- * field — hardware is metadata, never the topic id.
+/* MQTT identity. robot-id == the name credential (CONTRACT.md § Discovery &
+ * isolation): the rover authenticates as its name and publishes under its own
+ * robots/<name> subtree, so the Pi's `pattern robots/%u/#` ACL admits it and
+ * one robot can't touch another's subtree. The MAC-derived s_id stays a
+ * payload field — hardware is metadata, never the topic id.
  * Fresh boards land in the UNASSIGNED POOL, a first-class identity: flashing
  * used to default to team1, which made "factory-new" indistinguishable from a
- * real student team — two fresh boards collided on team1's card AND both obeyed
- * team1's drive commands with a student-known credential. `unassigned` has no
- * student credential, so only the professor (robots/# rw) can drive the pool;
- * the real team is assigned post-join over robots/<id>/cmd/config. */
-/* Identity is NVS-backed: a team assigned post-join (robots/<id>/cmd/config)
+ * real student robot — two fresh boards collided on team1's card AND both
+ * obeyed team1's drive commands with a student-known credential. `unassigned`
+ * has no student credential, so only the professor (robots/# rw) can drive
+ * the pool; the real name is assigned post-join over robots/<id>/cmd/config. */
+/* Identity is NVS-backed: a name assigned post-join (robots/<id>/cmd/config)
  * overrides these compile-time defaults. s_topic_id tracks s_user so the
  * publish/subscribe topics follow a reassignment after the next boot. */
 static char s_user[33] = MQTT_USER;
 static char s_pass[65] = MQTT_PASS;
-static char s_name[33] = "";
 static const char *s_topic_id = s_user;
 
 static volatile bool s_mqtt_up = false;   /* live session; drives dead-session self-heal */
 /* Credential-orphan escape (see rover_client_run): consecutive CONNACK
  * not-authorized rejections, and whether this session runs on the pool
- * credential instead of the stored team. RAM-only — a reboot retries the
+ * credential instead of the stored name. RAM-only — a reboot retries the
  * stored identity from scratch. */
 static volatile int s_auth_rejections = 0;
 static bool s_cred_fallback = false;
@@ -256,7 +255,8 @@ static void motor_apply(const char *json, int len) {
     if (!root) { ESP_LOGW(TAG, "pwm: unparseable payload"); return; }
     /* Optional "target" board-id, same filter as cmd/config: pool (and
      * collision) boards all see one pwm topic, so a target drives ONE of
-     * them; absent = every subscriber drives (a team's normal case). */
+     * them; absent = every subscriber drives (several boards sharing one
+     * name's normal case). */
     const cJSON *target = cJSON_GetObjectItemCaseSensitive(root, "target");
     if (cJSON_IsString(target) && strcmp(target->valuestring, s_id) != 0) {
         cJSON_Delete(root); return;   /* not addressed to this board */
@@ -311,14 +311,14 @@ static void estop_apply(const char *json, int len) {
     }
 }
 
-/* Post-join assignment: {"team":"team2","pass":"…","name":"Rover A"} on
- * robots/<id>/cmd/config. Persist and reboot to reconnect under the new identity
- * (the team changes both the topic and the credential). This is the reshaped
- * onboarding — the hub dashboard assigns a rover instead of BLE/compile flags. */
+/* Post-join assignment: {"name":"scout","pass":"…"} on robots/<id>/cmd/config.
+ * Persist and reboot to reconnect under the new identity (the name changes
+ * both the topic and the credential). This is the reshaped onboarding — the
+ * hub dashboard assigns a rover instead of BLE/compile flags. */
 static void config_apply(const char *json, int len) {
     cJSON *root = cJSON_ParseWithLength(json, len);
     if (!root) { ESP_LOGW(TAG, "config: unparseable payload"); return; }
-    /* Optional "target" board-id: rovers sharing a team all see this topic, so a
+    /* Optional "target" board-id: rovers sharing a name all see this topic, so a
      * target lets the dashboard assign ONE of them; absent = applies to all. */
     const cJSON *target = cJSON_GetObjectItemCaseSensitive(root, "target");
     if (cJSON_IsString(target) && strcmp(target->valuestring, s_id) != 0) {
@@ -326,14 +326,12 @@ static void config_apply(const char *json, int len) {
     }
     bool changed = false;
 
-    const cJSON *team = cJSON_GetObjectItemCaseSensitive(root, "team");
-    const cJSON *pass = cJSON_GetObjectItemCaseSensitive(root, "pass");
     const cJSON *name = cJSON_GetObjectItemCaseSensitive(root, "name");
-    if (cJSON_IsString(team) && team->valuestring[0]) {
-        rover_config_set_identity(team->valuestring,
-                                  cJSON_IsString(pass) ? pass->valuestring : "",
-                                  cJSON_IsString(name) ? name->valuestring : "");
-        ESP_LOGW(TAG, "assigned team '%s'", team->valuestring);
+    const cJSON *pass = cJSON_GetObjectItemCaseSensitive(root, "pass");
+    if (cJSON_IsString(name) && name->valuestring[0]) {
+        rover_config_set_identity(name->valuestring,
+                                  cJSON_IsString(pass) ? pass->valuestring : "");
+        ESP_LOGW(TAG, "assigned name '%s'", name->valuestring);
         changed = true;
     }
 
@@ -397,7 +395,7 @@ static void config_apply(const char *json, int len) {
     }
 
     cJSON_Delete(root);
-    if (changed) {   /* reboot re-reads NVS: new team reconnects, new pins re-init */
+    if (changed) {   /* reboot re-reads NVS: new name reconnects, new pins re-init */
         ESP_LOGW(TAG, "config applied — rebooting");
         vTaskDelay(pdMS_TO_TICKS(300));   /* flush log + let the broker ack */
         esp_restart();
@@ -423,7 +421,7 @@ static void blink_task(void *p) {
 }
 
 static void identify_apply(const char *json, int len) {
-    /* Same optional "target" rule as config: boards sharing a team all see this
+    /* Same optional "target" rule as config: boards sharing a name all see this
      * topic; a target picks ONE. Empty/unparseable payload blinks (forgiving —
      * identify is a lamp, not a mutation). */
     cJSON *root = cJSON_ParseWithLength(json, len);
@@ -431,7 +429,7 @@ static void identify_apply(const char *json, int len) {
         const cJSON *target = cJSON_GetObjectItemCaseSensitive(root, "target");
         bool skip = cJSON_IsString(target) && strcmp(target->valuestring, s_id) != 0;
         cJSON_Delete(root);
-        if (skip) return;   /* addressed to a different board on this team */
+        if (skip) return;   /* addressed to a different board sharing this name */
     }
     if (s_blinking) return;
     s_blinking = true;
@@ -440,11 +438,12 @@ static void identify_apply(const char *json, int len) {
 }
 
 /* Reprovision: authorized identity destruction. It arrives on this board's own
- * team topic (the professor, or the team's dashboard deleting the team), so
- * clearing NVS is correct here — unlike a rejected login, which is ambiguous
- * evidence and never wipes (the identity may be valid on the board's own hub).
- * Optional {"target":"rover-xxxx"} narrows a team-wide publish to one board,
- * the same filter cmd/config uses; no/unparseable payload = the whole team. */
+ * name topic (the professor, or the robot's own dashboard deleting its name),
+ * so clearing NVS is correct here — unlike a rejected login, which is
+ * ambiguous evidence and never wipes (the identity may be valid on the
+ * board's own hub). Optional {"target":"rover-xxxx"} narrows a name-wide
+ * publish to one board, the same filter cmd/config uses; no/unparseable
+ * payload = every board sharing that name. */
 static void reprovision_apply(const char *json, int len) {
     cJSON *root = cJSON_ParseWithLength(json, len);
     if (root) {
@@ -453,12 +452,12 @@ static void reprovision_apply(const char *json, int len) {
         cJSON_Delete(root);
         if (!mine) return;
     }
-    ESP_LOGW(TAG, "reprovision — clearing team identity, rebooting into the pool");
+    ESP_LOGW(TAG, "reprovision — clearing identity, rebooting into the pool");
     rover_config_clear_identity();
     esp_restart();
 }
 
-/* Four subscriptions: robots/<id>/pwm (drive), /cmd/config (post-join team
+/* Four subscriptions: robots/<id>/pwm (drive), /cmd/config (post-join name
  * assignment), /cmd/identify (blink to find the physical board), /cmd/reprovision
  * (the BOOT button's remote twin). Routed by topic suffix; topic/data arrive
  * without null terminators. */
@@ -469,7 +468,7 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
     case MQTT_EVENT_CONNECTED: {
         s_mqtt_up = true;
         /* A clean connect under the STORED identity proves it valid — reset the
-         * rejection count. Under fallback the count stays: the stored team is
+         * rejection count. Under fallback the count stays: the stored name is
          * still unknown here, and only a reboot (reassignment reboots) retries it. */
         if (!s_cred_fallback) s_auth_rejections = 0;
         led_set(true);          /* reached the broker — visible "live" signal */
@@ -535,20 +534,19 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
  * mqtt://127.0.0.1:1883 when the board is its own island (home). Returns (never
  * reboots) when the session is dead — board_run re-evaluates in its loop. */
 void rover_client_run(const char *broker_uri) {
-    /* Identity is board-local, no network needed: robot-id from the MAC, team
+    /* Identity is board-local, no network needed: robot-id from the MAC, name
      * credential from NVS (a post-join assignment) or the compile-time demo. */
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     rover_format_robot_id(mac, s_id);
-    char cu[33], cp[65], cn[33];
-    rover_config_load_identity(cu, cp, cn);
+    char cu[33], cp[65];
+    rover_config_load_identity(cu, cp);
     if (cu[0]) {
         strncpy(s_user, cu, sizeof s_user - 1);
         strncpy(s_pass, cp, sizeof s_pass - 1);
-        strncpy(s_name, cn, sizeof s_name - 1);
     }
     /* Credential-orphan escape: repeated not-authorized CONNACKs mean THIS
-     * broker doesn't know the stored team (deleted, or the hub was re-imaged —
+     * broker doesn't know the stored name (deleted, or the hub was re-imaged —
      * the bench scar 2026-07-12: a board orphaned this way retried forever and
      * even reflashing didn't help, since identity lives in NVS). Fall back to
      * the compile-time pool credential for this session — never wipe NVS on a
@@ -563,8 +561,7 @@ void rover_client_run(const char *broker_uri) {
         strncpy(s_pass, MQTT_PASS, sizeof s_pass - 1);
     }
     led_set(false);   /* start dark; MQTT CONNECTED lights it */
-    ESP_LOGI(TAG, "rover client: id %s as '%s'%s%s → %s", s_id, s_user,
-             s_name[0] ? " / " : "", s_name, broker_uri);
+    ESP_LOGI(TAG, "rover client: id %s as '%s' → %s", s_id, s_user, broker_uri);
 
     /* esp-mqtt authenticates with username/password — the capability
      * zenoh-pico lacked (usrpwd unimplemented), and the reason the rover ships
@@ -594,7 +591,7 @@ void rover_client_run(const char *broker_uri) {
     esp_mqtt_client_start(cli);
 
     /* First connect gates everything: it proves both reachability AND that the
-     * team credential was accepted (a bad password disconnects here, never
+     * name credential was accepted (a bad password disconnects here, never
      * reaching s_mqtt_up). No connect in 10 s → dead → caller retries.
      * MUST stop+destroy on this exit: a returned-but-alive client keeps
      * auto-reconnecting forever — each pass leaked one zombie retrying the
@@ -646,7 +643,7 @@ void rover_client_run(const char *broker_uri) {
              * rover actually heard the retained latch. Absent = clear, the
              * same absent-key idiom as rssi. */
             const char *es = s_estop ? ",\"estop\":true" : "";
-            /* board id is metadata in the payload, not the topic (id == team). */
+            /* board id is metadata in the payload, not the topic (id == name). */
 #ifdef HAS_CAMERA
             /* No "pins" on the camera board: motors are structurally disabled
              * there (motor_init skips), so reporting a map would claim a
