@@ -33,6 +33,21 @@ esp_err_t rover_config_set_wifi(const char *ssid, const char *pass) {
     return e;
 }
 
+/* "Forget this network" (dashboard's Set-up-Wi-Fi panel) — erase the stored
+ * uplink so the board reboots back to a fresh island (no venue/home network,
+ * same as a board that's never been configured). Deliberately narrower than
+ * a full NVS wipe: name, role, motor pins, and hub pin all survive — those
+ * are identity/hardware facts, not the uplink. */
+esp_err_t rover_config_clear_wifi(void) {
+    nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+    nvs_erase_key(h, "ssid");   /* absent key is fine — a fresh board has neither */
+    nvs_erase_key(h, "pass");
+    e = nvs_commit(h);
+    nvs_close(h);
+    return e;
+}
+
 /* No password: a robot's name is a topic address, not a credential — the
  * hub's own Wi-Fi is the classroom's real boundary (CONTRACT.md § Discovery
  * & isolation, confirmed 2026-07-13). */

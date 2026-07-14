@@ -255,16 +255,60 @@ chosen-against:
   always-APSTA runs both topologies, split by hub presence; the beacon/client-cap
   cost stays measure-then-mitigate (if it bites, drop the beacon when cleanly
   joined to a hub).
-- **OS-native captive-portal popup for the `/wifi` panel (2026-07-13).**
-  Rover→hub auto-discovery needs no human and is untouched. The one config
-  that stays human-driven is a board's own uplink Wi-Fi in the island scenario
-  (a student's phone or home laptop, no hub to join) — `wifi_portal.c` answers
-  the OS-native captive-portal probes (`/hotspot-detect.html`, `/generate_204`,
-  `/connecttest.txt`, `/ncsi.txt`) with a 302 to `/`, and a wildcard DNS
-  responder (`dns_server.c`, :53) makes those probes resolve to this board in
-  the first place — reusing `landing_get`'s existing state-routing page, not
-  duplicating it. On a locked-down device, or an OS that never fires the
-  probe, this is a no-op: it still just visits `/wifi` manually.
+- **OS-native captive-portal onboarding, rebuilt end to end (2026-07-13 →
+  2026-07-14, all live-diagnosed against real boards + real phones, not
+  designed ahead of the bugs).** Rover→hub auto-discovery needs no human and
+  is untouched; the one config that stays human-driven is a board's own
+  uplink Wi-Fi in the island scenario. `wifi_portal.c` answers the OS probes
+  (`/hotspot-detect.html`, `/generate_204`, `/connecttest.txt`, `/ncsi.txt`)
+  via `probe_redirect`; a wildcard DNS responder (`dns_server.c`, :53) makes
+  those probes resolve to this board at all.
+  - **Chosen-against #1 — 302 straight to `/`.** `board_run`'s self-hosting
+    path re-registers `/` to the live dashboard almost immediately, so a real
+    board was caught rendering the FULL dashboard inside iOS's sandboxed
+    Captive Network Assistant sheet — whose `localStorage` never reaches real
+    Safari, silently losing any sign-in made there. Fixed: probes now 302 to
+    `/welcome`, a page `ws_mqtt_bridge.c`/`landing_get` never touch.
+  - **Chosen-against #2 — per-source-IP accept tracking.** The first
+    Accept-flip cut (port of `hub/pi/src/bin/hubd.rs`'s design) keyed
+    `captive_accepted()` by `httpd_req_to_sockfd`+`getpeername`. Live-tested:
+    every request read back peer IP `0.0.0.0` on this httpd stack, so the
+    flip silently never engaged. Replaced with ONE global accept flag + a
+    15-minute idle window — a rover's own AP overwhelmingly serves one phone
+    at a time, and the open ACL already gives every client full read+write
+    regardless, so a flag shared across clients costs nothing real.
+  - **Chosen-against #3 — flipping to "genuine success" unconditionally.**
+    That's iOS's OWN signal to trust a Wi-Fi network for real internet
+    routing. Live-tested on a pure-island board (no uplink at all): the flip
+    fired, the captive sheet dismissed correctly, and the phone's OTHER apps
+    lost internet, because we'd told iOS this network had it when it didn't.
+    `captive_accepted()` now also requires `board_has_uplink()` (live, not
+    cached) — the flip only ever fires when the claim is actually true.
+  - **The real fix for "no real uplink" wasn't a better apology — it was
+    onboarding.** A captive network that will never have internet isn't the
+    common case any commercial captive portal handles (a hotel's gate is
+    temporary; ours was being treated as permanent). `/welcome` now embeds
+    the same scan/join flow as the dashboard's Set-up-Wi-Fi panel
+    (`/wifi/scan`, `/wifi/connect`) directly in the captive sheet: pick a
+    network there and Continue only appears once there's something true to
+    tell iOS — exactly like a hotel portal releasing the sheet after sign-in.
+    "Skip — drive it without internet" stays as the honest fallback (no
+    flip, ever) for the genuine island case.
+  - **DHCP option 114 / RFC 8910 (2026-07-14).** `wifi_apsta_up` advertises a
+    `captive-portal-api` URI in the DHCP offer itself — iOS 14+/macOS Big
+    Sur+/Android 11+ can read captivity straight from the DHCP handshake
+    instead of guessing from a probe redirect. `GET /captive-portal-api`
+    serves the real RFC 8908 JSON shape (`application/captive+json`), gated
+    on the same `captive_accepted()`. Apple's spec wants this over TLS, which
+    no private classroom AP can offer — a strict client may just ignore the
+    plain-HTTP URI and fall back to the probe flow above, which still works;
+    this is additive, not a replacement.
+  - The WS-bridge socket leak this whole investigation surfaced along the way
+    (a departing station's dashboard bridge never got reclaimed, and enough
+    silent leaks wedged the whole board) is `ws_mqtt_bridge.c`'s own
+    chosen-against — see that file's `ws_bridge_reap_all`.
+  - On a locked-down device, or an OS that never fires the probe or reads
+    DHCP 114, all of this is a no-op: it still just visits `/wifi` manually.
 
 History ladder (details: git log): v2 zenoh + BLE provisioning → v3/v4 MQTT port
 + motor drive → v5 BLE removed → v6 unified always-APSTA image.

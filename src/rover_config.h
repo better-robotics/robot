@@ -14,6 +14,10 @@
  * network gateway. */
 void rover_config_load(char ssid[33], char pass[65], char locator[65]);
 esp_err_t rover_config_set_wifi(const char *ssid, const char *pass);
+/* "Forget this network" (dashboard's Set-up-Wi-Fi panel, POST /wifi/forget):
+ * erase the stored uplink only — name, role, motor pins, and hub pin survive,
+ * since those are identity/hardware facts, not the venue/home network. */
+esp_err_t rover_config_clear_wifi(void);
 
 /* Identity, assigned post-join over robots/<id>/cmd/config and persisted.
  * Unset → the compile-time ROVER_NAME default ("unassigned"). This is how a

@@ -127,6 +127,35 @@ static bridge_t *slot_alloc(void)
     return NULL;
 }
 
+/* Called by hub_role.c on WIFI_EVENT_AP_STADISCONNECTED — a station's own
+ * bridge slot would otherwise leak: pump_task only unblocks on BROKER
+ * activity (recv on broker_fd), it never notices the BROWSER side going dark
+ * when the phone's Wi-Fi just vanishes, and httpd's own detection of the
+ * dead client_fd isn't prompt or guaranteed either (live-diagnosed
+ * 2026-07-14 — repeated join/leave cycling sometimes left "bridge closed"
+ * logged, sometimes didn't, and MAX_BRIDGES=3 means just 3 silent leaks
+ * wedges the whole board until a manual Wi-Fi "Forget").
+ *
+ * Closes every open bridge unconditionally rather than matching the
+ * departing station's specific slot: getpeername() on this same shared httpd
+ * handle already proved unreliable for the captive-portal probes earlier
+ * today, so a correlated close can't be trusted to actually fire. Closing
+ * everyone's bridge on any one departure is a brief, self-healing blip
+ * (mqtt.js auto-reconnects) against a tiny budget (3 slots total) — cheap
+ * insurance against a leak that otherwise never recovers on its own. */
+void ws_bridge_reap_all(void)
+{
+    for (int i = 0; i < MAX_BRIDGES; i++) {
+        bridge_t *b = &s_slots[i];
+        if (!b->in_use || b->closing) continue;
+        ESP_LOGW(TAG, "station left — force-closing bridge (client_fd=%d) rather than waiting for httpd to notice",
+                 b->client_fd);
+        b->closing = true;
+        if (b->broker_fd >= 0) shutdown(b->broker_fd, SHUT_RDWR);   /* unblocks pump_task's recv */
+        close(b->client_fd);   /* per ESP-IDF's own guidance: close app sockets proactively on STA leave */
+    }
+}
+
 static esp_err_t ws_handler(httpd_req_t *req)
 {
     /* First call = the HTTP GET upgrade; httpd finishes the WS handshake.

@@ -180,16 +180,18 @@
     }
 
     /* Telemetry as an iOS inset-grouped list: a filled panel with hairline row
-       separators, label left / value right. */
+       separators, label left / value right. minmax(0, 1fr): a grid's 1fr
+       track defaults to a content-based minimum, so one long unbroken value
+       can force the whole list — and its modal — wider than the viewport. */
     dl {
-      display: grid; grid-template-columns: auto 1fr; align-items: center;
+      display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center;
       background: var(--inset); border-radius: var(--radius); padding: 0 0.9rem;
       font-size: 0.88rem; margin-top: 0.2rem;
     }
     dt, dd { padding: 0.5rem 0; border-top: 0.5px solid var(--border-default); }
     dt:first-of-type, dt:first-of-type + dd { border-top: none; }
     dt { color: var(--ink-muted); }
-    dd { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+    dd { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); overflow-wrap: anywhere; }
     #empty { color: var(--ink-muted); padding: 2rem 0; }
     footer { margin-top: 3rem; color: var(--ink-faint); font-size: 0.85rem; }
 
@@ -238,6 +240,20 @@
       color: var(--link); background: var(--accent-soft); transition: transform 0.08s ease, filter 0.15s ease;
     }
     .btn-accent:hover { filter: brightness(1.15); }
+    /* Wi-Fi scan results: a proper row, not a stack of generic .btn-accent
+       pills (name and signal were running together with no layout at all).
+       inset background/hairline border matches the iOS-list language the
+       rest of the page uses (dl, .card); min-height keeps every row a full
+       tap target even for a short SSID. */
+    .wifi-net {
+      display: flex; justify-content: space-between; align-items: center; gap: 0.6rem;
+      width: 100%; min-height: var(--tap); text-align: left; font-weight: 500;
+      color: var(--ink); cursor: pointer;
+      background: var(--inset); border: 0.5px solid var(--border-default);
+      border-radius: var(--radius); padding: 0.5rem 0.9rem;
+    }
+    .wifi-net:hover { border-color: var(--border-strong); }
+    .wifi-net .hint { flex-shrink: 0; }
     /* Warn variant of the soft button — the fleet's one call-to-action. An
        unassigned board's "Assign" carries amber, not accent blue,
        matching its corner chip: the whole card says "act here" in one hue. */
@@ -356,9 +372,9 @@
       padding: 0.6rem 0.8rem; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
       font-size: 0.76rem; line-height: 1.65;
     }
-    /* Telemetry sheet: the rendered sys — any key the firmware adds shows up. */
-    #tel-facts { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.9rem;
-      font-size: 0.85rem; margin-bottom: 0.7rem; }
+    /* Telemetry sheet: the rendered sys — any key the firmware adds shows up.
+       Column shrinking + value wrapping ride the base dl/dd rule above. */
+    #tel-facts { gap: 0.15rem 0.9rem; font-size: 0.85rem; margin-bottom: 0.7rem; }
     #tel-facts dt { color: var(--ink-muted); }
     #tel-feed { height: 9rem; }
     .log-line { white-space: pre-wrap; word-break: break-all; }
@@ -583,6 +599,7 @@
     <div id="wifi-panel" style="display:none; flex-direction:column; gap:0.5rem">
       <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
         <button id="wifi-scan" class="btn-accent">Scan for networks</button>
+        <button id="wifi-forget" class="btn-accent" style="display:none">Forget this network</button>
       </div>
       <div id="wifi-list" style="display:flex; flex-direction:column; gap:0.25rem"></div>
       <div id="wifi-join" style="display:none; gap:0.5rem; align-items:center; flex-wrap:wrap">
@@ -860,9 +877,15 @@ safe-buffer/index.js:
     // (the token the user just tapped in Wi-Fi settings) + host class; older
     // firmware without ssid in /fleet → the bare address; standalone copy →
     // an arrow at whichever broker host it's pointed at.
+    // A self-hosted rover's own SSID (rover-XXXX) is suppressed: that same
+    // board is also the one card (often the only card) in the fleet list
+    // below, so naming it again up here is pure duplication. A classroom
+    // hub's SSID (hub-XXXX) stays — it names the ROOM, not any one robot,
+    // which the fleet list never tells you on its own.
     function setHostChip(ssid, host) {
       const cls = host === "pi" ? "Pi" : host === "esp32" ? "ESP32" : "";
       document.getElementById("host-chip").textContent =
+        ssid && ssid.startsWith("rover-") ? "" :
         ssid ? `${ssid}${cls ? " · " + cls : ""}` : (standalone ? (hubHost ? `→ ${hubHost}` : "") : location.host);
     }
 
@@ -944,6 +967,8 @@ safe-buffer/index.js:
         $("net-chip-label").textContent = s && s.ssid ? s.ssid : "set up Wi-Fi";
         netChip.classList.toggle("warn", !healthy);
         $("wifi-setup").style.display = healthy ? "none" : "flex";
+        // Nothing to forget until a network is actually stored.
+        $("wifi-forget").style.display = s && s.ssid ? "inline-block" : "none";
       };
       renderStatus(status);
       // /fleet's polled verdict keeps the chip honest between /wifi/status reads.
@@ -976,9 +1001,10 @@ safe-buffer/index.js:
         msg.textContent = nets.length ? "" : "No networks found.";
         // SSIDs come off the air — escape before they touch innerHTML.
         list.innerHTML = nets.map(n =>
-          `<button class="btn-accent wifi-net" style="text-align:left"
+          `<button class="wifi-net"
              data-ssid="${esc(n.ssid)}" data-open="${n.security === "NO"}">
-             ${esc(n.ssid)} <span class="hint">${n.security === "NO" ? "open" : esc(n.security)} · ${n.signal}%</span>
+             <span>${esc(n.ssid)}</span>
+             <span class="hint">${n.security === "NO" ? "open" : esc(n.security)} · ${n.signal}%</span>
            </button>`).join("");
       });
 
@@ -1014,6 +1040,19 @@ safe-buffer/index.js:
         } else {
           msg.textContent = `Couldn't join: ${res.error || "check the password and try again."}`;
         }
+      });
+
+      // ESP32-only for now (POST /wifi/forget — Pi hubd has no equivalent yet);
+      // a 404 there just falls into the generic failure message below.
+      $("wifi-forget").addEventListener("click", async () => {
+        const msg = $("wifi-msg");
+        msg.textContent = "Forgetting this network…";
+        try {
+          const res = await fetch("/wifi/forget", { method: "POST" });
+          if (!res.ok) throw new Error();
+          msg.textContent = "Forgotten — the board is restarting as a fresh island.";
+          setTimeout(async () => { const s = await getStatus(); if (s) renderStatus(s); }, 3000);
+        } catch { msg.textContent = "Couldn't forget this network — try again."; }
       });
     }
 

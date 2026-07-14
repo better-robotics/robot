@@ -62,6 +62,8 @@
 
 /* ws_mqtt_bridge.c — lets browsers reach the broker over MQTT-over-WebSocket */
 void start_ws_mqtt_bridge(void);
+void ws_bridge_reap_all(void);   /* force-close every open bridge — a departing
+                                   * station's own bridge slot otherwise leaks */
 
 static const char *TAG = "hub-broker";
 static esp_netif_t *ap_netif;
@@ -106,6 +108,11 @@ static void json_esc_ssid(char *dst, size_t cap, const char *src)
 void board_uplink_ssid_json(char out[65])
 {
     json_esc_ssid(out, 65, (const char *)s_uplink_ssid);
+}
+
+bool board_has_uplink(void)
+{
+    return s_sta_got_ip;
 }
 
 int board_status_json(char *buf, size_t len)
@@ -189,6 +196,9 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
         if (s_want_connect) esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STACONNECTED) {
         ESP_LOGI(TAG, "a device joined the AP");
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STADISCONNECTED) {
+        ESP_LOGI(TAG, "a device left the AP");
+        ws_bridge_reap_all();
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
         s_gw = e->ip_info.gw;
@@ -223,15 +233,30 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, bool ap_al
      * wrongly falls back to islanding). Relocate the board's AP to 192.168.99.0/24
      * so its STA can pull a clean 192.168.4.x lease. The dedicated hub keeps
      * .4.1 (it's the one boards join, not the other way round). */
+    /* DHCP option 114 (RFC 8910/8908 — "how to modernize your captive
+     * network", confirmed 2026-07-14): advertises the captive-portal URI
+     * directly in the DHCP offer instead of making the OS guess via probe
+     * redirects. iOS 14+/macOS Big Sur+/Android 11+ read it; Windows doesn't.
+     * Apple's full spec wants the companion JSON status API served over TLS
+     * — impractical for a private AP with no real certificate — so this is
+     * the DHCP-hint half only: a strict client may ignore a plain-HTTP URI
+     * and fall back to the probe flow this file already answers regardless.
+     * esp_netif_dhcps_option stores the POINTER, not a copy (dhcpserver.c),
+     * so the buffer must outlive the DHCP server — static, not stack-local. */
+    static char s_captive_uri[48];
+    snprintf(s_captive_uri, sizeof s_captive_uri, "http://%s/captive-portal-api",
+             ap_alt_subnet ? "192.168.99.1" : "192.168.4.1");
+    ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
     if (ap_alt_subnet) {
         esp_netif_ip_info_t ip = {0};
         IP4_ADDR(&ip.ip, 192, 168, 99, 1);
         IP4_ADDR(&ip.gw, 192, 168, 99, 1);
         IP4_ADDR(&ip.netmask, 255, 255, 255, 0);
-        ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
         ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &ip));
-        ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
     }
+    ESP_ERROR_CHECK(esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI,
+                                           s_captive_uri, strlen(s_captive_uri) + 1));
+    ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
 
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                                         &wifi_events, NULL, NULL));

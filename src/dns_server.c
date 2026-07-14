@@ -52,6 +52,24 @@ static int question_end(const uint8_t *pkt, int len)
     return pos <= len ? pos : 0;
 }
 
+/* Decode the question name into dotted form for logging (diagnostic-only,
+ * 2026-07-14 — a phone joining rover-a044 never showed the captive sheet at
+ * all, and with no visibility into what it actually queried this was
+ * unfalsifiable from the board's side). Truncates silently if `out` is too
+ * small; never called on the hot path's correctness, only ESP_LOGI. */
+static void question_name(const uint8_t *pkt, int len, char *out, size_t outlen)
+{
+    size_t o = 0;
+    int pos = 12;
+    while (pos < len && pkt[pos] != 0 && (pkt[pos] & 0xC0) == 0) {
+        int llen = pkt[pos++];
+        if (o && o + 1 < outlen) out[o++] = '.';
+        for (int i = 0; i < llen && pos < len && o + 1 < outlen; i++) out[o++] = (char)pkt[pos++];
+        if (pos >= len) break;
+    }
+    out[o < outlen ? o : outlen - 1] = 0;
+}
+
 /* Build a wildcard A-record response for query `rx` (length `rx_len`)
  * answering with `ip` (already network-byte-order, as returned by
  * esp_netif_get_ip_info), into `tx` (capacity `tx_cap`). Returns the response
@@ -133,6 +151,14 @@ static void dns_server_task(void *arg)
         int n = recvfrom(sock, rx, sizeof rx, 0, (struct sockaddr *)&from, &fromlen);
         if (n <= 0) continue;   /* a transient recv error — keep serving, don't tear the socket down */
         int tlen = dns_build_response(rx, n, tx, sizeof tx, ip);
+        char qname[80];
+        question_name(rx, n, qname, sizeof qname);
+        /* IP2STR needs a field literally named `addr` (esp_ip4_addr_t) — lwip's
+         * struct in_addr has `s_addr` instead, so bridge through a same-layout
+         * local rather than cast the sockaddr's field directly. */
+        esp_ip4_addr_t from_ip = { .addr = from.sin_addr.s_addr };
+        ESP_LOGI(TAG, "query '%s' from " IPSTR " -> %s", qname, IP2STR(&from_ip),
+                 tlen > 0 ? "answered" : "dropped (malformed)");
         if (tlen > 0) sendto(sock, tx, tlen, 0, (struct sockaddr *)&from, fromlen);
     }
 }

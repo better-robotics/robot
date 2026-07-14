@@ -19,6 +19,8 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_timer.h"       /* esp_timer_get_time — the captive-ack idle window */
+#include "esp_netif.h"       /* the AP's own IP, for the RFC 8908 captive-portal-api body */
 #include "cJSON.h"          /* /wifi/connect speaks hubd's JSON dialect */
 #include "roles.h"          /* board_ap_t, board_wifi_scan */
 #include "rover_config.h"   /* rover_config_set_wifi, rover_config_load */
@@ -156,7 +158,7 @@ static const char PAGE[] =
 "document.getElementById('bst').textContent=t;"
 "let g=document.getElementById('bgo');g.textContent='';"
 "if(j.dash&&document.documentElement.className!='embed'){"
-"let a=document.createElement('a');a.className='btn';a.href=j.dash;"
+"let a=document.createElement('a');a.className='btn';a.href=j.dash;a.target='_blank';a.rel='noopener';"
 "a.textContent=j.dash=='/'?'Open the dashboard':'Open the class dashboard';g.appendChild(a)}"
 "}catch(e){}setTimeout(stat,5000)}"
 "stat();"
@@ -222,7 +224,7 @@ static const char LANDING[] =
 "if(j.dash){"
 "st.textContent='Part of the classroom network'+(j.ssid?' '+j.ssid:'')+' \\u2014 drive it from the class dashboard.';"
 /* DOM, not innerHTML: dash derives from a stored locator (user-supplied NVS). */
-"if(!act.firstChild){let a=document.createElement('a');a.className='btn';a.href=j.dash;"
+"if(!act.firstChild){let a=document.createElement('a');a.className='btn';a.href=j.dash;a.target='_blank';a.rel='noopener';"
 "a.textContent='Open the class dashboard';act.appendChild(a)}"
 "setTimeout(go,5000);return}"
 "act.innerHTML='';"
@@ -373,6 +375,25 @@ static esp_err_t save_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* POST /wifi/forget — "Forget this network" (dashboard's Set-up-Wi-Fi panel).
+ * No body needed: erases the stored uplink only (rover_config_clear_wifi) and
+ * reboots, same config-apply path as save_post. The board comes back up with
+ * no venue/home network configured — a fresh island, same as never-provisioned. */
+static esp_err_t forget_post(httpd_req_t *req)
+{
+    esp_err_t e = rover_config_clear_wifi();
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "rover_config_clear_wifi failed: %s", esp_err_to_name(e));
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    ESP_LOGW(TAG, "forgot the stored uplink — restarting as a fresh island");
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "forgotten");
+    xTaskCreate(reboot_task, "cfg-reboot", 2048, NULL, 5, NULL);
+    return ESP_OK;
+}
+
 /* POST /wifi/connect — hubd's JSON dialect: body {ssid, password}, reply
  * {"ok":true} / {"ok":false,"error":…}. The shared dashboard's Set-up-Wi-Fi
  * panel drives THIS path on both hubs (dashboard.html wifi-connect); the
@@ -459,26 +480,270 @@ static esp_err_t role_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+/* Captive-portal Accept flip (ports hub/pi/src/bin/hubd.rs's Accept design to
+ * this firmware, 2026-07-14 — a live board's captive sheet was caught
+ * rendering the FULL dashboard inside itself, the exact failure the Pi's
+ * design exists to avoid). A device that tapped Continue on /welcome gets
+ * genuine "you have internet" answers from probe_redirect from then on, which
+ * is what lets the OS's Captive Network Assistant actually dismiss its sheet
+ * — a redirect alone never triggers that, only a real success signature does.
+ *
+ * ONE global flag, not per-client (first cut tried per-source-IP, keyed via
+ * httpd_req_to_sockfd + getpeername — live-tested 2026-07-14 and every
+ * request read back peer IP 0.0.0.0, so the flip silently never engaged and
+ * the sheet never dismissed itself, reproducing the exact bug this exists to
+ * fix). A rover's own AP overwhelmingly serves one phone at a time (the
+ * island/home scenario), and the stakes of a global flag over-triggering are
+ * nil regardless — the open ACL already gives every AP client full
+ * read+write with no gate at all, so "the sheet closes for someone else too"
+ * is not a security question.
+ *
+ * Gated on board_has_uplink() (live-tested 2026-07-14, same day): flipping
+ * unconditionally worked exactly as designed on a pure-island board with no
+ * uplink of its own — and broke the joining phone's real internet, because
+ * "genuine success" IS iOS's signal to trust this Wi-Fi for real routing.
+ * That's true and harmless when this board actually has a working uplink
+ * (a classroom hub's venue Wi-Fi, or a rover joined to real home Wi-Fi with
+ * NAT); it's a lie when there's no uplink at all, and iOS believed the lie.
+ * So the flip only ever fires when board_has_uplink() is true right now —
+ * checked live, not cached, since a board's uplink can come and go after
+ * Continue was tapped. No uplink → captive_accepted() stays false forever,
+ * the sheet never auto-dismisses, and /welcome's copy (below) says so
+ * plainly instead of promising a Continue that can't deliver. */
+#define ACKED_IDLE_US (15LL * 60 * 1000 * 1000)
+static int64_t s_accepted_us = 0;   /* 0 = never accepted (or expired) */
+
+static bool captive_accepted(void)
+{
+    if (!s_accepted_us) return false;
+    if (esp_timer_get_time() - s_accepted_us > ACKED_IDLE_US) { s_accepted_us = 0; return false; }
+    return board_has_uplink();
+}
+
+static esp_err_t captive_ack_post(httpd_req_t *req)
+{
+    (void)req;
+    s_accepted_us = esp_timer_get_time();
+    ESP_LOGI(TAG, "captive/ack — probes now answer genuine success");
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_sendstr(req, "ok");
+}
+
+/* /welcome — the ONLY page an unacked captive-portal probe ever redirects to.
+ * Deliberately dashboard-free: tapping Continue is what calls /captive/ack
+ * above, and only after that does the page point the user at the real
+ * dashboard — by a tapped link, never auto-navigation, so it opens in the
+ * phone's actual browser instead of the sheet's sandbox (whose localStorage
+ * a sign-in made in there would silently lose the moment the sheet closes).
+ *
+ * A no-uplink board is a temporary state, not a permanent one (2026-07-14 —
+ * the first cut treated "no internet yet" as "no internet ever" and just
+ * explained that; a captive network that WILL have real internet once
+ * configured is the common case every commercial captive portal handles by
+ * guiding setup first). So this page now embeds the same scan/join flow the
+ * dashboard's Set-up-Wi-Fi panel offers (POST /wifi/scan, /wifi/connect) —
+ * pick a network here, and Continue only appears once there's something
+ * true to tell iOS, exactly like a hotel portal that releases the sheet
+ * after you actually sign in. Skip stays for the honest fallback: drive it
+ * offline, no lie to the OS, same as before. */
+static const char WELCOME[] =
+"<!doctype html><html><head><meta charset=utf-8>"
+"<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+"<title>BetterRobotics</title><style>"
+":root{color-scheme:dark;--bg:#0d0f12;--surface:#16191d;--inset:#1f242b;--ink:#f2f3f5;--ink-muted:#aeb4bd;"
+"--border:rgba(255,255,255,.10);--border-strong:rgba(255,255,255,.18);"
+"--accent:#00539B;--accent-ink:#fff;--radius-lg:18px;--radius:12px;--tap:44px}"
+"*{box-sizing:border-box}"
+"body{margin:0;background:var(--bg);color:var(--ink);"
+"font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Helvetica Neue',Arial,sans-serif;"
+"font-size:16px;line-height:1.47;-webkit-font-smoothing:antialiased;"
+"padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}"
+".topbar{display:flex;align-items:center;height:50px;padding:0 20px;border-bottom:.5px solid var(--border)}"
+".topbar h1{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}"
+".topbar .a{font-weight:700}.topbar .b{font-weight:400;color:var(--ink-muted)}"
+"main{max-width:32rem;margin:0 auto;padding:24px 16px 48px}"
+".card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-lg);"
+"padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.6)}"
+".card h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px}"
+".s{color:var(--ink-muted);font-size:13px}"
+".btn{display:block;width:100%;text-align:center;background:var(--accent);color:var(--accent-ink);"
+"border:0;border-radius:var(--radius);padding:.75rem .85rem;margin:.9rem 0 0;font:inherit;font-weight:600;"
+"text-decoration:none;min-height:var(--tap);cursor:pointer}"
+/* Network row: name left, security/signal right — the flat wall-of-buttons
+ * look (a bare .btn stacked N times) is what made the old picker ugly. */
+".net{display:flex;justify-content:space-between;align-items:center;gap:.6rem;width:100%;"
+"min-height:var(--tap);text-align:left;font:inherit;font-weight:500;color:var(--ink);cursor:pointer;"
+"background:var(--inset);border:.5px solid var(--border);border-radius:var(--radius);"
+"padding:.5rem .9rem;margin-top:.4rem}"
+".net:hover{border-color:var(--border-strong)}"
+"input{font:inherit;width:100%;box-sizing:border-box;padding:.6rem .8rem;margin-top:.5rem;"
+"border-radius:var(--radius);border:.5px solid var(--border);background:var(--inset);color:var(--ink);"
+"min-height:var(--tap)}"
+"a.hint{color:var(--ink-muted)}"
+"</style></head><body>"
+"<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
+"<main>"
+"<div class=card id=before><h2>Welcome</h2>"
+"<p class=s id=lede>Checking this board&rsquo;s internet&#8230;</p>"
+"<div id=picker style=display:none>"
+"<button class=btn id=scan-go>Scan for networks</button>"
+"<div id=nets></div>"
+"<div id=join style=display:none>"
+"<input id=pass type=password placeholder=\"Network password\" autocapitalize=off autocorrect=off>"
+"<button class=btn id=connect-go>Connect</button></div>"
+"<p class=s id=wifi-msg></p>"
+"<p class=s><a class=hint href=# id=skip-go>Skip &#8212; drive it without internet</a></p>"
+"</div>"
+"<button class=btn id=go style=display:none>Continue</button>"
+"<a class=btn id=dashlink0 href=/ target=_blank rel=noopener style=display:none>Open the dashboard</a></div>"
+"<div class=card id=after style=display:none><h2>You're set</h2>"
+"<p class=s>Now open the dashboard in your regular browser, not this pop-up &#8212; "
+"this pop-up forgets sign-ins when it closes.</p>"
+"<a class=btn id=dashlink href=/ target=_blank rel=noopener>Open the dashboard</a></div>"
+"</main>"
+"<script>"
+"let lede=document.getElementById('lede'),go=document.getElementById('go'),"
+"d0=document.getElementById('dashlink0'),picker=document.getElementById('picker'),"
+"nets=document.getElementById('nets'),join=document.getElementById('join'),"
+"pass=document.getElementById('pass'),msg=document.getElementById('wifi-msg');"
+"let chosen=null,lastDash='/';"
+/* Whether Continue can do anything is decided server-side (captive_accepted()
+ * gates on board_has_uplink()) — telling the user "Continue" before there's
+ * a real uplink would promise an auto-dismiss that can never happen. */
+"function refresh(){fetch('/wifi/status').then(r=>r.json()).then(j=>{"
+"lastDash=j.dash||'/';"
+"if(j.uplink=='full'){"
+"picker.style.display='none';d0.style.display='none';"
+"lede.textContent='This board runs its own network \\u2014 it doesn\\u2019t need the internet to drive. "
+"Tap Continue to keep using it.';"
+"go.style.display='block'"
+"}else{"
+"go.style.display='none';"
+"lede.textContent='Give this board internet, or skip and drive it offline.';"
+"picker.style.display='block'"
+"}"
+"}).catch(()=>{lede.textContent="
+"'Couldn\\u2019t check this board\\u2019s status \\u2014 tap the X above to close this, then open the dashboard in your regular browser.'});}"
+"refresh();"
+"document.getElementById('scan-go').addEventListener('click',async()=>{"
+"nets.innerHTML='';msg.textContent='Scanning\\u2026';join.style.display='none';"
+"let list;try{list=await(await fetch('/wifi/scan')).json()}"
+"catch(e){msg.textContent='Scan failed \\u2014 try again.';return}"
+"msg.textContent=list.length?'':'No networks found.';"
+"list.forEach(n=>{const b=document.createElement('button');b.type='button';b.className='net';"
+"const s1=document.createElement('span');s1.textContent=n.ssid;"
+"const s2=document.createElement('span');s2.className='hint';"
+"s2.textContent=(n.security==='NO'?'open':n.security)+' \\u00b7 '+n.signal+'%';"
+"b.append(s1,s2);"
+"b.addEventListener('click',()=>{chosen=n.ssid;join.style.display='block';"
+"pass.style.display=n.security==='NO'?'none':'block';pass.value='';if(n.security!=='NO')pass.focus()});"
+"nets.appendChild(b)})"
+"});"
+"document.getElementById('connect-go').addEventListener('click',async()=>{"
+"if(!chosen)return;"
+"msg.textContent='Connecting to '+chosen+'\\u2026';"
+"let res;try{res=await(await fetch('/wifi/connect',{method:'POST',"
+"headers:{'Content-Type':'application/json'},"
+"body:JSON.stringify({ssid:chosen,password:pass.value})})).json()}"
+"catch(e){msg.textContent='Connect request failed \\u2014 try again.';return}"
+"if(res.ok){"
+"msg.textContent='Saved \\u2014 this board is restarting to use it. Reconnecting is automatic, "
+"give it about 10 seconds\\u2026';"
+"setTimeout(()=>location.reload(),12000)"
+"}else{msg.textContent='Couldn\\u2019t join: '+(res.error||'check the password and try again.')}"
+"});"
+"document.getElementById('skip-go').addEventListener('click',e=>{"
+"e.preventDefault();picker.style.display='none';"
+"lede.textContent='This board has no internet of its own \\u2014 that\\u2019s normal, it still drives fine. "
+"This pop-up won\\u2019t close itself, since we won\\u2019t tell your phone this network has internet it doesn\\u2019t. "
+"Tap the X above for the dashboard in your regular browser, or the link below to use it right here.';"
+"d0.href=lastDash;d0.style.display='block'"
+"});"
+"document.getElementById('go').addEventListener('click',async()=>{"
+"try{await fetch('/captive/ack',{method:'POST'})}catch(e){}"
+"document.getElementById('dashlink').href=lastDash;"
+"document.getElementById('before').style.display='none';"
+"document.getElementById('after').style.display='block'"
+"});"
+"</script></body></html>";
+
+static esp_err_t welcome_get(httpd_req_t *req)
+{
+    char host[64] = "?";
+    httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
+    ESP_LOGI(TAG, "GET /welcome (Host: %s)", host);
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    return httpd_resp_send(req, WELCOME, HTTPD_RESP_USE_STRLEN);
+}
+
+/* GET /captive-portal-api — RFC 8908, what the DHCP option 114 URI
+ * (hub_role.c's wifi_apsta_up) points at. The modern replacement for the OS
+ * guessing captivity from a probe redirect: iOS 14+/macOS Big Sur+/Android
+ * 11+ can fetch this directly from the DHCP offer and skip the heuristic
+ * entirely. Apple's spec wants this served over TLS — no real cert exists
+ * for a private classroom AP, so a strict client may simply decline to use
+ * it; the probe-redirect flow above still covers those. */
+static esp_err_t captive_api_get(httpd_req_t *req)
+{
+    char body[144];
+    if (captive_accepted()) {
+        snprintf(body, sizeof body, "{\"captive\":false}");
+    } else {
+        esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+        esp_netif_ip_info_t ip_info = {0};
+        if (ap && esp_netif_get_ip_info(ap, &ip_info) == ESP_OK) {
+            snprintf(body, sizeof body, "{\"captive\":true,\"user-portal-url\":\"http://" IPSTR "/welcome\"}",
+                     IP2STR(&ip_info.ip));
+        } else {
+            snprintf(body, sizeof body, "{\"captive\":true,\"user-portal-url\":\"http://192.168.99.1/welcome\"}");
+        }
+    }
+    httpd_resp_set_type(req, "application/captive+json");
+    return httpd_resp_sendstr(req, body);
+}
+
 /* OS-native captive-portal connectivity probes (robot's own island onboarding,
  * NOT the classroom/MDM auto-join flow — CLAUDE.md § Status & design history).
  * Apple, Android, and Windows each fire a GET against one of these fixed,
- * well-known paths right after a device joins any network; a plain 200 tells
- * the OS "this network has internet," while a redirect elsewhere is what makes
- * it decide "this network needs sign-in" and pop its own captive-portal
- * browser onto wherever the redirect points — here, "/", which landing_get
- * already knows how to route (state-routing landing page, reused as-is, not
- * duplicated). The wildcard DNS responder (dns_server.c) is what makes these
- * probes reach this board in the first place, for any hostname the OS queries.
+ * well-known paths right after a device joins any network. An unacked client
+ * redirects to /welcome, above — dashboard-free, so a captive sheet never
+ * renders the real page. An acked client (tapped Continue there) gets each
+ * OS's genuine success signature, the only thing that makes the OS actually
+ * dismiss its own captive-portal sheet. The wildcard DNS responder
+ * (dns_server.c) is what makes these probes reach this board in the first
+ * place, for any hostname the OS queries.
  *
  * Strictly additive: a device that never fires a probe (locked-down MDM
  * policy, or an OS/version that skips it) sees no different behavior than
  * today — it still just manually visits rover.local or /wifi. */
 static esp_err_t probe_redirect(httpd_req_t *req)
 {
-    httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "/");
-    httpd_resp_send(req, NULL, 0);
-    return ESP_OK;
+    char host[64] = "?";
+    httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
+    bool accepted = captive_accepted();
+    ESP_LOGI(TAG, "probe %s (Host: %s) -> %s", req->uri, host,
+             accepted ? "genuine success" : "302 /welcome");
+    if (!accepted) {
+        httpd_resp_set_status(req, "302 Found");
+        httpd_resp_set_hdr(req, "Location", "/welcome");
+        httpd_resp_send(req, NULL, 0);
+        return ESP_OK;
+    }
+    if (strcmp(req->uri, "/generate_204") == 0) {
+        httpd_resp_set_status(req, "204 No Content");
+        return httpd_resp_send(req, NULL, 0);
+    }
+    if (strcmp(req->uri, "/connecttest.txt") == 0) {
+        httpd_resp_set_type(req, "text/plain");
+        return httpd_resp_sendstr(req, "Microsoft Connect Test");
+    }
+    if (strcmp(req->uri, "/ncsi.txt") == 0) {
+        httpd_resp_set_type(req, "text/plain");
+        return httpd_resp_sendstr(req, "Microsoft NCSI");
+    }
+    /* Apple's hotspot-detect.html: the CNA checks the body for this exact string. */
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_sendstr(req, "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>");
 }
 
 void wifi_portal_start(void)
@@ -492,12 +757,13 @@ void wifi_portal_start(void)
      * one IDE page load starve the broker's accept loop (2026-07-13). The
      * IDE bundle is built to load within this (ide-v7 script concat). */
     cfg.max_open_sockets = 3;
-    /* True peak on THIS shared handle: /wifi{,/scan,/save,/connect,/role×2,/status}
-     * + / + the 4 captive-portal probe paths below = 12 registered right after
-     * this function returns; start_ws_mqtt_bridge later drops / (-1) then adds
-     * back / (dashboard) + /fleet + /ide/?* (+3) = 14 peak. +1 headroom over
-     * that measured peak, not a round-number guess. */
-    cfg.max_uri_handlers = 15;
+    /* True peak on THIS shared handle: /wifi{,/scan,/save,/connect,/forget,/role×2,/status}
+     * + / + /welcome + /captive/ack + /captive-portal-api + the 4 captive-portal
+     * probe paths below = 16 registered right after this function returns;
+     * start_ws_mqtt_bridge later drops / (-1) then adds back / (dashboard) +
+     * /fleet + /ide/?* (+3) = 18 peak. +1 headroom over that measured peak,
+     * not a round-number guess. */
+    cfg.max_uri_handlers = 19;
     cfg.lru_purge_enable = true;
     /* Wildcard matcher for the bridge's /ide/?* route (ws_mqtt_bridge.c
      * registers onto this shared handle); URIs without '*' — everything
@@ -513,10 +779,16 @@ void wifi_portal_start(void)
     httpd_uri_t u_scan  = { .uri = "/wifi/scan",   .method = HTTP_GET,  .handler = scan_get };
     httpd_uri_t u_save  = { .uri = "/wifi/save",    .method = HTTP_POST, .handler = save_post };
     httpd_uri_t u_conn  = { .uri = "/wifi/connect", .method = HTTP_POST, .handler = connect_post };
+    httpd_uri_t u_forget = { .uri = "/wifi/forget", .method = HTTP_POST, .handler = forget_post };
     httpd_uri_t u_rget  = { .uri = "/wifi/role",   .method = HTTP_GET,  .handler = role_get };
     httpd_uri_t u_rpost = { .uri = "/wifi/role",   .method = HTTP_POST, .handler = role_post };
     httpd_uri_t u_stat  = { .uri = "/wifi/status", .method = HTTP_GET,  .handler = status_get };
     httpd_uri_t u_root  = { .uri = "/",            .method = HTTP_GET,  .handler = landing_get };
+    /* The captive-portal Accept flip — see probe_redirect's comment above. */
+    httpd_uri_t u_welcome = { .uri = "/welcome",     .method = HTTP_GET,  .handler = welcome_get };
+    httpd_uri_t u_ack     = { .uri = "/captive/ack", .method = HTTP_POST, .handler = captive_ack_post };
+    /* RFC 8908 — the URI hub_role.c's DHCP option 114 advertises. */
+    httpd_uri_t u_capi    = { .uri = "/captive-portal-api", .method = HTTP_GET, .handler = captive_api_get };
     /* OS captive-portal probes — see probe_redirect's comment above. */
     httpd_uri_t u_apple   = { .uri = "/hotspot-detect.html", .method = HTTP_GET, .handler = probe_redirect };
     httpd_uri_t u_android = { .uri = "/generate_204",        .method = HTTP_GET, .handler = probe_redirect };
@@ -530,10 +802,14 @@ void wifi_portal_start(void)
     httpd_register_uri_handler(s_http, &u_scan);
     httpd_register_uri_handler(s_http, &u_save);
     httpd_register_uri_handler(s_http, &u_conn);
+    httpd_register_uri_handler(s_http, &u_forget);
     httpd_register_uri_handler(s_http, &u_rget);
     httpd_register_uri_handler(s_http, &u_rpost);
     httpd_register_uri_handler(s_http, &u_stat);
     httpd_register_uri_handler(s_http, &u_root);
+    httpd_register_uri_handler(s_http, &u_welcome);
+    httpd_register_uri_handler(s_http, &u_ack);
+    httpd_register_uri_handler(s_http, &u_capi);
     httpd_register_uri_handler(s_http, &u_apple);
     httpd_register_uri_handler(s_http, &u_android);
     httpd_register_uri_handler(s_http, &u_wintest);
@@ -545,7 +821,7 @@ void wifi_portal_start(void)
     dns_server_start();
 
     ESP_LOGI(TAG, "config panel on :80 (/wifi + /wifi/status; state-routing landing at /; "
-                  "captive-portal probes -> /)");
+                  "captive-portal probes -> /welcome until Continue is tapped)");
 }
 
 httpd_handle_t wifi_portal_httpd(void)
