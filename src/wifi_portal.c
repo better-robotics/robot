@@ -606,25 +606,45 @@ static const char WELCOME[] =
 "d0=document.getElementById('dashlink0'),picker=document.getElementById('picker'),"
 "nets=document.getElementById('nets'),join=document.getElementById('join'),"
 "pass=document.getElementById('pass'),msg=document.getElementById('wifi-msg');"
-"let chosen=null,lastDash='/';"
-/* Whether Continue can do anything is decided server-side (captive_accepted()
- * gates on board_has_uplink()) — telling the user "Continue" before there's
- * a real uplink would promise an auto-dismiss that can never happen. */
-"function refresh(){fetch('/wifi/status').then(r=>r.json()).then(j=>{"
+"let chosen=null,lastDash='/',skipped=false,hold=false,tries=0;"
+/* ?done=1 is the post-Continue view. Continue REACHES it by a real navigation
+ * (location.href), never a DOM swap: the captive sheet re-runs its probe only
+ * on a full-page load, so an AJAX-only accept leaves the sheet stuck on
+ * Cancel with no auto-dismiss (WBA/Purple implementer consensus; the Cisco
+ * ISE CNA bug is exactly this). */
+"if(location.search.indexOf('done')>=0){"
+"document.getElementById('before').style.display='none';"
+"document.getElementById('after').style.display='block';"
+"fetch('/wifi/status').then(r=>r.json()).then(j=>{"
+"document.getElementById('dashlink').href=j.dash||'/'}).catch(()=>{})"
+"}else{refresh()}"
+/* Poll, don't check once: right after a connect-reboot the phone rejoins and
+ * this sheet reopens while the STA is still mid-join — a single check showed
+ * the picker AGAIN ("didn't I just do this?"). Whether Continue can do
+ * anything stays decided server-side (captive_accepted() gates on
+ * board_has_uplink()) — promising Continue before a real uplink would promise
+ * an auto-dismiss that can never happen. */
+"function refresh(){if(skipped||hold)return;"
+"fetch('/wifi/status').then(r=>r.json()).then(j=>{"
 "lastDash=j.dash||'/';"
-"if(j.uplink=='full'){"
-"picker.style.display='none';d0.style.display='none';"
-"lede.textContent='This board runs its own network \\u2014 it doesn\\u2019t need the internet to drive. "
-"Tap Continue to keep using it.';"
-"go.style.display='block'"
+"if(j.uplink=='full'){tries=0;"
+"picker.style.display='none';d0.style.display='none';go.style.display='block';"
+"lede.textContent='This board is online'+(j.ssid?' via '+j.ssid:'')+'. Tap Continue to finish.'"
+"}else if(j.state=='searching'){"
+"picker.style.display='none';go.style.display='none';"
+"lede.textContent='The board is connecting\\u2026 this takes a few seconds.'"
+"}else if(j.ssid&&++tries<7){"
+"picker.style.display='none';go.style.display='none';"
+"lede.textContent='Reconnecting to '+j.ssid+'\\u2026'"
 "}else{"
-"go.style.display='none';"
-"lede.textContent='Give this board internet, or skip and drive it offline.';"
-"picker.style.display='block'"
+"go.style.display='none';picker.style.display='block';"
+"lede.textContent=j.ssid?"
+"'Couldn\\u2019t reach '+j.ssid+' \\u2014 pick a network again, or skip.':"
+"'Give this board internet, or skip and drive it offline.'"
 "}"
-"}).catch(()=>{lede.textContent="
-"'Couldn\\u2019t check this board\\u2019s status \\u2014 tap the X above to close this, then open the dashboard in your regular browser.'});}"
-"refresh();"
+"setTimeout(refresh,3000)"
+"}).catch(()=>{"
+"lede.textContent='Checking this board\\u2019s status\\u2026';setTimeout(refresh,3000)});}"
 "document.getElementById('scan-go').addEventListener('click',async()=>{"
 "nets.innerHTML='';msg.textContent='Scanning\\u2026';join.style.display='none';"
 "let list;try{list=await(await fetch('/wifi/scan')).json()}"
@@ -646,14 +666,14 @@ static const char WELCOME[] =
 "headers:{'Content-Type':'application/json'},"
 "body:JSON.stringify({ssid:chosen,password:pass.value})})).json()}"
 "catch(e){msg.textContent='Connect request failed \\u2014 try again.';return}"
-"if(res.ok){"
+"if(res.ok){hold=true;"
 "msg.textContent='Saved \\u2014 this board is restarting to use it. Reconnecting is automatic, "
 "give it about 10 seconds\\u2026';"
 "setTimeout(()=>location.reload(),12000)"
 "}else{msg.textContent='Couldn\\u2019t join: '+(res.error||'check the password and try again.')}"
 "});"
 "document.getElementById('skip-go').addEventListener('click',e=>{"
-"e.preventDefault();picker.style.display='none';"
+"e.preventDefault();skipped=true;picker.style.display='none';go.style.display='none';"
 "lede.textContent='This board has no internet of its own \\u2014 that\\u2019s normal, it still drives fine. "
 "This pop-up won\\u2019t close itself, since we won\\u2019t tell your phone this network has internet it doesn\\u2019t. "
 "Tap the X above for the dashboard in your regular browser, or the link below to use it right here.';"
@@ -661,9 +681,8 @@ static const char WELCOME[] =
 "});"
 "document.getElementById('go').addEventListener('click',async()=>{"
 "try{await fetch('/captive/ack',{method:'POST'})}catch(e){}"
-"document.getElementById('dashlink').href=lastDash;"
-"document.getElementById('before').style.display='none';"
-"document.getElementById('after').style.display='block'"
+/* Real navigation, not a DOM swap — see the ?done=1 comment above. */
+"location.href='/welcome?done=1'"
 "});"
 "</script></body></html>";
 
@@ -716,6 +735,13 @@ static esp_err_t captive_api_get(httpd_req_t *req)
  * Strictly additive: a device that never fires a probe (locked-down MDM
  * policy, or an OS/version that skips it) sees no different behavior than
  * today — it still just manually visits rover.local or /wifi. */
+/* Absolute, IP-literal portal URL for every redirect Location (built once at
+ * portal start — the AP IP is fixed for the boot). Implementer consensus:
+ * never redirect a walled-garden client to a hostname — Android's login
+ * WebView can't resolve .local, and DNS inside the garden is the top
+ * cross-OS failure mode. */
+static char s_welcome_url[48] = "/welcome";
+
 static esp_err_t probe_redirect(httpd_req_t *req)
 {
     char host[64] = "?";
@@ -725,7 +751,7 @@ static esp_err_t probe_redirect(httpd_req_t *req)
              accepted ? "genuine success" : "302 /welcome");
     if (!accepted) {
         httpd_resp_set_status(req, "302 Found");
-        httpd_resp_set_hdr(req, "Location", "/welcome");
+        httpd_resp_set_hdr(req, "Location", s_welcome_url);
         httpd_resp_send(req, NULL, 0);
         return ESP_OK;
     }
@@ -744,6 +770,38 @@ static esp_err_t probe_redirect(httpd_req_t *req)
     /* Apple's hotspot-detect.html: the CNA checks the body for this exact string. */
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_sendstr(req, "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>");
+}
+
+/* Catch-all 404: the four probe routes above are only the paths we KNOW; the
+ * wildcard DNS funnels every hostname here, and a probe we don't know by path
+ * (Windows /redirect, Firefox canonical.html, old-Apple /library/test/…,
+ * OEM variants) would otherwise 404 — which reads as "no internet", NOT
+ * "captive", so no sheet ever opens on those clients. Rule: a 404 whose Host
+ * is a public DNS name is somebody's probe → 302 to the portal (the ESP-IDF
+ * captive_portal example's design). Our own hosts — an IP literal, *.local,
+ * or a bare name — keep their honest 404, so the dashboard's/IDE's own API
+ * misses never bounce to /welcome. */
+static esp_err_t not_found_handler(httpd_req_t *req, httpd_err_code_t err)
+{
+    (void)err;
+    char host[64] = "";
+    httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
+    bool dotted = false, ip_literal = true;
+    for (const char *p = host; *p; p++) {
+        if (*p == '.') dotted = true;
+        if ((*p < '0' || *p > '9') && *p != '.' && *p != ':') ip_literal = false;
+    }
+    size_t hl = strlen(host);
+    bool local = hl >= 6 && strcasecmp(host + hl - 6, ".local") == 0;
+    if (!dotted || ip_literal || local) {
+        httpd_resp_set_status(req, "404 Not Found");
+        httpd_resp_set_type(req, "text/plain");
+        return httpd_resp_sendstr(req, "not found");
+    }
+    ESP_LOGI(TAG, "404 %s (Host: %s) -> 302 %s (unlisted probe path)", req->uri, host, s_welcome_url);
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", s_welcome_url);
+    return httpd_resp_send(req, NULL, 0);
 }
 
 void wifi_portal_start(void)
@@ -775,6 +833,12 @@ void wifi_portal_start(void)
         s_http = NULL;
         return;
     }
+    /* The AP IP is fixed for the boot — bake the absolute portal URL every
+     * probe/catch-all redirect points at (falls back to the relative path). */
+    esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    esp_netif_ip_info_t ipi = {0};
+    if (ap && esp_netif_get_ip_info(ap, &ipi) == ESP_OK)
+        snprintf(s_welcome_url, sizeof s_welcome_url, "http://" IPSTR "/welcome", IP2STR(&ipi.ip));
     httpd_uri_t u_page  = { .uri = "/wifi",        .method = HTTP_GET,  .handler = page_get };
     httpd_uri_t u_scan  = { .uri = "/wifi/scan",   .method = HTTP_GET,  .handler = scan_get };
     httpd_uri_t u_save  = { .uri = "/wifi/save",    .method = HTTP_POST, .handler = save_post };
@@ -814,6 +878,8 @@ void wifi_portal_start(void)
     httpd_register_uri_handler(s_http, &u_android);
     httpd_register_uri_handler(s_http, &u_wintest);
     httpd_register_uri_handler(s_http, &u_ncsi);
+    /* Unlisted probe paths on hijacked hostnames — see not_found_handler. */
+    httpd_register_err_handler(s_http, HTTPD_404_NOT_FOUND, not_found_handler);
 
     /* Wildcard :53 responder so the probes above actually get dialed at this
      * board (a joining device has no other DNS to ask on this AP anyway). One

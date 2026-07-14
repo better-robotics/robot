@@ -310,6 +310,46 @@ chosen-against:
     no private classroom AP can offer — a strict client may just ignore the
     plain-HTTP URI and fall back to the probe flow above, which still works;
     this is additive, not a replacement.
+  - **Second pass, research-audited (2026-07-14).** A survey of OS captive
+    clients + canonical implementations (ESP-IDF example, WBA behavior wiki,
+    AOSP NetworkMonitor, Microsoft NCSI docs) confirmed the probe-intercept
+    architecture is the only universal no-app path (RFC 8908 requires a
+    public-CA TLS cert no offline AP can have) and drove four fixes:
+    - **DNS goes truthful with the uplink** (`dns_server.c`): a client whose
+      DHCP lease predates the uplink keeps THIS board as resolver for up to
+      the 120-min lease, so wildcard-hijacking forever meant "trusted
+      network, every website is the robot." The responder now forwards
+      queries to the uplink's real DNS whenever `board_has_uplink()`, hijacks
+      only while offline — checked per query, immune to lease races.
+    - **Continue is a real navigation** (`location.href='/welcome?done=1'`),
+      not a fetch+DOM swap: the CNA re-runs its captivity probe only on
+      full-page loads — an AJAX-only accept leaves the sheet stuck on Cancel.
+      (httpd matches handlers on the path component only, so `?done=1`
+      reaches the `/welcome` handler.)
+    - **Catch-all 404 → 302** (`not_found_handler`): a probe path we don't
+      know (Windows `/redirect`, Firefox `canonical.html`, OEM variants)
+      used to 404, which reads as "no internet", not "captive" — no sheet.
+      Host-gated: public DNS names redirect, IP-literal/`.local`/bare hosts
+      keep honest 404s so the dashboard's own API misses never bounce.
+    - **Redirect Locations are absolute IP-literals** (`s_welcome_url`) —
+      Android's login WebView can't resolve `.local`, and in-garden DNS is
+      the top cross-OS failure mode.
+    - `/welcome` polls `/wifi/status` (3 s) instead of checking once: after a
+      connect-reboot the sheet reopens mid-join and a single check showed the
+      picker again; now it walks connecting → reconnecting → Continue, with a
+      7-poll fallback back to the picker.
+  - **Known limitations, researched and accepted (2026-07-14), don't re-fix:**
+    some Samsung builds treat a 302'd `generate_204` as a dead network and
+    never open the portal (answering 204 honestly would lie to every other
+    Android — accepted); iOS 26 has an open regression where the auto-sheet
+    errors on exactly this DNS-wildcard pattern (Apple DevForums thread
+    805035 — the manual `http://192.168.99.1` / rover.local path is the
+    fallback); a live `/wifi/scan` while the AP serves the sheet briefly
+    drops the radio (can cache scan results if it ever bites); and on iOS,
+    "Use Without Internet" disables Auto Login for that SSID — the sheet
+    deliberately never reappears on rejoin. That last one is Apple's design,
+    not a firmware bug: a board whose sheet "stopped showing up" was skipped
+    once on that phone.
   - The WS-bridge socket leak this whole investigation surfaced along the way
     (a departing station's dashboard bridge never got reclaimed, and enough
     silent leaks wedged the whole board) is `ws_mqtt_bridge.c`'s own

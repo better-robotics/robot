@@ -11,6 +11,16 @@
  * one A record pointing at the AP's own IP, for ANY queried name. Runs as one
  * FreeRTOS task, matching wifi_portal.c's reboot_task idiom (fire-and-forget
  * via xTaskCreate, no handle kept).
+ *
+ * Uplink-aware since 2026-07-14: hijacking is only ever the truth while the
+ * board has no internet of its own. Once the STA uplink is up (NAPT live),
+ * this server switches per-query to a plain forwarder — relay the query to
+ * the uplink's real DNS, relay the answer back — because a client whose DHCP
+ * lease predates the uplink still points at THIS server for up to the full
+ * 120-min lease (ap_offer_dns_from_sta only fixes future leases), and
+ * wildcard-answering it would leave that phone with "trusted network, but
+ * every website is the robot". Checked live per query, so an uplink that
+ * comes or goes flips behavior instantly, no lease races.
  */
 #include <string.h>
 #include <errno.h>
@@ -19,12 +29,14 @@
 #include "esp_netif.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
+#include "roles.h"        /* board_has_uplink — hijack vs. forward, per query */
 #include "dns_server.h"
 
 static const char *TAG = "dns-server";
 
 #define DNS_PORT       53
-#define DNS_MAX_LEN    512
+#define DNS_MAX_LEN    1536 /* upstream answers can be EDNS-sized; a truncated
+                             * relay is worse than none */
 #define DNS_ANSWER_TTL 60   /* seconds — short: nothing here ever changes (the
                              * AP's IP is fixed for the boot), but a client that
                              * lingers shouldn't hold an answer any longer than
@@ -142,23 +154,71 @@ static void dns_server_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
-    ESP_LOGI(TAG, "wildcard DNS on :53 — every query answers " IPSTR, IP2STR(&ip_info.ip));
+    /* Second leg: one unbound UDP socket toward the uplink's real DNS. Pending
+     * forwards correlate on the client's own 16-bit transaction ID (it comes
+     * back verbatim in the answer) — an 8-slot table indexed txid%8 is enough;
+     * a collision overwrites and the losing client retries, DNS's own recovery. */
+    int up = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    static struct { uint16_t txid; struct sockaddr_in client; } pend[8];
 
-    uint8_t rx[DNS_MAX_LEN], tx[DNS_MAX_LEN];
+    ESP_LOGI(TAG, "DNS on :53 — hijack to " IPSTR " while offline, forward once the uplink is up",
+             IP2STR(&ip_info.ip));
+
+    static uint8_t rx[DNS_MAX_LEN], tx[DNS_MAX_LEN];   /* static: 3 KB doesn't fit the task stack */
     for (;;) {
+        fd_set rf;
+        FD_ZERO(&rf);
+        FD_SET(sock, &rf);
+        if (up >= 0) FD_SET(up, &rf);
+        int mx = (up > sock ? up : sock) + 1;
+        if (select(mx, &rf, NULL, NULL, NULL) <= 0) continue;
+
+        if (up >= 0 && FD_ISSET(up, &rf)) {   /* an upstream answer — relay it back */
+            int n = recv(up, rx, sizeof rx, 0);
+            if (n >= 12) {
+                uint16_t id = (uint16_t)((rx[0] << 8) | rx[1]);
+                if (pend[id % 8].txid == id && pend[id % 8].client.sin_family == AF_INET) {
+                    sendto(sock, rx, n, 0, (struct sockaddr *)&pend[id % 8].client,
+                           sizeof pend[id % 8].client);
+                    pend[id % 8].client.sin_family = 0;
+                }
+            }
+        }
+
+        if (!FD_ISSET(sock, &rf)) continue;
         struct sockaddr_in from;
         socklen_t fromlen = sizeof from;
         int n = recvfrom(sock, rx, sizeof rx, 0, (struct sockaddr *)&from, &fromlen);
         if (n <= 0) continue;   /* a transient recv error — keep serving, don't tear the socket down */
-        int tlen = dns_build_response(rx, n, tx, sizeof tx, ip);
         char qname[80];
         question_name(rx, n, qname, sizeof qname);
+
+        if (n >= 12 && board_has_uplink() && up >= 0) {
+            esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+            esp_netif_dns_info_t di;
+            if (sta && esp_netif_get_dns_info(sta, ESP_NETIF_DNS_MAIN, &di) == ESP_OK
+                    && di.ip.u_addr.ip4.addr != 0) {
+                uint16_t id = (uint16_t)((rx[0] << 8) | rx[1]);
+                pend[id % 8].txid = id;
+                pend[id % 8].client = from;
+                struct sockaddr_in ua = {
+                    .sin_family = AF_INET,
+                    .sin_port = htons(DNS_PORT),
+                    .sin_addr.s_addr = di.ip.u_addr.ip4.addr,
+                };
+                sendto(up, rx, n, 0, (struct sockaddr *)&ua, sizeof ua);
+                ESP_LOGD(TAG, "query '%s' -> forwarded upstream", qname);
+                continue;
+            }
+        }
+
+        int tlen = dns_build_response(rx, n, tx, sizeof tx, ip);
         /* IP2STR needs a field literally named `addr` (esp_ip4_addr_t) — lwip's
          * struct in_addr has `s_addr` instead, so bridge through a same-layout
          * local rather than cast the sockaddr's field directly. */
         esp_ip4_addr_t from_ip = { .addr = from.sin_addr.s_addr };
         ESP_LOGI(TAG, "query '%s' from " IPSTR " -> %s", qname, IP2STR(&from_ip),
-                 tlen > 0 ? "answered" : "dropped (malformed)");
+                 tlen > 0 ? "hijacked (no uplink)" : "dropped (malformed)");
         if (tlen > 0) sendto(sock, tx, tlen, 0, (struct sockaddr *)&from, fromlen);
     }
 }
