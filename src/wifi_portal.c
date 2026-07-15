@@ -546,29 +546,34 @@ static esp_err_t captive_ack_post(httpd_req_t *req)
 }
 
 /* /welcome — the ONLY page an unacked captive-portal probe ever redirects to.
- * Deliberately dashboard-free: tapping Continue is what calls /captive/ack
- * above, and only after that does the page point the user at the real
- * dashboard — by a tapped link, never auto-navigation, so it opens in the
- * phone's actual browser instead of the sheet's sandbox (whose localStorage
- * a sign-in made in there would silently lose the moment the sheet closes).
+ * Deliberately dashboard-free itself: the dashboard never LOADS inside this
+ * sheet (Apple's CNA sandboxes localStorage away from Safari, so a sign-in
+ * made in here would silently vanish the moment the sheet closes) — but
+ * reaching it is this page's one job, and that doesn't need to wait on
+ * anything. The rover's own AP stays up regardless of uplink (always-APSTA),
+ * so the dashboard is already reachable the instant a phone joins; "Open the
+ * dashboard" is the first, unconditional thing offered here (2026-07-15 —
+ * this used to be the LAST thing offered, behind a full scan/connect wizard
+ * that duplicated what the dashboard's own Set-up-Wi-Fi panel already does
+ * against these same /wifi/scan + /wifi/connect endpoints). Configuring
+ * Wi-Fi, if the student wants internet, happens there now — opened in the
+ * phone's real browser, never in this sandbox.
  *
- * A no-uplink board is a temporary state, not a permanent one (2026-07-14 —
- * the first cut treated "no internet yet" as "no internet ever" and just
- * explained that; a captive network that WILL have real internet once
- * configured is the common case every commercial captive portal handles by
- * guiding setup first). So this page now embeds the same scan/join flow the
- * dashboard's Set-up-Wi-Fi panel offers (POST /wifi/scan, /wifi/connect) —
- * pick a network here, and Continue only appears once there's something
- * true to tell iOS, exactly like a hotel portal that releases the sheet
- * after you actually sign in. Skip stays for the honest fallback: drive it
- * offline, no lie to the OS, same as before. */
+ * Continue is a separate, narrower job: it's what calls /captive/ack, which
+ * is what lets the OS's OWN captive sheet auto-dismiss (genuine-success
+ * probe answers) instead of sitting on a dead Cancel button. That signal
+ * doubles as "trust this Wi-Fi for real routing" to the OS, so it only
+ * appears once board_has_uplink() is true server-side (captive_accepted())
+ * — offering it sooner would tell a phone it has internet through a board
+ * that doesn't, which breaks the phone's own cellular fallback (hardware-
+ * verified 2026-07-14, this same file). Continue only ever helps the sheet
+ * close cleanly; it was never the only way to the dashboard. */
 static const char WELCOME[] =
 "<!doctype html><html><head><meta charset=utf-8>"
 "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
 "<title>BetterRobotics</title><style>"
-":root{color-scheme:dark;--bg:#0d0f12;--surface:#16191d;--inset:#1f242b;--ink:#f2f3f5;--ink-muted:#aeb4bd;"
-"--border:rgba(255,255,255,.10);--border-strong:rgba(255,255,255,.18);"
-"--accent:#00539B;--accent-ink:#fff;--radius-lg:18px;--radius:12px;--tap:44px}"
+":root{color-scheme:dark;--bg:#0d0f12;--surface:#16191d;--ink:#f2f3f5;--ink-muted:#aeb4bd;"
+"--border:rgba(255,255,255,.10);--accent:#00539B;--accent-ink:#fff;--radius-lg:18px;--radius:12px;--tap:44px}"
 "*{box-sizing:border-box}"
 "body{margin:0;background:var(--bg);color:var(--ink);"
 "font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Helvetica Neue',Arial,sans-serif;"
@@ -585,38 +590,20 @@ static const char WELCOME[] =
 ".btn{display:block;width:100%;text-align:center;background:var(--accent);color:var(--accent-ink);"
 "border:0;border-radius:var(--radius);padding:.75rem .85rem;margin:.9rem 0 0;font:inherit;font-weight:600;"
 "text-decoration:none;min-height:var(--tap);cursor:pointer}"
-/* Network row: name left, security/signal right — the flat wall-of-buttons
- * look (a bare .btn stacked N times) is what made the old picker ugly. */
-".net{display:flex;justify-content:space-between;align-items:center;gap:.6rem;width:100%;"
-"min-height:var(--tap);text-align:left;font:inherit;font-weight:500;color:var(--ink);cursor:pointer;"
-"background:var(--inset);border:.5px solid var(--border);border-radius:var(--radius);"
-"padding:.5rem .9rem;margin-top:.4rem}"
-".net:hover{border-color:var(--border-strong)}"
-"input{font:inherit;width:100%;box-sizing:border-box;padding:.6rem .8rem;margin-top:.5rem;"
-"border-radius:var(--radius);border:.5px solid var(--border);background:var(--inset);color:var(--ink);"
-"min-height:var(--tap)}"
-"a.hint{color:var(--ink-muted)}"
 "</style></head><body>"
 "<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
 "<main>"
 "<div class=card id=before><h2>Welcome</h2>"
 "<p class=s id=lede>Checking this board&rsquo;s internet&#8230;</p>"
-"<div id=picker style=display:none>"
-"<button class=btn id=scan-go>Scan for networks</button>"
-"<div id=nets></div>"
-"<div id=join style=display:none>"
-"<input id=pass type=password placeholder=\"Network password\" autocapitalize=off autocorrect=off>"
-"<button class=btn id=connect-go>Connect</button></div>"
-"<p class=s id=wifi-msg></p>"
-"<p class=s><a class=hint href=# id=skip-go>Skip &#8212; drive it without internet</a></p>"
-"</div>"
-"<button class=btn id=go style=display:none>Continue</button>"
+"<a class=btn id=dashlink0 href=/ target=_blank rel=noopener>Open the dashboard</a>"
 /* Venue-gate path (uplink=='portal'): the network the BOARD joined has its
  * own captive sign-in; behind the NAT every client shares the board's
- * venue-side MAC, so one sign-in from this phone clears it for the board. */
+ * venue-side MAC, so one sign-in from this phone clears it for the board.
+ * The one thing on this page that genuinely can't move to the dashboard —
+ * it has to happen from inside this specific captive session. */
 "<a class=btn id=venue-go style=display:none>Sign in</a>"
-"<p class=s id=repick-p style=display:none><a class=hint href=# id=repick>Pick a different network instead</a></p>"
-"<a class=btn id=dashlink0 href=/ target=_blank rel=noopener style=display:none>Open the dashboard</a></div>"
+"<button class=btn id=go style=display:none>Continue</button>"
+"</div>"
 "<div class=card id=after style=display:none><h2>You're set</h2>"
 "<p class=s>Now open the dashboard in your regular browser, not this pop-up &#8212; "
 "this pop-up forgets sign-ins when it closes.</p>"
@@ -624,10 +611,8 @@ static const char WELCOME[] =
 "</main>"
 "<script>"
 "let lede=document.getElementById('lede'),go=document.getElementById('go'),"
-"d0=document.getElementById('dashlink0'),picker=document.getElementById('picker'),"
-"nets=document.getElementById('nets'),join=document.getElementById('join'),"
-"pass=document.getElementById('pass'),msg=document.getElementById('wifi-msg');"
-"let chosen=null,lastDash='/',skipped=false,hold=false,tries=0,force=false;"
+"d0=document.getElementById('dashlink0');"
+"let tries=0;"
 /* ?done=1 is the post-Continue view. Continue REACHES it by a real navigation
  * (location.href), never a DOM swap: the captive sheet re-runs its probe only
  * on a full-page load, so an AJAX-only accept leaves the sheet stuck on
@@ -641,102 +626,42 @@ static const char WELCOME[] =
 "}else{refresh()}"
 /* Poll, don't check once: right after a connect-reboot the phone rejoins and
  * this sheet reopens while the STA is still mid-join — a single check showed
- * the picker AGAIN ("didn't I just do this?"). Whether Continue can do
- * anything stays decided server-side (captive_accepted() gates on
- * board_has_uplink()) — promising Continue before a real uplink would promise
- * an auto-dismiss that can never happen. */
-"function refresh(){if(skipped||hold)return;"
+ * stale status ("didn't I just do this?"). Whether Continue can do anything
+ * stays decided server-side (captive_accepted() gates on board_has_uplink())
+ * — promising it before a real uplink would promise an auto-dismiss that can
+ * never happen. dashlink0 stays live the whole time regardless. */
+"function refresh(){"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
-"lastDash=j.dash||'/';"
-"let v=document.getElementById('venue-go'),rp=document.getElementById('repick-p');"
-"v.style.display='none';rp.style.display='none';"
+"d0.href=j.dash||'/';"
+"let v=document.getElementById('venue-go');v.style.display='none';"
 "if(j.uplink=='full'){tries=0;"
-"picker.style.display='none';d0.style.display='none';go.style.display='block';"
-"lede.textContent='This board is online'+(j.ssid?' via '+j.ssid:'')+'. Tap Continue to finish.'"
-"}else if(j.uplink=='portal'&&!force){"
+"go.style.display='block';"
+"lede.textContent='This board is online'+(j.ssid?' via '+j.ssid:'')+'. Tap Continue to finish, or open the dashboard now.'"
+"}else if(j.uplink=='portal'){"
 /* The venue's own captive gate answers for the internet until THIS board's
  * MAC signs in — and one sign-in from here covers it (NAT: every client
  * shares the board's venue-side MAC). Navigating in this very sheet is
  * exactly right for once. */
-"go.style.display='none';picker.style.display='none';d0.style.display='none';"
+"go.style.display='none';"
 "lede.textContent='This board joined '+(j.ssid||'the venue Wi-Fi')+', but that network asks for its own "
 "sign-in before it gives internet. Sign in once below and this board is set for everyone.';"
 "v.href=j.portal_url||'http://example.com/';"
 "v.textContent='Sign in to '+(j.ssid||'the venue Wi-Fi');"
-"v.style.display='block';rp.style.display='block'"
+"v.style.display='block'"
 "}else if(j.state=='searching'){"
-"picker.style.display='none';go.style.display='none';"
+"go.style.display='none';"
 "lede.textContent='The board is connecting\\u2026 this takes a few seconds.'"
-"}else if(j.ssid&&j.uplink!='portal'&&++tries<7){"
-"picker.style.display='none';go.style.display='none';"
+"}else if(j.ssid&&++tries<7){"
+"go.style.display='none';"
 "lede.textContent='Reconnecting to '+j.ssid+'\\u2026'"
 "}else{"
-"go.style.display='none';picker.style.display='block';"
-"lede.textContent=j.ssid&&!force?"
-"'Couldn\\u2019t reach '+j.ssid+' \\u2014 pick a network again, or skip.':"
-"'Give this board internet, or skip and drive it offline.'"
+"go.style.display='none';"
+"lede.textContent='This board isn\\u2019t online yet \\u2014 open the dashboard to drive it offline, or set up its Wi-Fi there.'"
 "}"
 "setTimeout(refresh,3000)"
 "}).catch(()=>{"
 "lede.textContent='Checking this board\\u2019s status\\u2026';setTimeout(refresh,3000)});}"
-"document.getElementById('scan-go').addEventListener('click',async()=>{"
-"nets.innerHTML='';msg.textContent='Scanning\\u2026';join.style.display='none';"
-"let list;try{list=await(await fetch('/wifi/scan')).json()}"
-"catch(e){msg.textContent='Scan failed \\u2014 try again.';return}"
-"msg.textContent=list.length?'':'No networks found.';"
-"list.forEach(n=>{const b=document.createElement('button');b.type='button';b.className='net';"
-"const s1=document.createElement('span');s1.textContent=n.ssid;"
-"const s2=document.createElement('span');s2.className='hint';"
-"s2.textContent=(n.security==='NO'?'open':n.security)+' \\u00b7 '+n.signal+'%';"
-"b.append(s1,s2);"
-"b.addEventListener('click',()=>{chosen=n.ssid;join.style.display='block';"
-"pass.style.display=n.security==='NO'?'none':'block';pass.value='';if(n.security!=='NO')pass.focus()});"
-"nets.appendChild(b)})"
-"});"
-"document.getElementById('connect-go').addEventListener('click',async()=>{"
-"if(!chosen)return;"
-/* /wifi/connect now blocks through a live trial join (board mode) — ok means
- * VERIFIED. The AP and this page stay up during the trial; only the
- * config-apply reboot AFTER a verified join blips the AP, and a captive
- * sheet (this page's usual viewer) dies with its network — the phone then
- * often hops to a remembered network instead of waiting the ~10 s for
- * rover-… to return. So: recovery steps, never an auto-reconnect promise.
- * The reload below is best-effort for a regular browser tab whose phone did
- * re-join the rover. */
-"msg.textContent='Trying to join '+chosen+'\\u2026 (this takes up to ~20 seconds)';"
-"let res;try{res=await(await fetch('/wifi/connect',{method:'POST',"
-"headers:{'Content-Type':'application/json'},"
-"body:JSON.stringify({ssid:chosen,password:pass.value})})).json()}"
-"catch(e){msg.textContent='Connect request failed \\u2014 try again.';return}"
-"if(res.ok){hold=true;"
-"if(chosen.indexOf('hub-')==0){"
-"msg.textContent='Joined \\u2713 \\u2014 saved; restarting to settle in. This pop-up won\\u2019t "
-"survive the restart \\u2014 close it, join '+chosen+' yourself, and open hub.local: the rover "
-"appears on the dashboard there.';"
-"}else{"
-"msg.textContent='Joined \\u2713 \\u2014 saved; restarting to settle in. The rover stays your "
-"Wi-Fi ('+chosen+' is only its internet uplink), but it blips off for ~10 seconds and this "
-"pop-up won\\u2019t survive that \\u2014 close it. If your phone doesn\\u2019t re-join the "
-"rover\\u2019s Wi-Fi by itself, pick it again in Wi-Fi settings, then open rover.local in "
-"your browser.';}"
-"setTimeout(()=>location.reload(),12000)"
-"}else{msg.textContent='Couldn\\u2019t join: '+(res.error||'check the password and try again.')}"
-"});"
-"document.getElementById('repick').addEventListener('click',e=>{"
-"e.preventDefault();force=true;"
-"document.getElementById('venue-go').style.display='none';"
-"document.getElementById('repick-p').style.display='none';"
-"picker.style.display='block';"
-"lede.textContent='Give this board internet, or skip and drive it offline.'"
-"});"
-"document.getElementById('skip-go').addEventListener('click',e=>{"
-"e.preventDefault();skipped=true;picker.style.display='none';go.style.display='none';"
-"lede.textContent='This board has no internet of its own \\u2014 that\\u2019s normal, it still drives fine. "
-"This pop-up won\\u2019t close itself, since we won\\u2019t tell your phone this network has internet it doesn\\u2019t. "
-"Tap the X above for the dashboard in your regular browser, or the link below to use it right here.';"
-"d0.href=lastDash;d0.style.display='block'"
-"});"
-"document.getElementById('go').addEventListener('click',async()=>{"
+"go.addEventListener('click',async()=>{"
 "try{await fetch('/captive/ack',{method:'POST'})}catch(e){}"
 /* Real navigation, not a DOM swap — see the ?done=1 comment above. */
 "location.href='/welcome?done=1'"
