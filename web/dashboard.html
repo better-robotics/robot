@@ -499,9 +499,18 @@
        they sit in: an invisible hit extension. Vertical reach does the work
        (~26px visual + 2×9px); horizontal stays tight so adjacent chips
        (0.3rem gaps) don't fight over taps. */
-    button.cchip, .tchip, #wire-pause, #wire-beacons { position: relative; }
+    button.cchip, .tchip, #wire-pause, #wire-beacons, .link-btn { position: relative; }
     button.cchip::after, .tchip::after, #wire-pause::after, #wire-beacons::after {
       content: ""; position: absolute; inset: -10px -2px; }
+    /* .link-btn opts out of --tap (a 44px-tall text link would read as a
+       button), so it needs the same treatment or it ships a ~20px target on a
+       phone — which is what Rescan / Forget this network / Unassign rover…
+       were, all demoted to links on 2026-07-16 without this. -12px takes ~20px
+       of text to ~44; -4px horizontal stays well inside the 0.9rem/1rem gaps
+       their rows use, so neighbours can't steal each other's taps. Every
+       .link-btn is a standalone action row — none sits inline in a sentence,
+       where an oversized hit box would swallow the surrounding text. */
+    .link-btn::after { content: ""; position: absolute; inset: -12px -4px; }
     .btn-tile svg, .warn-note svg { vertical-align: -0.15em; margin-right: 0.1rem; }
     button.cchip:hover { filter: brightness(1.25); }
     .cchip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
