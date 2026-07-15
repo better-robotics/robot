@@ -23,6 +23,37 @@ void rover_config_load(char ssid[33], char pass[65], char locator[65]) {
     nvs_close(h);
 }
 
+/* Key is "profpass"; NVS keys cap at 15 chars. Loads to "" when unset — the
+ * caller falls back to the compile-time default, so an un-provisioned board is
+ * unchanged. */
+void rover_config_load_professor_pass(char pass[65]) {
+    pass[0] = 0;
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return;
+    get_str(h, "profpass", pass, 65);
+    nvs_close(h);
+}
+
+/* "" ERASES it (back to the compile-time default) rather than storing an empty
+ * password — an empty stored secret would admit every client as professor, the
+ * exact silent failure a -D${sysenv} build flag has when the var is unset. */
+esp_err_t rover_config_set_professor_pass(const char *pass) {
+    nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+    if (!pass || !pass[0]) {
+        e = nvs_erase_key(h, "profpass");
+        if (e == ESP_ERR_NVS_NOT_FOUND) e = ESP_OK;   /* already absent = success */
+    } else if (strlen(pass) > 64) {
+        nvs_close(h);
+        return ESP_ERR_INVALID_ARG;
+    } else {
+        e = nvs_set_str(h, "profpass", pass);
+    }
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+    return e;
+}
+
 esp_err_t rover_config_set_wifi(const char *ssid, const char *pass) {
     nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);
     if (e != ESP_OK) return e;

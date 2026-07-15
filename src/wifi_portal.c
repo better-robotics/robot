@@ -186,6 +186,19 @@ static const char PAGE_BODY[] =
 "</select>"
 "<button onclick=setrole() class=btn>Apply role &amp; restart</button>"
 "<div id=rmsg class=s></div>"
+/* Professor password: only a HUB board ever checks it (connect_cb), so it
+ * lives in the role card. NVS, not a build flag — the compile-time literal is
+ * plaintext in the image and firmware.yml publishes .bins from a public repo,
+ * so baking a real classroom's password in would ship it to every downloader.
+ * Blank = keep whatever is stored (so the field can render without leaking it);
+ * "-" clears back to the compile-time default. */
+"<div id=profwrap hidden>"
+"<h2 style=\"margin-top:20px\">Professor password</h2>"
+"<p class=s id=profnote>Gates the fleet-wide emergency stop. Leave blank to keep the current one; &quot;-&quot; resets it to the built-in default.</p>"
+"<input id=profpass type=password placeholder=\"new professor password\" autocapitalize=off autocorrect=off>"
+"<button onclick=setprof() class=btn>Save password</button>"
+"<div id=pmsg class=s></div>"
+"</div>"
 "</div>"
 "</main>"
 "<script>"
@@ -262,6 +275,21 @@ static const char PAGE_BODY[] =
 "v=='rover'?'Rover-only. Restarting \\u2014 it will keep looking for a hub to join.':"
 "'Normal rover. Restarting \\u2014 stay on its Wi-Fi and reopen rover.local.'}"
 "catch(x){rm.textContent='Applied \\u2014 restarting\\u2026'}}"
+/* Show the password field only when this board IS the hub — on a rover it
+ * would be a control that does nothing. /wifi/status carries role. */
+"fetch('/wifi/role').then(r=>r.json()).then(j=>{"
+"document.getElementById('profwrap').hidden=j.role!='hub'}).catch(()=>{});"
+"async function setprof(){let m=document.getElementById('pmsg');"
+"let v=document.getElementById('profpass').value;"
+"if(!v){m.textContent='Enter a password, or \\u2212 to reset to the built-in default.';return}"
+"m.textContent='saving\\u2026';"
+"let f=new URLSearchParams();f.append('pass',v);"
+"try{let r=await(await fetch('/wifi/professor',{method:'POST',body:f})).json();"
+"m.textContent=r.ok?(v=='-'?'Reset to the built-in default. New connections use it immediately.':"
+"'Saved. New professor connections use it immediately \\u2014 no restart needed.'):"
+"('Couldn\\u2019t save: '+(r.error||'try again.'));"
+"document.getElementById('profpass').value=''}"
+"catch(x){m.textContent='Save failed \\u2014 try again.'}}"
 "</script></body></html>";
 
 static esp_err_t page_get(httpd_req_t *req)
@@ -569,6 +597,44 @@ static esp_err_t role_post(httpd_req_t *req)
     httpd_resp_sendstr(req, "ok");
     xTaskCreate(reboot_task, "role-reboot", 2048, NULL, 5, NULL);
     return ESP_OK;
+}
+
+/* POST /wifi/professor — body `pass=<value>`. Sets the hub role's professor
+ * password in NVS (rover_config_set_professor_pass), which connect_cb reads
+ * per-connection, so a rotation takes effect on the next connect with no
+ * reboot. "-" clears back to the compile-time PROFESSOR_PASS.
+ *
+ * NVS and not a build flag: PROFESSOR_PASS is a plaintext literal in the
+ * image, `robot` is a public repo, and firmware.yml uploads flashable .bins —
+ * a baked-in secret ships to everyone who downloads one, and `strings
+ * firmware.bin` reads it out. This keeps a real classroom's password off the
+ * shared image and per-board.
+ *
+ * Never echoes the stored value back: the page can set it, not read it. */
+static esp_err_t professor_post(httpd_req_t *req)
+{
+    char body[128];
+    read_form_body(req, body, sizeof body);
+    char pass[80];
+    httpd_resp_set_type(req, "application/json");
+    if (!form_field(body, "pass", pass, sizeof pass) || !pass[0]) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"missing password\"}");
+    }
+    /* "-" is the clear sentinel, mirroring cmd/config's hub-pin convention.
+       An empty stored secret would admit EVERY client as professor, so
+       rover_config_set_professor_pass("") erases instead of storing. */
+    const bool clearing = strcmp(pass, "-") == 0;
+    esp_err_t e = rover_config_set_professor_pass(clearing ? "" : pass);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "set professor pass failed: %s", esp_err_to_name(e));
+        return httpd_resp_sendstr(req,
+            e == ESP_ERR_INVALID_ARG ? "{\"ok\":false,\"error\":\"too long (max 64)\"}"
+                                     : "{\"ok\":false,\"error\":\"could not save\"}");
+    }
+    /* Never log the value. */
+    ESP_LOGW(TAG, "professor password %s", clearing ? "reset to the built-in default" : "changed");
+    return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
 
 /* Captive-portal Accept flip (ports hub/pi/src/bin/hubd.rs's Accept design to
@@ -925,13 +991,19 @@ void wifi_portal_start(void)
      * the page's own /wifi/status poll (Duke bench 2026-07-14). The IDE
      * bundle is built to load within this (ide-v7 script concat). */
     cfg.max_open_sockets = 5;
-    /* True peak on THIS shared handle: /wifi{,/scan,/save,/connect,/forget,/role×2,/status}
-     * + / + /welcome + /captive/ack + /captive-portal-api + the 4 captive-portal
-     * probe paths below = 16 registered right after this function returns;
-     * start_ws_mqtt_bridge later drops / (-1) then adds back / (dashboard) +
-     * /fleet + /ide/?* (+3) = 18 peak. +1 headroom over that measured peak,
-     * not a round-number guess. */
-    cfg.max_uri_handlers = 19;
+    /* True peak on THIS shared handle:
+     *   /wifi{,/scan,/save,/connect,/forget,/role×2,/status,/professor}
+     *   + / + /welcome + /captive/ack + /captive-portal-api
+     *   + the 4 captive-portal probe paths below
+     *   = 17 registered right after this function returns.
+     * start_ws_mqtt_bridge then drops / (-1) and adds / (dashboard) + /fleet
+     * + /ide/?* (+3) — its ws_root/ws_mqtt live on a SEPARATE httpd (ws_srv),
+     * so they don't count here — = 19 peak. +1 headroom over that measured
+     * peak, not a round-number guess.
+     * This is a COUNTED budget: adding a route without bumping it silently
+     * costs the last one registered (/wifi/professor took it from 18 to 19 on
+     * 2026-07-16, which would have left zero headroom at 19). */
+    cfg.max_uri_handlers = 20;
     cfg.lru_purge_enable = true;
     /* Wildcard matcher for the bridge's /ide/?* route (ws_mqtt_bridge.c
      * registers onto this shared handle); URIs without '*' — everything
@@ -960,6 +1032,7 @@ void wifi_portal_start(void)
     httpd_uri_t u_rget  = { .uri = "/wifi/role",   .method = HTTP_GET,  .handler = role_get };
     httpd_uri_t u_rpost = { .uri = "/wifi/role",   .method = HTTP_POST, .handler = role_post };
     httpd_uri_t u_stat  = { .uri = "/wifi/status", .method = HTTP_GET,  .handler = status_get };
+    httpd_uri_t u_prof  = { .uri = "/wifi/professor", .method = HTTP_POST, .handler = professor_post };
     httpd_uri_t u_root  = { .uri = "/",            .method = HTTP_GET,  .handler = landing_get };
     /* The captive-portal Accept flip — see probe_redirect's comment above. */
     httpd_uri_t u_welcome = { .uri = "/welcome",     .method = HTTP_GET,  .handler = welcome_get };
@@ -983,6 +1056,7 @@ void wifi_portal_start(void)
     httpd_register_uri_handler(s_http, &u_rget);
     httpd_register_uri_handler(s_http, &u_rpost);
     httpd_register_uri_handler(s_http, &u_stat);
+    httpd_register_uri_handler(s_http, &u_prof);
     httpd_register_uri_handler(s_http, &u_root);
     httpd_register_uri_handler(s_http, &u_welcome);
     httpd_register_uri_handler(s_http, &u_ack);

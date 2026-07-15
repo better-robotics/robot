@@ -274,7 +274,15 @@ static int connect_cb(const char *client_id, const char *username,
     (void)password_len;
     const char *cid = client_id ? client_id : "(none)";
     if (username && strcmp(username, "professor") == 0) {
-        if (password && strcmp(password, PROFESSOR_PASS) == 0) {
+        /* NVS first, compile-time default second. The literal is plaintext in
+         * the image and firmware.yml publishes .bins from a PUBLIC repo, so a
+         * baked-in secret ships to whoever downloads one; NVS keeps a real
+         * classroom's password off the shared image. Read per-connect, not
+         * cached: rotating it must not need a reboot. */
+        char nvs_pass[65];
+        rover_config_load_professor_pass(nvs_pass);
+        const char *want = nvs_pass[0] ? nvs_pass : PROFESSOR_PASS;
+        if (password && strcmp(password, want) == 0) {
             ESP_LOGI(TAG, "accept %s as professor", cid);
             return 0;
         }
