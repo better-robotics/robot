@@ -284,11 +284,6 @@
     .btn-primary { color: var(--accent-ink); background: var(--accent); border-color: transparent; }
     /* Tinted (secondary) — accent text on a soft accent wash. */
     .btn-accent { color: var(--link); background: var(--accent-soft); border-color: transparent; }
-    /* Warn variant — the fleet's one call-to-action. An unassigned board's
-       "Assign" carries amber, not accent blue, matching its corner chip: the
-       whole card says "act here" in one hue. */
-    .btn-warn { color: var(--warn-ink); border-color: transparent;
-      background: color-mix(in srgb, var(--warn) 14%, transparent); }
     .btn-danger { color: var(--danger-text); }
     /* Link-styled button: disclosure toggles that were once <a href="#">. */
     .link-btn { background: none; border: none; padding: 0; min-height: 0;
@@ -336,6 +331,20 @@
     /* Scanning/empty state lives in the panel, so the list never collapses to
        nothing and jump-cuts the popover's height. */
     .list-note { padding: 0.7rem 0.9rem; color: var(--ink-muted); font-size: var(--fs-body); }
+    /* The join row rides INSIDE the list, immediately under the tapped network
+       (see the click handler). Accent-tinted so it reads as that row's
+       continuation rather than as another network; #id beats `.list-group > *`
+       so it keeps its own fill. */
+    /* Grid, not a wrapping flex row: the SSID owns its own line and the
+       input+button share the next one, so a long name can't push Connect onto
+       a ragged third line (WhiteSky-Beckon did exactly that). An open network
+       hides the input, and Connect simply takes the 1fr track — full-width,
+       which is the right emphasis when it's the only control. */
+    #wifi-join { display: grid; grid-template-columns: 1fr auto; gap: 0.5rem;
+      align-items: center; padding: 0.6rem 0.9rem; background: var(--accent-soft) !important; }
+    #wifi-join-ssid { grid-column: 1 / -1; font-size: var(--fs-body);
+      min-width: 0; overflow-wrap: anywhere; }
+    #wifi-pass { min-width: 0; }
     /* Quiet footer actions under the picker — Rescan/Share/Forget are all
        "rarely, deliberately", so none of them earns a filled button. */
     .wifi-foot { display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: var(--fs-body); }
@@ -708,7 +717,7 @@
          thing you never need to press the loudest thing in the popover. -->
     <div id="wifi-panel" style="display:none; flex-direction:column; gap:0.5rem">
       <div id="wifi-list" class="list-group"></div>
-      <div id="wifi-join" style="display:none; gap:0.5rem; align-items:center; flex-wrap:wrap">
+      <div id="wifi-join" hidden>
         <strong id="wifi-join-ssid"></strong>
         <input id="wifi-pass" type="password" placeholder="network password" aria-label="Network password" autocomplete="off">
         <button id="wifi-connect" class="btn-primary">Connect</button>
@@ -1125,11 +1134,20 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // detached status line: an empty list that collapses to zero height
       // jump-cuts the popover every scan.
       const note = t => { $("wifi-list").innerHTML = `<p class="list-note">${esc(t)}</p>`; };
+      // #wifi-join is MOVED into the list (under the tapped row), so it must be
+      // parked back on the panel before any innerHTML write — otherwise a
+      // rescan silently deletes the node and every later $("wifi-join") is null.
+      const parkJoin = () => {
+        const join = $("wifi-join");
+        join.hidden = true;   // attribute, not style: [hidden] is !important
+        $("wifi-panel").insertBefore(join, $("wifi-msg"));
+      };
       async function scanWifi() {
         if (scanning) return;                 // Rescan spam must not stack fetches
         scanning = true;
         const msg = $("wifi-msg");
         msg.textContent = "";
+        parkJoin();
         note("Scanning…");
         let nets;
         try { nets = await (await fetch("/wifi/scan")).json(); }
@@ -1154,12 +1172,21 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         if (!btn) return;
         chosen = btn.dataset.ssid;
         const open = btn.dataset.open === "true";
-        $("wifi-join").style.display = "flex";
+        const join = $("wifi-join");
+        // The join row goes INLINE, directly under the network you tapped —
+        // iOS attaches its password sheet to the chosen network and Android
+        // expands under the row; both keep prompt and network together. Ours
+        // sat at the bottom of the panel, past the whole list, so on a real
+        // scan (10+ SSIDs) Connect was off-screen and the tap looked dead.
+        btn.after(join);
+        btn.setAttribute("aria-expanded", "true");
+        join.hidden = false;
         $("wifi-join-ssid").textContent = chosen;
         const pass = $("wifi-pass");
         pass.style.display = open ? "none" : "inline-block";
         pass.value = "";
-        if (!open) pass.focus();
+        (open ? $("wifi-connect") : pass).focus();
+        join.scrollIntoView({ block: "nearest" });
       });
 
       $("wifi-connect").addEventListener("click", async () => {
@@ -1175,7 +1202,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         } catch { msg.textContent = "Connect request failed — try again."; return; }
         if (res.ok) {
           msg.textContent = `Joined ${chosen}.`;
-          $("wifi-join").style.display = "none";
+          $("wifi-join").hidden = true;
           // NM needs a moment to associate + get an address; then re-read status.
           setTimeout(async () => { const s = await getStatus(); if (s) renderStatus(s); }, 3000);
         } else {
@@ -1309,16 +1336,24 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // The corner is the rover's own topbar — network + identity, the same
       // grammar the page chrome taught. A claimed board wears its name in
       // plain ink (settled); an unclaimed board wears its "Unassigned" state,
-      // and an arriving robot gets the amber Claim call-to-action. The professor
-      // assigns from a button in the action row, not the corner — Identify and
-      // Assign belong together where the work happens.
+      // and an arriving robot gets the amber Claim call-to-action.
+      // Assign IS the identity chip, in every state — tap who-it-is to change
+      // who-it-is. This used to be split: an assigned board reassigned from
+      // the corner (below), while an unassigned one had a DEAD <span> chip
+      // plus a second amber Assign button in the action row. One action, two
+      // affordances, both amber, differing only by state — and the card then
+      // said "act here" twice. (The old comment here claimed assignment lived
+      // in the action row "not the corner", which the reassign chip had
+      // already contradicted.)
       const idChip = !isPool
           ? (prof
               ? `<button class="cchip cchip-robot" data-assign="${esc(board)}" data-brobot="${esc(robot)}" title="Reassign">${PERSON_SVG}<span>${esc(robot)}</span></button>`
               : `<span class="cchip cchip-robot">${PERSON_SVG}<span>${esc(robot)}</span></span>`)
           : claimable
             ? `<button class="cchip cchip-claim" data-claim="${esc(board)}">${icon("claim", 11)}<span>Claim</span></button>`
-            : `<span class="cchip cchip-robot pool">${PERSON_SVG}<span>Unassigned</span></span>`;
+            : prof
+              ? `<button class="cchip cchip-robot pool" data-assign="${esc(board)}" data-brobot="${esc(robot)}" title="Assign a name">${PERSON_SVG}<span>Unassigned</span></button>`
+              : `<span class="cchip cchip-robot pool">${PERSON_SVG}<span>Unassigned</span></span>`;
       const chips = `<span class="card-chips">
         ${sys.ip && prof ? `<button class="cchip" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(robot)}" data-board="${esc(board)}" title="Rover Wi-Fi settings">${WIFI_SVG}<span>${esc(sys.ip)}</span></button>` : ""}
         ${idChip}
@@ -1337,7 +1372,6 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         // A fresh board's two jobs, surfaced as buttons instead of a note:
         // blink it to find which board on the desk it is, then name it.
         if (!offline) actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-brobot="${esc(robot)}">${icon("zap")} Identify</button>`);
-        actions.push(`<button class="btn-accent btn-warn" data-assign="${esc(board)}" data-brobot="${esc(robot)}">${icon("claim")} Assign</button>`);
         actions.push(`<button class="btn-tile" data-tel="${esc(robot)}" data-tel-board="${esc(board)}">${icon("activity")} Telemetry</button>`);
       } else if (prof) {
         actions.push(`<button class="btn-tile" data-tel="${esc(robot)}" data-tel-board="${esc(board)}">${icon("activity")} Telemetry</button>`);
