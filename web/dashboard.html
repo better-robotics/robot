@@ -956,22 +956,30 @@
       <span class="spacer"></span>
       <span id="wire-rate" aria-live="off"></span>
       <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
-      <!-- Topic filter. Options are CONTRACT.md's channels verbatim, because the
-           log prints the topic on every line — the filter names the thing it
-           acts on, so it teaches itself in place. This replaced a binary toggle
-           that could only ever express one of these seven choices, and that was
-           labelled "Beacons": the firmware's word for a sys message, appearing
-           NOWHERE on screen.
-           Default "all except sys": sys is the only UNPROMPTED channel — every
-           rover, every 2s, forever — so it drowns the events unless asked for. -->
+      <!-- Topic filter. The log prints the topic on every line, so naming the
+           options after the channels makes the filter teach itself in place.
+           Replaced a binary toggle ("Beacons" — the firmware's word for sys,
+           appearing nowhere on screen) that could only express one of these.
+
+           SHOW EVERYTHING by default, filter down — what every log viewer does
+           (DevTools, Wireshark). The old default hid sys, inherited from when
+           this panel was professor-only: a professor watching for events doesn't
+           want 2s chatter. That premise died when students got the panel, because
+           sys is the ONLY thing a rover ever publishes (rover_role.c:567; pwm and
+           cmd/* are things it SUBSCRIBES to). So "all except sys" meant the rover
+           never appeared to answer at all — the "← the rover answers" legend
+           promising something that could never arrive, and an idle student
+           reading an empty log as broken.
+
+           Only channels the wire actually carries: imu and led are in
+           CONTRACT.md but no firmware publishes them, so offering them would be
+           a filter that can never match. Add them when they ship. -->
       <select id="wire-topic" aria-label="Filter log by topic">
-        <option value="-sys">all except sys</option>
         <option value="">all topics</option>
+        <option value="-sys">all except sys</option>
         <option value="sys">sys</option>
         <option value="pwm">pwm</option>
         <option value="cmd">cmd</option>
-        <option value="imu">imu</option>
-        <option value="led">led</option>
         <option value="estop">estop</option>
       </select>
       <button id="wire-pause" aria-pressed="false">Pause</button>
@@ -1732,9 +1740,9 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // beacons are ~90% of volume and drown the command traffic the log
     // exists to teach; the rendered per-rover Telemetry view is where sys
     // belongs. Robot filter narrows to one subtree.
-    // "-sys" = everything except sys (default), "" = everything, else the one
+    // "" = everything (default), "-sys" = everything except sys, else the one
     // channel to show. The boolean this replaced could only say sys/not-sys.
-    let wireTopic = "-sys", wireRobot = "";
+    let wireTopic = "", wireRobot = "";
     const lineHidden = l =>
       (wireTopic === "-sys" ? l.dataset.chan === "sys"
         : wireTopic ? l.dataset.chan !== wireTopic : false) ||
