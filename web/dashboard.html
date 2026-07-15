@@ -271,6 +271,13 @@
        button that didn't got nothing. Sizes and radii come from tokens only. */
     input, select, textarea { font: inherit; }
     button, .btn-tile {
+      /* inline-flex + gap IS the icon pattern — .cchip already worked this way
+         while buttons hand-rolled `vertical-align: -0.15em` per svg, a magic
+         number that only approximates centring and drifts with font-size. Flex
+         centres both axes exactly, for any glyph, and gives the icon↔label gap
+         without a margin. It also fixes text that block layout left riding high
+         inside min-height (visible on .btn at 44px under pointer:coarse). */
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
       cursor: pointer; font: inherit; font-size: var(--fs-body); font-weight: 600;
       min-height: var(--ctrl-h); padding: 0.4rem 0.8rem;
       border-radius: var(--radius); border: 0.5px solid var(--border-default);
@@ -289,7 +296,7 @@
        used to take whatever its container happened to set — the ones in
        .wifi-foot looked right only because that box sets --fs-body, while
        #unassign-btn inherited body's 16px. Pin it to the scale. */
-    .link-btn { background: none; border: none; padding: 0; min-height: 0;
+    .link-btn { display: inline; background: none; border: none; padding: 0; min-height: 0;
       font: inherit; font-size: var(--fs-body); font-weight: 400;
       color: var(--link); cursor: pointer; }
     .link-btn:hover { text-decoration: underline; filter: none; }
@@ -366,9 +373,14 @@
        between them (all five popovers, caught 2026-07-16). Gap belongs to a
        named container, not to whichever div a callsite happened to make. */
     .stack { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
-    /* Sheet footer: the primary commit, and the destructive escape kept quiet
-       and beside it rather than competing as a filled tile. */
-    .assign-actions { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    /* Sheet footer: destructive escape left, primary commit right — the
+       standard dialog shape. flex-basis:100% because #assign-form is a
+       wrapping flex row and this must own its own line. margin-left:auto on
+       the primary, NOT space-between: with Unassign hidden (a pool board)
+       space-between would slide Assign to the left edge. */
+    .assign-actions { display: flex; align-items: center; gap: 1rem;
+      flex-basis: 100%; margin-top: 0.25rem; }
+    #assign-btn { margin-left: auto; }
     #gate-error { display: none; color: var(--danger-text); font-size: 0.85rem; margin-top: 0.6rem; }
     /* Corner chips: who-are-you comes from the live fleet, not typing. */
     /* Which host serves this page — one glanceable token matching the Wi-Fi
@@ -511,7 +523,7 @@
        .link-btn is a standalone action row — none sits inline in a sentence,
        where an oversized hit box would swallow the surrounding text. */
     .link-btn::after { content: ""; position: absolute; inset: -12px -4px; }
-    .btn-tile svg, .warn-note svg { vertical-align: -0.15em; margin-right: 0.1rem; }
+    .warn-note svg { vertical-align: -0.15em; margin-right: 0.1rem; }   /* inline text, not a flex control */
     button.cchip:hover { filter: brightness(1.25); }
     .cchip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cchip svg { flex: none; }
@@ -871,15 +883,16 @@
         </div>
       </details>
       </details>
+      <!-- Dialog footer: destructive left, primary right, one row. Unassign
+           lives HERE, not on the card: the name pill is the one identity
+           affordance and this sheet is what it opens. A dedicated "Unassign
+           rover…" tile on every assigned card meant the card carried two
+           identity controls (pill → rename, tile → unassign) while an
+           unassigned card carried none. Hidden for a pool board — nothing to
+           unassign. -->
       <div class="assign-actions">
-        <button id="assign-btn" class="btn-primary">Assign</button>
-        <!-- Unassign lives HERE, not on the card: the name pill is the one
-             identity affordance, and this sheet is what it opens. A dedicated
-             "Unassign rover…" tile on every assigned card meant the card
-             carried two identity controls (pill → rename, tile → unassign)
-             while an unassigned card carried none. Hidden for a pool board —
-             there's nothing to unassign. -->
         <button id="unassign-btn" class="link-btn btn-danger" hidden>Unassign rover…</button>
+        <button id="assign-btn" class="btn-primary">Assign</button>
       </div>
     </div>
     <p id="codes-status" role="status" aria-live="polite"></p>
@@ -1799,11 +1812,17 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       syncPinsPanel(true);   // hard seed: pin fields take this board's live map
       const form = document.getElementById("assign-form");
       form.style.display = "flex";
-      document.getElementById("assign-selected").textContent =
-        `Assigning ${board} — currently ${robot}.`;
-      // A pool board has no assignment to undo. Literal "unassigned" is how the
-      // rest of this file spells it (see isPool in the card renderer).
-      document.getElementById("unassign-btn").hidden = (robot === "unassigned");
+      // A pool board has no assignment to undo, and "Assign" is the right verb
+      // for it; a named board is being UPDATED. One verb across the title, the
+      // lede and the commit — they'd otherwise disagree inside one sheet.
+      // Literal "unassigned" is how the rest of this file spells it (see isPool
+      // in the card renderer).
+      const isPoolBoard = robot === "unassigned";
+      document.getElementById("assign-selected").textContent = isPoolBoard
+        ? `Naming ${board} — currently unassigned.`
+        : `Renaming ${board} — currently ${robot}.`;
+      document.getElementById("unassign-btn").hidden = isPoolBoard;
+      document.getElementById("assign-btn").textContent = isPoolBoard ? "Assign" : "Update";
       document.getElementById("codes-status").textContent = "";
       if (scroll) {
         // Fleet-card invocation: the form comes to the tap as a modal sheet
@@ -1816,7 +1835,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         // Populate the wrap ONLY AFTER openModal — it runs the previous
         // sheet's restore, which would steal just-claimed nodes back to
         // storage (both orderings of this bug hit tonight's bench).
-        openModal(`Assign ${board}`, wrap);
+        openModal(`${isPoolBoard ? "Assign" : "Update"} ${board}`, wrap);
         wrap.append(form, status);
         modalRestore = () => document.getElementById("codes").append(form, status);
       }

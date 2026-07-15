@@ -85,7 +85,12 @@ static const char HEAD[] =
  * <button> used to be primary blue here (button{background:var(--accent)}),
  * which is why "Scan for networks" shouted louder than anything it sat beside. */
 "input,select,textarea{font:inherit}"
-"button,.btn{cursor:pointer;font:inherit;font-size:var(--fs-body);font-weight:600;"
+/* inline-flex + gap centres icon and label on both axes with no per-glyph
+ * magic number, and fixes text riding high inside min-height — block layout
+ * doesn't centre vertically, so an <a class=btn> sat ~5.6px above centre once
+ * pointer:coarse raised min-height to 44px (i.e. on every phone). */
+"button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;"
+"cursor:pointer;font:inherit;font-size:var(--fs-body);font-weight:600;"
 "min-height:var(--ctrl-h);padding:.4rem .8rem;border-radius:var(--radius);"
 "border:.5px solid var(--border);color:var(--ink);background:var(--inset);"
 "transition:filter .15s,transform .08s}"
@@ -95,9 +100,9 @@ static const char HEAD[] =
 ".btn-primary{color:var(--accent-ink);background:var(--accent);border-color:transparent}"
 ".btn-danger{color:var(--danger)}"
 /* A link that wears a button: block-level, full width. */
-".btn{display:block;width:100%;text-align:center;text-decoration:none;margin:.9rem 0 0}"
+".btn{display:flex;width:100%;text-align:center;text-decoration:none;margin:.9rem 0 0}"
 ".link-btn{background:none;border:none;padding:0;min-height:0;font-weight:400;color:var(--link);"
-"width:auto;display:inline;margin:0}"
+"width:auto;display:inline;margin:0;gap:0}"
 "input,select{background:var(--inset);color:var(--ink);font-size:var(--fs-body);width:100%;"
 "border:.5px solid var(--border);border-radius:var(--radius);padding:.4rem .7rem;min-height:var(--ctrl-h)}"
 "input::placeholder{color:var(--ink-faint)}"
