@@ -986,7 +986,14 @@
     </div>
     <!-- The arrow key is a CAPTION for the log, not a control: it sat inside
          the control row, which is what made that row read as a jumble. -->
-    <p class="wire-legend"><span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></p>
+    <!-- The arrows must be the ones the log actually draws: this said → / ←
+         while logLine drew ↑ / ↓ from the moment the lines became columns — a
+         key that keys nothing.
+         "the rover answers" was wrong twice over: sys is UNPROMPTED (every 2s,
+         answering nothing), and inbound also carries fleet/estop, which comes
+         from a professor, not a rover. Direction is the honest claim — what
+         this page sent vs what it received. -->
+    <p class="wire-legend"><span class="log-out">↑ sent from this page</span> · <span class="log-in">↓ received</span></p>
     <div id="wire-log" role="log" tabindex="0" aria-label="Live command and telemetry log"></div>
   </section>
   </main>
