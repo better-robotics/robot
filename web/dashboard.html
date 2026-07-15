@@ -21,11 +21,11 @@
       /* Grouped-background system (iOS): a near-black canvas, elevated card
          surfaces, and a further-inset fill for lists/controls *inside* a card,
          so depth reads by fill, not just by outline. */
-      --bg: #0d0f12;
-      --surface: #16191d;        /* elevated card fill */
-      --inset: #1f242b;          /* inset list / control inside a card */
-      --ink: #f2f3f5;
-      --ink-muted: #aeb4bd;
+      --bg: #1a1d20;
+      --surface: #212529;        /* elevated card fill */
+      --inset: #2a3037;          /* inset list / control inside a card */
+      --ink: #e9ecef;
+      --ink-muted: #adb5bd;
       --ink-faint: #8b929b;   /* ≥4.5:1 on --inset (placeholders live there) */
       --border-default: rgba(255,255,255,0.10);
       --border-strong: rgba(255,255,255,0.18);
@@ -43,9 +43,8 @@
       --warn-ink: #e8a900;
       --danger-text: #ff453a;
       /* Continuous-corner radii scale + tap target + card elevation. */
-      --radius-lg: 18px;         /* cards */
-      --radius: 12px;            /* controls, inputs, inset lists */
-      --radius-sm: 8px;
+      --radius-lg: 14px;         /* cards */
+      --radius: 8px;             /* controls, inputs, inset lists */
       --radius-pill: 999px;
       --tap: 44px;               /* HIG minimum touch target */
       --shadow-card: 0 0.5px 0 rgba(255,255,255,0.06) inset,
@@ -371,10 +370,10 @@
     .wire-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem;
       margin-bottom: 0.35rem; font-size: 0.8rem; color: var(--ink-muted); }
     .wire-head .spacer { flex: 1; }
-    #wire-pause, #wire-beacons { cursor: pointer; font-size: 0.78rem; padding: 0.2rem 0.7rem; border-radius: var(--radius-sm);
+    #wire-pause, #wire-beacons { cursor: pointer; font-size: 0.78rem; padding: 0.2rem 0.7rem; border-radius: var(--radius);
       border: 0.5px solid var(--border-strong); background: transparent; color: var(--ink-muted); }
     #wire-pause[aria-pressed="true"], #wire-beacons[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
-    #wire-filter { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: var(--radius-sm);
+    #wire-filter { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: var(--radius);
       border: 0.5px solid var(--border-strong); background: var(--inset); color: var(--ink); max-width: 9rem; }
     #wire-log, #tel-feed {
       height: 11rem; overflow-y: auto; background: var(--inset);
@@ -478,7 +477,6 @@
     }
     .btn-tile:hover { filter: brightness(1.25); }
     .btn-tile:active { transform: scale(0.97); }
-    .btn-tile:focus-visible { outline: 2.5px solid var(--focus); outline-offset: 2px; }
 
     /* Modal sheet (iOS): a centered elevated card over a blurred scrim. Holds the
        live camera or the board's embedded config panel. */
@@ -1096,17 +1094,22 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         }
       });
 
-      // ESP32-only for now (POST /wifi/forget — Pi hubd has no equivalent yet);
-      // a 404 there just falls into the generic failure message below.
       $("wifi-forget").addEventListener("click", async () => {
         const msg = $("wifi-msg");
         msg.textContent = "Forgetting this network…";
         try {
           const res = await fetch("/wifi/forget", { method: "POST" });
-          if (!res.ok) throw new Error();
-          msg.textContent = "Forgotten — the board is restarting as a fresh island.";
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok || j.ok === false) throw new Error(j.error || "");
+          // True on both backends without branching on which one this is: the
+          // ESP32 hub reboots to apply (config-apply, same as /wifi/connect),
+          // the Pi drops the NM profile live — either way the next status
+          // poll below is what actually shows the change landed.
+          msg.textContent = "Forgotten.";
           setTimeout(async () => { const s = await getStatus(); if (s) renderStatus(s); }, 3000);
-        } catch { msg.textContent = "Couldn't forget this network — try again."; }
+        } catch (e) {
+          msg.textContent = e.message ? `Couldn't forget: ${e.message}` : "Couldn't forget this network — try again.";
+        }
       });
 
       // Join-QR: the network a phone should JOIN is this board's own AP, and a
