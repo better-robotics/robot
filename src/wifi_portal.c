@@ -27,6 +27,7 @@
 #include "wifi_portal.h"
 #include "dns_server.h"     /* wildcard :53 responder — makes the OS captive-portal
                              * probes below actually get dialed against this board */
+#include "lwip/sockets.h"   /* lwip_getpeername — captive_accepted()'s per-client IP */
 
 static const char *TAG = "wifi-portal";
 static httpd_handle_t s_http = NULL;
@@ -504,17 +505,21 @@ static esp_err_t role_post(httpd_req_t *req)
  * is what lets the OS's Captive Network Assistant actually dismiss its sheet
  * — a redirect alone never triggers that, only a real success signature does.
  *
- * ONE global flag, not per-client (first cut tried per-source-IP, keyed via
- * httpd_req_to_sockfd + getpeername — live-tested 2026-07-14 and every
- * request read back peer IP 0.0.0.0, so the flip silently never engaged and
- * the sheet never dismissed itself, reproducing the exact bug this exists to
- * fix). A rover's own AP overwhelmingly serves one phone at a time (the
- * island/home scenario), and the stakes of a global flag over-triggering are
- * nil regardless — the open ACL already gives every AP client full
- * read+write with no gate at all, so "the sheet closes for someone else too"
- * is not a security question.
+ * Per-client, keyed by the caller's own IPv4 (2026-07-16). The first cut here
+ * tried exactly this and gave up: httpd_req_to_sockfd + plain getpeername()
+ * into a sockaddr_in read back peer IP 0.0.0.0 every time, so it fell back to
+ * one global flag — meaning a second phone joining within the idle window got
+ * silently waved through with no Welcome prompt at all. Fine for a single
+ * island rover, wrong for one being passed between students in a classroom.
+ * Root cause (documented ESP-IDF quirk, espressif/esp-idf#4863): this httpd's
+ * listener is IPv6 internally even for IPv4 connections, so a sockaddr_in
+ * read comes back zeroed. The fix is lwip_getpeername() (not the newlib
+ * getpeername() wrapper) into a sockaddr_in6 — the real IPv4 word lives at
+ * sin6_addr.un.u32_addr[3] (client_ip(), below). ACCEPTED_MAX matches
+ * AP_MAX_CONN (hub_role.c) — never more concurrent clients than the AP
+ * itself allows; a full table evicts the oldest accept.
  *
- * Gated on board_has_uplink() (live-tested 2026-07-14, same day): flipping
+ * Gated on board_has_uplink() (live-tested 2026-07-14): flipping
  * unconditionally worked exactly as designed on a pure-island board with no
  * uplink of its own — and broke the joining phone's real internet, because
  * "genuine success" IS iOS's signal to trust this Wi-Fi for real routing.
@@ -527,20 +532,50 @@ static esp_err_t role_post(httpd_req_t *req)
  * the sheet never auto-dismisses, and /welcome's copy (below) says so
  * plainly instead of promising a Continue that can't deliver. */
 #define ACKED_IDLE_US (15LL * 60 * 1000 * 1000)
-static int64_t s_accepted_us = 0;   /* 0 = never accepted (or expired) */
+#define ACCEPTED_MAX 8   /* == AP_MAX_CONN, hub_role.c */
+static struct { uint32_t ip; int64_t accepted_us; } s_accepted[ACCEPTED_MAX];
 
-static bool captive_accepted(void)
+/* The caller's IPv4, network byte order, or 0 on failure — see the comment
+ * above: must be lwip_getpeername + sockaddr_in6, not plain getpeername. */
+static uint32_t client_ip(httpd_req_t *req)
 {
-    if (!s_accepted_us) return false;
-    if (esp_timer_get_time() - s_accepted_us > ACKED_IDLE_US) { s_accepted_us = 0; return false; }
-    return board_has_uplink();
+    struct sockaddr_in6 addr = {0};
+    socklen_t len = sizeof(addr);
+    int s = httpd_req_to_sockfd(req);
+    if (s < 0 || lwip_getpeername(s, (struct sockaddr *)&addr, &len) != 0) return 0;
+    return addr.sin6_addr.un.u32_addr[3];
+}
+
+static bool captive_accepted(uint32_t ip)
+{
+    if (!ip) return false;
+    for (int i = 0; i < ACCEPTED_MAX; i++) {
+        if (s_accepted[i].ip != ip) continue;
+        if (esp_timer_get_time() - s_accepted[i].accepted_us > ACKED_IDLE_US) {
+            s_accepted[i].ip = 0;
+            return false;
+        }
+        return board_has_uplink();
+    }
+    return false;
 }
 
 static esp_err_t captive_ack_post(httpd_req_t *req)
 {
-    (void)req;
-    s_accepted_us = esp_timer_get_time();
-    ESP_LOGI(TAG, "captive/ack — probes now answer genuine success");
+    uint32_t ip = client_ip(req);
+    if (ip) {
+        int slot = -1, oldest_i = 0;
+        for (int i = 0; i < ACCEPTED_MAX; i++) {
+            if (s_accepted[i].ip == ip) { slot = i; break; }
+            if (slot < 0 && s_accepted[i].ip == 0) slot = i;
+            if (s_accepted[i].accepted_us < s_accepted[oldest_i].accepted_us) oldest_i = i;
+        }
+        if (slot < 0) slot = oldest_i;   /* table full — evict the oldest accept */
+        s_accepted[slot].ip = ip;
+        s_accepted[slot].accepted_us = esp_timer_get_time();
+    }
+    esp_ip4_addr_t logip = { .addr = ip };
+    ESP_LOGI(TAG, "captive/ack from " IPSTR " — probes now answer genuine success", IP2STR(&logip));
     httpd_resp_set_type(req, "text/plain");
     return httpd_resp_sendstr(req, "ok");
 }
@@ -714,7 +749,7 @@ static esp_err_t welcome_get(httpd_req_t *req)
 static esp_err_t captive_api_get(httpd_req_t *req)
 {
     char body[144];
-    if (captive_accepted()) {
+    if (captive_accepted(client_ip(req))) {
         snprintf(body, sizeof body, "{\"captive\":false}");
     } else {
         esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
@@ -755,7 +790,7 @@ static esp_err_t probe_redirect(httpd_req_t *req)
 {
     char host[64] = "?";
     httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
-    bool accepted = captive_accepted();
+    bool accepted = captive_accepted(client_ip(req));
     ESP_LOGI(TAG, "probe %s (Host: %s) -> %s", req->uri, host,
              accepted ? "genuine success" : "302 /welcome");
     if (!accepted) {
