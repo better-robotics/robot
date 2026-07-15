@@ -41,14 +41,17 @@ static const char PAGE[] =
 "<!doctype html><html><head><meta charset=utf-8>"
 "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
 "<title>BetterRobotics</title><style>"
-/* Shared HIG token system — mirrors hub/dashboard.html so this panel and the drive
- * dashboard read as one product: grouped-background dark, elevated cards, a
- * translucent blurred sticky topbar, 44px tap targets. Phone-first by design
- * (students open it on a phone): a single 32rem column, with safe-area insets. */
-":root{color-scheme:dark;--bg:#0d0f12;--surface:#16191d;--inset:#1f242b;"
-"--ink:#f2f3f5;--ink-muted:#aeb4bd;--ink-faint:#838a93;--border:rgba(255,255,255,.10);"
-"--accent:#00539B;--accent-ink:#fff;--brand:#0577B1;--focus:#4aa3d6;"
-"--radius-lg:18px;--radius:12px;--tap:44px;--topbar:50px}"
+/* Shared HIG token system — values copied from the canonical hub/dashboard.html
+ * (hub@f005439 converged it with better-robotics.github.io + workbench; these
+ * three portal pages were resynced to it 2026-07-16, having drifted a whole
+ * token family behind) so this panel and the drive dashboard read as one
+ * product: grouped-background dark, elevated cards, a translucent blurred
+ * sticky topbar, 44px tap targets. Phone-first by design (students open it on
+ * a phone): a single 32rem column, with safe-area insets. */
+":root{color-scheme:dark;--bg:#1a1d20;--surface:#212529;--inset:#2a3037;"
+"--ink:#e9ecef;--ink-muted:#adb5bd;--ink-faint:#8b929b;--border:rgba(255,255,255,0.10);"
+"--accent:#00539B;--accent-ink:#ffffff;--brand:#0577B1;--focus:#4aa3d6;"
+"--radius-lg:14px;--radius:8px;--tap:44px;--topbar:50px}"
 "*{box-sizing:border-box}"
 "body{margin:0;background:var(--bg);color:var(--ink);"
 "font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Helvetica Neue',Arial,sans-serif;"
@@ -190,8 +193,8 @@ static const char LANDING[] =
 "<!doctype html><html><head><meta charset=utf-8>"
 "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
 "<title>BetterRobotics</title><style>"
-":root{color-scheme:dark;--bg:#0d0f12;--surface:#16191d;--ink:#f2f3f5;--ink-muted:#aeb4bd;"
-"--border:rgba(255,255,255,.10);--accent:#00539B;--accent-ink:#fff;--radius-lg:18px;--radius:12px;--tap:44px}"
+":root{color-scheme:dark;--bg:#1a1d20;--surface:#212529;--ink:#e9ecef;--ink-muted:#adb5bd;"
+"--border:rgba(255,255,255,0.10);--accent:#00539B;--accent-ink:#ffffff;--radius-lg:14px;--radius:8px;--tap:44px}"
 "*{box-sizing:border-box}"
 "body{margin:0;background:var(--bg);color:var(--ink);"
 "font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Helvetica Neue',Arial,sans-serif;"
@@ -616,8 +619,8 @@ static const char WELCOME_PRE[] =
 "<!doctype html><html><head><meta charset=utf-8>"
 "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
 "<title>BetterRobotics</title><style>"
-":root{color-scheme:dark;--bg:#0d0f12;--surface:#16191d;--ink:#f2f3f5;--ink-muted:#aeb4bd;"
-"--border:rgba(255,255,255,.10);--accent:#00539B;--accent-ink:#fff;--radius-lg:18px;--radius:12px;--tap:44px}"
+":root{color-scheme:dark;--bg:#1a1d20;--surface:#212529;--ink:#e9ecef;--ink-muted:#adb5bd;"
+"--border:rgba(255,255,255,0.10);--accent:#00539B;--accent-ink:#ffffff;--radius-lg:14px;--radius:8px;--tap:44px}"
 "*{box-sizing:border-box}"
 "body{margin:0;background:var(--bg);color:var(--ink);"
 "font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Helvetica Neue',Arial,sans-serif;"
