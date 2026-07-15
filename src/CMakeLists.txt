@@ -12,7 +12,7 @@
 # ESP32 bundle; resync via tools/sync-ide.sh) — the block IDE as gzip blobs.
 idf_component_register(SRCS "main.c" "rover_role.c" "hub_role.c" "ws_mqtt_bridge.c"
                              "wifi_portal.c" "dns_server.c" "camera.c" "dashboard_html.c"
-                             "ide_bundle.c" "provisioning_util.c" "rover_config.c"
+                             "ide_bundle.c" "provisioning_util.c" "rover_config.c" "captive_nat.c"
                        INCLUDE_DIRS "."
                        REQUIRES nvs_flash esp_wifi esp_netif esp_event esp_timer
                                 driver mqtt json esp_http_server lwip)

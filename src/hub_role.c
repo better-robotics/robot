@@ -33,6 +33,7 @@
 #include "esp_timer.h"           /* deferred STA redial — never vTaskDelay in the event task */
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_netif_net_stack.h"  /* esp_netif_get_netif_impl — the raw lwIP netif, for captive_nat */
 #include "esp_mac.h"
 #include "lwip/ip4_addr.h"       /* IP4_ADDR — relocating the board AP off 192.168.4.0/24 */
 #include "lwip/sockets.h"        /* the uplink probe below speaks raw HTTP, like the Pi's */
@@ -43,6 +44,7 @@
 #include "rover_config.h"        /* rover_config_load — the stored STA uplink */
 #include "provisioning_util.h"   /* rover_format_robot_id — the board's AP SSID = its rover-id */
 #include "wifi_portal.h"         /* the always-on :80 Wi-Fi config panel (rover.local/wifi) */
+#include "captive_nat.h"         /* packet-layer backstop for clients that bypass our DNS */
 
 /* STA_SSID / STA_PASS — the tier-2 hub's venue uplink. Gitignored header so real
  * Wi-Fi credentials never land in committed source; copy wifi_creds.example.h. */
@@ -429,6 +431,14 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, bool ap_al
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_LOGI(TAG, "APSTA up: AP '%s' (join this). AP channel follows the uplink's (single radio).",
              ap_ssid);
+
+    /* Backstop for clients that bypass our DNS entirely (hardcoded resolver,
+     * DoH) — dns_server.c's hijack only works for a client that actually
+     * asks US. See captive_nat.h. Safe by construction to install
+     * unconditionally here: it mirrors dns_server.c's own uplink-gated
+     * policy internally, so it's a no-op whenever the board has FULL real
+     * internet. */
+    captive_nat_install((struct netif *)esp_netif_get_netif_impl(ap_netif));
 
     /* mDNS: <host>.local — "hub" for a hub (matches the Pi's avahi name), "rover"
      * for a board, so a kid reaches their board's dashboard at http://rover.local/

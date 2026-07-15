@@ -49,7 +49,7 @@ static const char *TAG = "dns-server";
  * always OURS, never the venue gate's — see the policy comment in the task
  * loop. dns.msftncsi.com expects a specific A record we can't give it;
  * answering with the AP IP just reads as "captive" to Windows, which is true. */
-static bool probe_hostname(const char *q)
+bool probe_hostname(const char *q)
 {
     static const char *probes[] = {
         "captive.apple.com",
@@ -93,7 +93,7 @@ static int question_end(const uint8_t *pkt, int len)
  * all, and with no visibility into what it actually queried this was
  * unfalsifiable from the board's side). Truncates silently if `out` is too
  * small; never called on the hot path's correctness, only ESP_LOGI. */
-static void question_name(const uint8_t *pkt, int len, char *out, size_t outlen)
+void question_name(const uint8_t *pkt, int len, char *out, size_t outlen)
 {
     size_t o = 0;
     int pos = 12;
