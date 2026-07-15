@@ -730,7 +730,19 @@ static const char WELCOME_POST[] =
  * never happen. dashlink0 stays live the whole time regardless. */
 "function refresh(){"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
-"d0.href=abs(j.dash);"
+/* The primary action must name what it actually opens. dash is "" whenever
+ * this board hosts no dashboard (SEARCHING, and ROVER-pinned with no hub in
+ * range — hub_role.c never self-brokers there), and abs("") resolves to the
+ * board's own "/", which in that state is the LANDING router, not a
+ * dashboard. So the button said "Open the dashboard" and opened a page that
+ * wasn't one, with Wi-Fi setup a further tap down in landing's footer.
+ * Removing this page's own picker (2026-07-15) was argued as "the dashboard's
+ * Set-up-Wi-Fi panel already does this" — which quietly assumed a dashboard
+ * exists. With no dashboard, send them where the work actually is: /wifi,
+ * which carries the same picker as the dashboard since the 2026-07-16
+ * consolidation. */
+"if(j.dash){d0.href=abs(j.dash);d0.textContent='Open the dashboard'}"
+"else{d0.href=AP_BASE+'/wifi';d0.textContent='Set up this rover\\u2019s Wi-Fi'}"
 "let v=document.getElementById('venue-go');v.hidden=true;"
 "if(j.uplink=='full'){tries=0;"
 "go.hidden=false;"
