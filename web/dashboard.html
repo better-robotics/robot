@@ -233,7 +233,7 @@
     input::placeholder { color: var(--ink-faint); }
 
     /* Primary (filled) button. Active press = subtle scale, the HIG tap feedback. */
-    #assign-btn, #hub-host-save, #wifi-connect, #prof-go {
+    #assign-btn, #hub-host-save, #wifi-scan, #wifi-connect, #prof-go {
       font-weight: 600; cursor: pointer; min-height: var(--tap);
       padding: 0.6rem 1.25rem; border-radius: var(--radius); border: none;
       color: var(--accent-ink); background: var(--accent); transition: transform 0.08s ease, filter 0.15s ease;
@@ -618,18 +618,18 @@
     <button id="estop-clear" style="display:none">Clear — release the fleet</button>
   </div>
   <div id="uplink" class="notice"></div>
-  <!-- Device-served Wi-Fi setup — shown only when this page is served BY a hub
-       (a standalone/github.io copy has no /wifi endpoints). Replaces the old
-       BLE/website provisioning: join the hub's own Wi-Fi, open this page, set
-       the uplink here. Hidden by default; initWifiSetup() reveals it. -->
-  <div id="wifi-setup" class="notice" style="display:none; flex-direction:column; align-items:stretch; gap:0.5rem">
-    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap">
-      <span id="wifi-status" style="flex:1; min-width:12rem"></span>
-      <button id="wifi-open" class="btn-accent">Set up Wi-Fi</button>
-    </div>
+  <!-- Device-served Wi-Fi setup (hubd /wifi/*) — lives entirely behind the
+       top-right net-chip (initWifiSetup, same corner-popover pattern as the
+       identity/e-stop chips); the chip already carries the warn tint when
+       nothing's configured, so a second amber banner here duplicated that
+       "act here" signal instead of matching it. This node is only internal
+       storage — the status text and the scan/join panel move into #chip-pop
+       on open and move back here (still hidden) on close. -->
+  <div id="wifi-setup" hidden>
+    <span id="wifi-status"></span>
     <div id="wifi-panel" style="display:none; flex-direction:column; gap:0.5rem">
       <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
-        <button id="wifi-scan" class="btn-accent">Scan for networks</button>
+        <button id="wifi-scan">Scan for networks</button>
         <button id="wifi-qr" class="btn-accent" style="display:none">Share this Wi-Fi</button>
         <button id="wifi-forget" class="btn-accent" style="display:none">Forget this network</button>
       </div>
@@ -999,16 +999,14 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       if (!status) return;                     // /wifi absent → not hub-served
       const netChip = $("net-chip");
       netChip.classList.add("show");
-      // The chip is the uplink's steady-state home; the #wifi-setup row is now
-      // purely the exception banner (nothing configured / portal / down). The
-      // controls themselves open in the modal sheet — self-contained attention,
-      // no in-page expansion to scroll past.
+      // The chip is the uplink's sole home now — its warn tint IS the "act
+      // here" signal (same channel as the e-stop chip), so there is nothing
+      // left for a second on-page banner to say.
       let last = status;
       const healthyNow = () => !!(last && last.ssid && last.uplink === "full");
       const renderStatus = s => {
         last = s;
         const healthy = healthyNow();
-        $("wifi-setup").classList.toggle("ok", healthy); // healthy = quiet chrome
         const text = s && s.ssid
           ? `Uplink: ${s.ssid}${s.uplink === "full" ? " · online"
               : s.uplink === "portal" ? " · needs venue sign-in" : ""}`
@@ -1018,7 +1016,6 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         if (ms) ms.textContent = text;                    // popover open: keep it live
         $("net-chip-label").textContent = s && s.ssid ? s.ssid : "set up Wi-Fi";
         netChip.classList.toggle("warn", !healthy);
-        $("wifi-setup").style.display = healthy ? "none" : "flex";
         // Nothing to forget until a network is actually stored.
         $("wifi-forget").style.display = s && s.ssid ? "inline-block" : "none";
       };
@@ -1026,7 +1023,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // /fleet's polled verdict keeps the chip honest between /wifi/status reads.
       renderUplinkChip = verdict => renderStatus({ ...last, uplink: verdict });
 
-      // The scan/join controls live hidden in the banner row and MOVE into the
+      // The scan/join controls live hidden in #wifi-setup and MOVE into the
       // corner popover on demand; the restore puts them back (their listeners
       // survive the trip — the node is moved, never rebuilt).
       const openWifiPop = () => {
@@ -1041,7 +1038,6 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
                     () => { $("wifi-setup").append(panel); panel.style.display = "none"; });
       };
       netChip.addEventListener("click", openWifiPop);
-      $("wifi-open").addEventListener("click", openWifiPop);
 
       let chosen = null;
       $("wifi-scan").addEventListener("click", async () => {
