@@ -1343,26 +1343,42 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // chips tap through to the flows that already exist (board Wi-Fi panel,
     // the assign sheet). This one renderer replaced the pool card, the
     // collision card, and the single-robot card.
-    // Inline icon pack (feather-style strokes, currentColor) — one drawing
-    // system for every glyph. Emoji render platform-colored and clash with
-    // the monochrome chrome; the icons inherit the ink they sit in, warn
-    // tint included — the same call that reworked the topbar chips.
+    // Inline icon pack — paths COPIED FROM tabler-icons (MIT), never drawn.
+    // Each entry names its upstream icon; adding a glyph means copying that
+    // icon's path, not inventing geometry. `drive` was invented here once (a
+    // hand-built steering wheel, and a crosshair before that) — tabler ships
+    // steering-wheel, and its spokes aren't even where I guessed.
+    //
+    // Inline and not a dependency because it can't be one: CSP is
+    // default-src 'self', the classroom Pi may have no internet, and the ESP32
+    // embeds this whole file at ~76% flash. 5,300 icons for 8 glyphs is not a
+    // trade — copying 8 paths (1.1KB) is.
+    //
+    // Tabler over feather (which these were, undocumented): feather is
+    // archived and has no electronics set, while tabler is maintained and
+    // carries circuit-resistor/-capacitor/-diode, bulb, cpu for the LED/ESP32
+    // glyphs this project will want. ONE upstream on purpose — a feather +
+    // tabler mix would be the same drift this file spent 2026-07-16 removing.
+    // Geometry matches what icon() renders: 24x24, stroke-width 2, round caps.
+    // Emoji stay out: they render platform-coloured and clash with the
+    // monochrome chrome; these inherit the ink they sit in, warn tint included.
     const ICON_PATHS = {
-      wifi: '<path d="M2.5 9.3a15 15 0 0 1 19 0"/><path d="M5.5 13a11 11 0 0 1 13 0"/><path d="M8.7 16.6a6 6 0 0 1 6.6 0"/><circle cx="12" cy="19.7" r="1.3" fill="currentColor" stroke="none"/>',
-      person: '<circle cx="12" cy="8" r="4" fill="currentColor" stroke="none"/><path d="M4 20c0-3.3 3.6-5 8-5s8 1.7 8 5v1H4z" fill="currentColor" stroke="none"/>',
-      activity: '<path d="M22 12h-4l-3 8-6-16-3 8H2"/>',
-      camera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
-      zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
-      claim: '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>',
-      warn: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
-      /* A steering wheel — rim, hub, three spokes. Was a bare crosshair
-         (4 ticks + a dot), which named no verb: every sibling glyph says what
-         its button does (zap = identify, activity = telemetry, camera = camera)
-         and Drive alone said "target". Spoke endpoints are the hub circle (r=3)
-         and rim (r=10) at 90°/210°/330°, so they meet both edges instead of
-         floating. */
-      drive: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/>'
-           + '<path d="M12 9V3M9.4 13.5 4.2 16.5M14.6 13.5 19.8 16.5"/>',
+      /* tabler outline/wifi */
+      wifi: '<path d="M12 18l.01 0"/><path d="M9.172 15.172a4 4 0 0 1 5.656 0"/><path d="M6.343 12.343a8 8 0 0 1 11.314 0"/><path d="M3.515 9.515c4.686 -4.687 12.284 -4.687 17 0"/>',
+      /* tabler filled/user */
+      person: '<path d="M12 2a5 5 0 1 1 -5 5l.005 -.217a5 5 0 0 1 4.995 -4.783z" fill="currentColor" stroke="none"/><path d="M14 14a5 5 0 0 1 5 5v1a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-1a5 5 0 0 1 5 -5h4z" fill="currentColor" stroke="none"/>',
+      /* tabler outline/activity */
+      activity: '<path d="M3 12h4l3 8l4 -16l3 8h4"/>',
+      /* tabler outline/camera */
+      camera: '<path d="M5 7h1a2 2 0 0 0 2 -2a1 1 0 0 1 1 -1h6a1 1 0 0 1 1 1a2 2 0 0 0 2 2h1a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-9a2 2 0 0 1 2 -2"/><path d="M9 13a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/>',
+      /* tabler outline/bolt */
+      zap: '<path d="M13 3l0 7l6 0l-8 11l0 -7l-6 0l8 -11"/>',
+      /* tabler outline/user-plus */
+      claim: '<path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M16 19h6"/><path d="M19 16v6"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4"/>',
+      /* tabler outline/alert-triangle */
+      warn: '<path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0"/><path d="M12 16h.01"/>',
+      /* tabler outline/steering-wheel */
+      drive: '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/><path d="M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M12 14l0 7"/><path d="M10 12l-6.75 -2"/><path d="M14 12l6.75 -2"/>',
     };
     const icon = (n, s = 13) =>
       `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[n]}</svg>`;
