@@ -184,7 +184,15 @@
          while the card itself caps at 26rem for readability. */
       grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
     }
-    .robot { max-width: 26rem; }
+    /* The cap belongs to the LONE card, not every card. Tracks are 1fr ("fill
+       the row") while .robot capped at 26rem ("never exceed 416px") — a direct
+       contradiction, and the leftover was visible: with two cards the tracks
+       came out 452.8px, so each card left 36.8px dead inside its own track.
+       That read as a 51px gap between cards (against a declared 14.4px) and a
+       right edge 37px short of every other section on the page. The cap only
+       ever earned its place for ONE card, which would otherwise stretch across
+       the whole 920px grid; :only-child says exactly that and nothing more. */
+    .robot:only-child { max-width: 26rem; }
     .robot {
       background: var(--surface); border: 0.5px solid var(--border-default);
       border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; box-shadow: var(--shadow-card);
