@@ -471,11 +471,21 @@
     /* Wire log header: names the teaching surface and keys its arrows.
        Wraps: at 320px a 9rem robot filter plus both buttons outgrow the row
        (pre-existing overflow, surfaced by long robot names). */
+    /* Title + controls on one line; the arrow key is NOT in here (it's the
+       .wire-legend caption below, next to the log it explains — mixing key and
+       controls is what made this row read as a jumble). Wraps: at 320px a 9rem
+       robot filter plus both buttons outgrow the row. */
     .wire-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem;
-      margin-bottom: 0.35rem; font-size: 0.8rem; color: var(--ink-muted); }
+      margin-bottom: 0.5rem; }
     .wire-head .spacer { flex: 1; }
-    #wire-pause, #wire-beacons { cursor: pointer; font-size: 0.78rem; padding: 0.2rem 0.7rem; border-radius: var(--radius);
-      border: 0.5px solid var(--border-strong); background: transparent; color: var(--ink-muted); }
+    #details-label { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+    .wire-legend { margin-bottom: 0.35rem; font-size: var(--fs-small); color: var(--ink-muted); }
+    /* Chip-scale log toggles: the base tile with a transparent fill, opting out
+       of --ctrl-h like the other chip-scale controls (they carry the ::after
+       hit extension — see the 44pt rule above). */
+    #wire-pause, #wire-beacons { font-size: var(--fs-small); min-height: 0;
+      padding: 0.2rem 0.7rem; border-color: var(--border-strong);
+      background: transparent; color: var(--ink-muted); }
     #wire-pause[aria-pressed="true"], #wire-beacons[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
     #wire-filter { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: var(--radius);
       border: 0.5px solid var(--border-strong); background: var(--inset); color: var(--ink); max-width: 9rem; }
@@ -582,8 +592,8 @@
 
     /* Per-card action row: Camera / Wi-Fi & role / Drive as tinted tiles. */
     .card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }
-    #student-details { display: none; margin-top: 1rem; }
-    #student-details > summary, #prof-advanced > summary { cursor: pointer; color: var(--ink-muted);
+    #student-details { margin-top: 1rem; }   /* gated by [hidden], not display */
+    #prof-advanced > summary { cursor: pointer; color: var(--ink-muted);
       font-weight: 600; padding: 0.65rem 0; }
     #prof-advanced { grid-column: 1 / -1; }
 
@@ -904,24 +914,29 @@
        whole column. Shown only once signed in as professor ("Advanced
        diagnostics"). Per-rover reading lives in each card's telemetry sheet;
        this is the classroom's raw wire, the teaching tap. -->
-  <details id="student-details">
-    <!-- The age hint tells you the link is healthy without opening the row;
-         it lives in its own span because signIn retitles the label by role. -->
-    <summary><span id="details-label">Details &amp; troubleshooting</span> <span id="details-age"></span></summary>
-  <!-- Professor-only fleet vitals: the sys beacon rendered as one row per
-       board — the glanceable middle ground between the cards and the raw wire. -->
-  <section id="wire" style="display:none">
-    <!-- No heading of its own — the wrapping details' summary titles it. -->
-    <div class="wire-wrap">
-      <div class="wire-head"><span><span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></span>
-        <span class="spacer"></span>
-        <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
-        <button id="wire-beacons" aria-pressed="false" title="sys beacons are most of the traffic — shown only on demand">Beacons</button>
-        <button id="wire-pause" aria-pressed="false">Pause</button></div>
-      <div id="wire-log" role="log" tabindex="0" aria-label="Live command and telemetry log"></div>
+  <!-- Professor-only, and no longer a disclosure. It wrapped TWO gated
+       wrappers (details + section#wire) around one thing, and once the
+       redundant fleet-vitals table was deleted the only content left is the
+       wire log — the teaching surface a signed-in professor is here to watch.
+       A click to reveal the one thing you signed in for isn't a fold, it's a
+       toll. (The old summary read "Details & troubleshooting", which never
+       once rendered: the row is display:none until signIn, which retitles it
+       first.) -->
+  <section id="student-details" hidden>
+    <div class="wire-head">
+      <h2 id="details-label">Advanced diagnostics</h2>
+      <!-- Link health at a glance, beside the title it qualifies. -->
+      <span id="details-age"></span>
+      <span class="spacer"></span>
+      <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
+      <button id="wire-beacons" aria-pressed="false" title="sys beacons are most of the traffic — shown only on demand">Beacons</button>
+      <button id="wire-pause" aria-pressed="false">Pause</button>
     </div>
+    <!-- The arrow key is a CAPTION for the log, not a control: it sat inside
+         the control row, which is what made that row read as a jumble. -->
+    <p class="wire-legend"><span class="log-out">→ you send</span> · <span class="log-in">← the rover answers</span></p>
+    <div id="wire-log" role="log" tabindex="0" aria-label="Live command and telemetry log"></div>
   </section>
-  </details>
   </main>
 
   <!-- Per-board modal: opens the live camera stream or the board's embedded /wifi
@@ -1716,9 +1731,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       document.getElementById("signin-chip").classList.remove("show");
       closeChipPop();   // the sign-in popover's job is done
       document.getElementById("id-menu-scope").textContent = "Professor — full fleet control.";
-      document.getElementById("wire").style.display = "block";
-      document.getElementById("student-details").style.display = "block";
-      document.getElementById("details-label").textContent = "Advanced diagnostics";
+      document.getElementById("student-details").hidden = false;
       renderRobots(); // re-render cards now that scope is known (adds professor actions)
     }
 
@@ -2267,12 +2280,11 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       startPublicClient();      // signed-out cards go back to the anonymous sys feed
       if (!modal.hidden) closeModal();   // an open Drive/Camera/Telemetry sheet must not survive sign-out
       setConnPill("");
-      document.getElementById("student-details").style.display = "none";
+      document.getElementById("student-details").hidden = true;
       document.getElementById("id-chip").classList.remove("show");
       document.getElementById("signin-chip").classList.add("show");
       closeChipPop();         // the logout button lives in the account popover
       localStorage.removeItem("hubCred");
-      document.getElementById("wire").style.display = "none";
       updateSigninVisibility();
       renderRobots();
     });
