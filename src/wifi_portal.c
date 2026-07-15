@@ -149,7 +149,11 @@ static const char PAGE_CSS[] =
 "padding:.6rem .9rem;background:var(--accent-soft)!important}"
 "#join input{min-width:0;margin:0}"
 "#jssid{grid-column:1/-1;font-size:var(--fs-body);min-width:0;overflow-wrap:anywhere}"
-".foot{display:flex;gap:.9rem;flex-wrap:wrap;margin-top:.6rem;font-size:var(--fs-body)}";
+".foot{display:flex;gap:.9rem;flex-wrap:wrap;margin-top:.6rem;font-size:var(--fs-body)}"
+/* Re-inks .s, never a second note style: the ONE warn hue = "act here", and it
+ * recedes to plain ink once a password is set (same rule the dashboard's
+ * identity chip follows). Carried with a glyph + words, never hue alone. */
+".warn{color:var(--warn-ink);font-weight:600}";
 
 static const char PAGE_BODY[] =
 /* Set the embed class synchronously before first paint (no topbar flash) when
@@ -194,6 +198,10 @@ static const char PAGE_BODY[] =
  * "-" clears back to the compile-time default. */
 "<div id=profwrap hidden>"
 "<h2 style=\"margin-top:20px\">Professor password</h2>"
+/* Shown only while NVS is unset. Without it the placeholder is silent: the one
+ * gated action in the whole classroom sits behind a string anyone can read out
+ * of a published .bin, and nothing anywhere says so. */
+"<p class=\"s warn\" id=profwarn hidden>&#9888; Still the built-in password &#8212; it ships in every firmware download, so anyone on this Wi-Fi can stop the whole class. Set a real one below.</p>"
 "<p class=s id=profnote>Gates the fleet-wide emergency stop. Leave blank to keep the current one; &quot;-&quot; resets it to the built-in default.</p>"
 "<input id=profpass type=password placeholder=\"new professor password\" autocapitalize=off autocorrect=off>"
 "<button onclick=setprof() class=btn>Save password</button>"
@@ -246,8 +254,16 @@ static const char PAGE_BODY[] =
 "reopen rover.local.';setTimeout(()=>location.reload(),12000)}"
 "else{msg.textContent='Couldn\\u2019t join: '+(res.error||'check the password and try again.')}"
 "});"
-/* Reflect the board's current role in the select on load. */
-"fetch('/wifi/role').then(r=>r.json()).then(j=>{document.getElementById('role').value=j.role}).catch(()=>{});"
+/* ONE /wifi/role fetch feeds every role-dependent control — the select's value,
+ * whether the password field exists at all (hub-only; on a rover it's a control
+ * that does nothing), and whether that field is still warning. It was two
+ * identical fetches, which is how one of them ended up commented "/wifi/status
+ * carries role" while calling /wifi/role. */
+"function setprofwarn(d){document.getElementById('profwarn').hidden=!d}"
+"fetch('/wifi/role').then(r=>r.json()).then(j=>{"
+"document.getElementById('role').value=j.role;"
+"document.getElementById('profwrap').hidden=j.role!='hub';"
+"setprofwarn(j.prof_default)}).catch(()=>{});"
 /* Status card: poll /wifi/status. In embed mode the panel already sits inside the
  * dashboard, so the "open the dashboard" button is suppressed (it would navigate
  * the modal iframe into a nested dashboard). */
@@ -275,10 +291,6 @@ static const char PAGE_BODY[] =
 "v=='rover'?'Rover-only. Restarting \\u2014 it will keep looking for a hub to join.':"
 "'Normal rover. Restarting \\u2014 stay on its Wi-Fi and reopen rover.local.'}"
 "catch(x){rm.textContent='Applied \\u2014 restarting\\u2026'}}"
-/* Show the password field only when this board IS the hub — on a rover it
- * would be a control that does nothing. /wifi/status carries role. */
-"fetch('/wifi/role').then(r=>r.json()).then(j=>{"
-"document.getElementById('profwrap').hidden=j.role!='hub'}).catch(()=>{});"
 "async function setprof(){let m=document.getElementById('pmsg');"
 "let v=document.getElementById('profpass').value;"
 "if(!v){m.textContent='Enter a password, or \\u2212 to reset to the built-in default.';return}"
@@ -288,6 +300,9 @@ static const char PAGE_BODY[] =
 "m.textContent=r.ok?(v=='-'?'Reset to the built-in default. New connections use it immediately.':"
 "'Saved. New professor connections use it immediately \\u2014 no restart needed.'):"
 "('Couldn\\u2019t save: '+(r.error||'try again.'));"
+/* The warning tracks what was actually stored: clearing puts the public
+ * default back, so the amber returns rather than staying dismissed. */
+"if(r.ok)setprofwarn(v=='-');"
 "document.getElementById('profpass').value=''}"
 "catch(x){m.textContent='Save failed \\u2014 try again.'}}"
 "</script></body></html>";
@@ -567,8 +582,19 @@ static const char *role_str(rover_role_pref_t r)
 
 static esp_err_t role_get(httpd_req_t *req)
 {
-    char j[32];
-    snprintf(j, sizeof j, "{\"role\":\"%s\"}", role_str(rover_config_load_role_pref()));
+    /* prof_default mirrors connect_cb's own test (`nvs_pass[0] ? nvs : baked`):
+     * unset NVS means this hub still admits the compile-time PROFESSOR_PASS,
+     * which ships in every published .bin — i.e. Stop-all is gated by a public
+     * string. Discloses nothing: anyone on the open AP can establish the same
+     * fact with one CONNECT. Told here, not polled from /wifi/status — it
+     * changes on a save, never on its own, and this is the fetch that already
+     * decides whether the password field exists at all. */
+    char nvs_pass[65];
+    rover_config_load_professor_pass(nvs_pass);
+    char j[64];
+    snprintf(j, sizeof j, "{\"role\":\"%s\",\"prof_default\":%s}",
+             role_str(rover_config_load_role_pref()),
+             nvs_pass[0] ? "false" : "true");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, j);
 }
