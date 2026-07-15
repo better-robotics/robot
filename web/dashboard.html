@@ -508,9 +508,28 @@
     #tel-facts { gap: 0.15rem 0.9rem; font-size: 0.85rem; margin-bottom: 0.7rem; }
     #tel-facts dt { color: var(--ink-muted); }
     #tel-feed { height: 9rem; }
-    .log-line { white-space: pre-wrap; word-break: break-all; }
-    .log-out { color: var(--link); }
-    .log-in { color: var(--success); }
+    /* A log line is a ROW, not a sentence. It used to be one text node —
+       "→ robots/jonas/pwm {…}" — so nothing lined up and every line had to be
+       read from the left to find the topic. Fixed tracks mean the topic column
+       starts at the same x on every row, which is what makes a stream
+       scannable: you read DOWN the topics, not across each line.
+       The direction arrow carries the colour (it's the one glanceable bit);
+       the topic stays ink, the payload recedes — colouring a whole line makes
+       a busy log a wall of green. */
+    .log-line { display: grid; grid-template-columns: 0.9rem minmax(0, 12rem) 1fr;
+      gap: 0.55rem; align-items: baseline; }
+    .log-dir { font-weight: 700; }
+    .log-topic { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+    .log-payload { color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-out .log-dir, .log-out .log-topic { color: var(--link); }
+    .log-in .log-dir { color: var(--success); }
+    /* Beacons recede even when shown: they're the background hum, not events. */
+    .log-beacon .log-topic { color: var(--ink-muted); }
+    .log-beacon .log-payload { color: var(--ink-faint); }
+    /* Live rate — the bus's pulse. "last message 0s ago" only says something
+       arrived; msg/s says how hard the fleet is talking. */
+    #wire-rate { font-size: var(--fs-small); color: var(--ink-faint);
+      font-variant-numeric: tabular-nums; }
 
     /* Robots live as cards in the fleet grid — each robot's identity is a
        card. #codes below is hidden storage for the professor's Assign sheet
@@ -936,6 +955,7 @@
       <!-- Link health at a glance, beside the title it qualifies. -->
       <span id="details-age"></span>
       <span class="spacer"></span>
+      <span id="wire-rate" aria-live="off"></span>
       <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
       <!-- Labelled "sys" because that is literally what it filters, and the log
            prints the topic on every line (robots/<id>/sys …) — so the label
@@ -1681,6 +1701,15 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // classroom.example.json5.
     let driveClient = null, myScope = null, target = null, targetBoard = null, dragging = false, lastSend = 0;
     const MAX_LOG = 60;
+    // Messages seen since the last sample. Counted at ingest (before the
+    // beacon/rover filters) so the rate is the BUS's, not the view's — hiding
+    // sys must not make the fleet look idle.
+    let wireMsgs = 0;
+    setInterval(() => {
+      const el = document.getElementById("wire-rate");
+      if (el) el.textContent = wireMsgs ? `${wireMsgs} msg/s` : "";
+      wireMsgs = 0;
+    }, 1000);
 
     let wirePaused = false;
     // Bus-view filters: beacons hidden by DEFAULT — at N rovers the sys
@@ -1699,6 +1728,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     let telemetryHook = null;
     function logLine(dir, text) {
       if (telemetryHook) telemetryHook(dir, text);
+      wireMsgs++;   // before the pause/filter returns — see wireMsgs
       if (wirePaused) return; // paused = freeze what's on screen for reading
       const log = document.getElementById("wire-log");
       // Respect a reader who scrolled up: only auto-follow from the bottom.
@@ -1707,8 +1737,18 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       line.className = `log-line log-${dir}`;
       const robot = text.startsWith("robots/") ? text.split("/")[1] : "";
       line.dataset.robot = robot;
-      if (dir === "in" && text.split(" ")[0].endsWith("/sys")) line.classList.add("log-beacon");
-      line.textContent = `${dir === "out" ? "→" : "←"} ${text}`;
+      // Split ONCE on the first space: a topic never contains one, and the
+      // payload always may (JSON). textContent per cell, never innerHTML —
+      // both topic and payload are attacker-reachable over the open ACL.
+      const sp = text.indexOf(" ");
+      const topic = sp < 0 ? text : text.slice(0, sp);
+      const payload = sp < 0 ? "" : text.slice(sp + 1);
+      if (dir === "in" && topic.endsWith("/sys")) line.classList.add("log-beacon");
+      const cell = (cls, t) => { const e = document.createElement("span"); e.className = cls; e.textContent = t; return e; };
+      line.append(cell("log-dir", dir === "out" ? "↑" : "↓"),
+                  cell("log-topic", topic),
+                  cell("log-payload", payload));
+      line.title = text;   // the full line, for anything the columns clip
       if (lineHidden(line)) line.style.display = "none";
       log.appendChild(line);
       while (log.children.length > MAX_LOG) log.removeChild(log.firstChild);
