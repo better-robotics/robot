@@ -733,18 +733,18 @@
 <body>
   <header class="topbar"><h1><span class="logo-accent">Better</span><span class="logo-base">Robotics</span><span id="host-chip"></span></h1>
     <span class="topbar-right">
-      <button id="net-chip" class="tchip" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9.3a15 15 0 0 1 19 0"/><path d="M5.5 13a11 11 0 0 1 13 0"/><path d="M8.7 16.6a6 6 0 0 1 6.6 0"/><circle cx="12" cy="19.7" r="1.3" fill="currentColor" stroke="none"/></svg><span id="net-chip-label"></span></button>
+      <button id="net-chip" class="tchip" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false" data-icon="wifi"><span id="net-chip-label"></span></button>
       <!-- Fleet e-stop: one tap engages the retained fleet/estop latch
            (CONTRACT.md § Fleet e-stop). Direct action, not a popover chip;
            visible only to a signed-in professor, and while engaged the
            banner (with its Clear) takes over. -->
-      <button id="estop-chip" class="tchip danger" aria-label="Emergency stop — halt every rover"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 2.5h8.2l5.4 5.4v8.2l-5.4 5.4H7.9l-5.4-5.4V7.9z"/></svg><span>Stop all</span></button>
+      <button id="estop-chip" class="tchip danger" aria-label="Emergency stop — halt every rover" data-icon="octagon"><span>Stop all</span></button>
       <!-- Locked: the professor's door lives in the account corner. It isn't a
            sign-in — one shared code unlocks the professor role; robots need no
            credential at all (Claim on the rover card, Drive for anyone).
            Swaps for #id-chip once a session exists. -->
-      <button id="signin-chip" class="tchip" aria-label="Professor — unlock fleet controls" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-5 8-5s8 1.7 8 5v1H4z"/></svg><span>Professor</span></button>
-      <button id="id-chip" class="tchip" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-3.3 3.6-5 8-5s8 1.7 8 5v1H4z"/></svg><span id="id-chip-name"></span></button>
+      <button id="signin-chip" class="tchip" aria-label="Professor — unlock fleet controls" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false" data-icon="person"><span>Professor</span></button>
+      <button id="id-chip" class="tchip" aria-haspopup="true" aria-controls="chip-pop" aria-expanded="false" data-icon="person"><span id="id-chip-name"></span></button>
     </span>
   </header>
   <!-- The corner popover both chips share; content MOVES in on open and back
@@ -1451,12 +1451,20 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       claim: '<path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M16 19h6"/><path d="M19 16v6"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4"/>',
       /* tabler outline/alert-triangle */
       warn: '<path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0"/><path d="M12 16h.01"/>',
+      /* tabler outline/octagon — the e-stop chip's stop-sign silhouette */
+      octagon: '<path d="M12.802 2.165l5.575 2.389c.48 .206 .863 .589 1.07 1.07l2.388 5.574c.22 .512 .22 1.092 0 1.604l-2.389 5.575c-.206 .48 -.589 .863 -1.07 1.07l-5.574 2.388c-.512 .22 -1.092 .22 -1.604 0l-5.575 -2.389a2.036 2.036 0 0 1 -1.07 -1.07l-2.388 -5.574a2.036 2.036 0 0 1 0 -1.604l2.389 -5.575c.206 -.48 .589 -.863 1.07 -1.07l5.574 -2.388a2.036 2.036 0 0 1 1.604 0"/>',
       /* tabler outline/steering-wheel */
       drive: '<path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/><path d="M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M12 14l0 7"/><path d="M10 12l-6.75 -2"/><path d="M14 12l6.75 -2"/>',
     };
     const icon = (n, s = 13) =>
       `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[n]}</svg>`;
-    const WIFI_SVG = icon("wifi", 11);
+    // Static chips declare which glyph they want and get it from the SAME pack.
+    // They used to hardcode an <svg> in the markup, which is how the topbar kept
+    // drawing feather's person while the cards drew tabler's — one glyph, two
+    // drawings, because the 2026-07-16 migration only reached this JS pack. No
+    // flash: .tchip is display:none until JS adds .show anyway.
+    for (const el of document.querySelectorAll("[data-icon]"))
+      el.insertAdjacentHTML("afterbegin", icon(el.dataset.icon, 13));
     const PERSON_SVG = icon("person", 11);
     function deviceCard(board, rec, robotCounts) {
       const { sys, robot, seenAt } = rec;
@@ -2495,7 +2503,6 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // Delegated on #robots (which persists across re-renders); the buttons inside
       // are rebuilt every 2s, so we match on closest, not the exact target.
       const cam = e.target.closest("[data-cam-ip]");
-      const cfg = e.target.closest("[data-cfg-ip]");
       const blk = e.target.closest("[data-blink]");
       const asg = e.target.closest("[data-assign]");
       const tel = e.target.closest("[data-tel]");
@@ -2505,7 +2512,6 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       if (cam) openCamera(cam.dataset.id, cam.dataset.camIp, cam.dataset.board);
       else if (drv) openDrive(drv.dataset.driveOpen, drv.dataset.driveBoard);
       else if (tel) openTelemetry(tel.dataset.tel, tel.dataset.telBoard);
-      else if (cfg) openConfig(cfg.dataset.id, cfg.dataset.cfgIp, cfg.dataset.board);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.brobot);
       else if (asg) preselectAssign(asg.dataset.assign, asg.dataset.brobot, true);
       else if (clm) {
