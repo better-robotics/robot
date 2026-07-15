@@ -100,10 +100,20 @@ void rover_button_start(void) {
  * with, so "factory-new" reads the same on every card until a name is
  * assigned post-join over robots/<id>/cmd/config. */
 /* Identity is NVS-backed: a name assigned post-join overrides this
- * compile-time default. s_topic_id tracks s_name so the publish/subscribe
+ * compile-time default. s_topic_id names the live buffer so publish/subscribe
  * topics follow a reassignment after the next boot. */
-static char s_name[33] = ROVER_NAME;
-static const char *s_topic_id = s_name;
+/* Double-buffered so a live rename can't be read half-written. config_apply
+ * runs on the mqtt event task; the sys loop reads the name every 2s on
+ * another. Writing one buffer in place would let that loop snapshot a
+ * half-copied name and publish to robots/<garbage>/sys — and the dashboard
+ * never expires a card, so one torn read would strand a phantom rover on
+ * screen forever. Instead: fill the IDLE buffer, then flip s_topic_id, which
+ * is a single aligned pointer store (atomic on ESP32/RISC-V). A reader either
+ * sees the whole old name or the whole new one. This didn't matter while every
+ * rename rebooted. */
+static char s_name_buf[2][33] = { ROVER_NAME };
+static volatile const char *s_topic_id_v = s_name_buf[0];
+#define s_topic_id ((const char *)s_topic_id_v)
 
 static volatile bool s_mqtt_up = false;   /* live session; drives dead-session self-heal */
 static volatile int64_t s_last_drive_us = INT64_MIN;  /* esp_timer time of the last pwm; hub_watch reads it */
@@ -301,11 +311,23 @@ static void estop_apply(const char *json, int len) {
     }
 }
 
-/* Post-join assignment: {"name":"scout"} on robots/<id>/cmd/config. Persist
- * and reboot to reconnect under the new topic — no password rides along; a
- * name is an address, not a credential. This is the reshaped onboarding —
- * the hub dashboard assigns a rover instead of BLE/compile flags. */
-static void config_apply(const char *json, int len) {
+/* Post-join assignment: {"name":"scout"} on robots/<id>/cmd/config. No password
+ * rides along; a name is an address, not a credential. This is the reshaped
+ * onboarding — the hub dashboard assigns a rover instead of BLE/compile flags.
+ *
+ * A NAME CHANGE NO LONGER REBOOTS (2026-07-16). It used to, but only because
+ * this function batched four settings behind one `changed` flag and pins/flip
+ * genuinely need a restart (motor_init already configured the LEDC channels
+ * with the old map). The name was paying someone else's cost — on the most
+ * common classroom action, for a ~10s dropout. A name is just the topic we
+ * subscribe under, so re-pointing the subscriptions IS the rename. Same for
+ * the hub pin, which is only ever read at discovery/hub-watch.
+ *
+ * Publishes follow because the sys loop rebuilds its topic from s_topic_id
+ * every tick (s_topic_id names the live name buffer). It used to snapshot it
+ * once before the loop — fine while every rename rebooted, and a silent
+ * stale-card bug the moment one didn't. */
+static void config_apply(const char *json, int len, esp_mqtt_client_handle_t cli) {
     cJSON *root = cJSON_ParseWithLength(json, len);
     if (!root) { ESP_LOGW(TAG, "config: unparseable payload"); return; }
     /* Optional "target" board-id: rovers sharing a name all see this topic, so a
@@ -314,12 +336,20 @@ static void config_apply(const char *json, int len) {
     if (cJSON_IsString(target) && strcmp(target->valuestring, s_id) != 0) {
         cJSON_Delete(root); return;   /* not addressed to this board */
     }
-    bool changed = false;
+    bool changed = false;      /* anything at all — worth logging */
+    bool needs_boot = false;   /* ONLY pins/flip: motor_init already ran */
+    char old_name[33] = "";    /* set iff the name moved, to unsubscribe from */
 
     const cJSON *name = cJSON_GetObjectItemCaseSensitive(root, "name");
-    if (cJSON_IsString(name) && name->valuestring[0]) {
+    if (cJSON_IsString(name) && name->valuestring[0]
+        && strcmp(name->valuestring, s_topic_id) != 0) {   /* same name = no-op, not churn */
         rover_config_set_identity(name->valuestring);
-        ESP_LOGW(TAG, "assigned name '%s'", name->valuestring);
+        snprintf(old_name, sizeof old_name, "%s", s_topic_id);   /* what to unsubscribe from */
+        /* Fill the idle buffer, THEN publish it with one pointer store. */
+        char *idle = (s_topic_id == s_name_buf[0]) ? s_name_buf[1] : s_name_buf[0];
+        snprintf(idle, sizeof s_name_buf[0], "%s", name->valuestring);
+        s_topic_id_v = idle;
+        ESP_LOGW(TAG, "assigned name '%s' (was '%s')", s_topic_id, old_name);
         changed = true;
     }
 
@@ -350,6 +380,7 @@ static void config_apply(const char *json, int len) {
             if (cJSON_IsNumber(v)) p[i] = v->valueint;
         }
         if (rover_config_set_motor_pins(p) == ESP_OK) {
+            needs_boot = true;   /* motor_init ran with the old map */
             ESP_LOGW(TAG, "motor pins updated: %d %d %d %d %d %d",
                      p[0], p[1], p[2], p[3], p[4], p[5]);
             changed = true;
@@ -376,6 +407,7 @@ static void config_apply(const char *json, int len) {
             for (int i = 0; i < 3; i++) { tmp = p[i]; p[i] = p[i + 3]; p[i + 3] = tmp; }
         }
         if (rover_config_set_motor_pins(p) == ESP_OK) {
+            needs_boot = true;   /* motor_init ran with the old map */
             ESP_LOGW(TAG, "motor orientation flip -> pins %d %d %d %d %d %d",
                      p[0], p[1], p[2], p[3], p[4], p[5]);
             changed = true;
@@ -383,12 +415,32 @@ static void config_apply(const char *json, int len) {
     }
 
     cJSON_Delete(root);
-    if (changed) {   /* reboot re-reads NVS: new name reconnects, new pins re-init */
-        ESP_LOGW(TAG, "config applied — rebooting");
+
+    /* A rename is just a change of address: drop the old subscriptions and take
+     * the new ones. Order matters — subscribe BEFORE unsubscribing, so a pwm
+     * command arriving mid-rename lands on one of them rather than neither.
+     * (The reverse order leaves a hole where the rover answers to no topic.)
+     * Doing this needs no reboot, which is the whole point; only pins/flip do. */
+    if (old_name[0] && cli) {
+        char t[64];
+        static const char *chans[] = { "pwm", "cmd/config", "cmd/identify", "cmd/reprovision" };
+        for (size_t i = 0; i < sizeof chans / sizeof *chans; i++) {
+            snprintf(t, sizeof t, "robots/%s/%s", s_topic_id, chans[i]);
+            esp_mqtt_client_subscribe(cli, t, 0);
+        }
+        for (size_t i = 0; i < sizeof chans / sizeof *chans; i++) {
+            snprintf(t, sizeof t, "robots/%s/%s", old_name, chans[i]);
+            esp_mqtt_client_unsubscribe(cli, t);
+        }
+        ESP_LOGW(TAG, "re-subscribed as '%s' — no reboot", s_topic_id);
+    }
+
+    if (needs_boot) {   /* pins/flip only: motor_init must re-run against NVS */
+        ESP_LOGW(TAG, "motor map changed — rebooting to re-init");
         vTaskDelay(pdMS_TO_TICKS(300));   /* flush log + let the broker ack */
         esp_restart();
     }
-    ESP_LOGW(TAG, "config: nothing to apply");
+    if (!changed) ESP_LOGW(TAG, "config: nothing to apply");
 }
 
 /* ── cmd/identify: blink the LED so a physical board can be matched to its id ──
@@ -486,7 +538,7 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
         } else if (e->topic_len >= 4 && memcmp(e->topic + e->topic_len - 4, "/pwm", 4) == 0) {
             motor_apply(e->data, e->data_len);
         } else if (e->topic_len >= 7 && memcmp(e->topic + e->topic_len - 7, "/config", 7) == 0) {
-            config_apply(e->data, e->data_len);
+            config_apply(e->data, e->data_len, e->client);
         } else if (e->topic_len >= 9 && memcmp(e->topic + e->topic_len - 9, "/identify", 9) == 0) {
             identify_apply(e->data, e->data_len);
         } else if (e->topic_len >= 12 && memcmp(e->topic + e->topic_len - 12, "/reprovision", 12) == 0) {
@@ -519,9 +571,9 @@ void rover_client_run(const char *broker_uri) {
     rover_format_robot_id(mac, s_id);
     char cu[33];
     rover_config_load_identity(cu);
-    if (cu[0]) strncpy(s_name, cu, sizeof s_name - 1);
+    if (cu[0]) snprintf(s_name_buf[0], sizeof s_name_buf[0], "%s", cu);   /* boot: no reader yet */
     led_set(false);   /* start dark; MQTT CONNECTED lights it */
-    ESP_LOGI(TAG, "rover client: id %s as '%s' → %s", s_id, s_name, broker_uri);
+    ESP_LOGI(TAG, "rover client: id %s as '%s' → %s", s_id, s_topic_id, broker_uri);
 
     /* No .credentials: every hub admits every name with no MQTT auth at all
      * (confirmed 2026-07-13 — CONTRACT.md § Discovery & isolation). MQTT is
@@ -563,15 +615,20 @@ void rover_client_run(const char *broker_uri) {
         return;
     }
 
+    /* Rebuilt EVERY tick, not once here: a live rename (config_apply) moves
+     * the name under this loop, and a topic snapshotted before the loop would
+     * keep publishing sys to the old address forever — the dashboard would show
+     * a card that never updates while the rover looked healthy on the wire.
+     * A snprintf per 2s is free; the bug it prevents is not. */
     char key[48];
-    snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);
-    ESP_LOGI(TAG, "publishing %s every 2 s", key);
+    ESP_LOGI(TAG, "publishing robots/%s/sys every 2 s", s_topic_id);
 
     char buf[320];   /* worst-case sys payload with "pins"+rssi is ~250 — keep headroom */
     int down = 0;   /* consecutive 2 s ticks with no live session — dead → return */
     for (;;) {
         if (s_mqtt_up) {
             down = 0;
+            snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);   /* follows a rename */
             int64_t up_ms = esp_timer_get_time() / 1000;
             uint32_t heap = esp_get_free_heap_size();
             /* STA IP so the dashboard can reach this rover's camera (:81/stream) and
