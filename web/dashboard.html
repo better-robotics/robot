@@ -491,13 +491,13 @@
     /* Chip-scale log toggles: the base tile with a transparent fill, opting out
        of --ctrl-h like the other chip-scale controls (they carry the ::after
        hit extension — see the 44pt rule above). */
-    #wire-pause, #wire-beacons { font-size: var(--fs-small); min-height: 0;
+    #wire-pause { font-size: var(--fs-small); min-height: 0;
       padding: 0.2rem 0.7rem; border-color: var(--border-strong);
       background: transparent; color: var(--ink-muted); }
-    #wire-pause[aria-pressed="true"], #wire-beacons[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
-    #wire-filter { font-size: 0.78rem; padding: 0.2rem 0.4rem; border-radius: var(--radius);
+    #wire-pause[aria-pressed="true"] { background: var(--accent-soft); color: var(--link); }
+    #wire-filter, #wire-topic { font-size: var(--fs-small); padding: 0.2rem 0.4rem; border-radius: var(--radius);
       border: 0.5px solid var(--border-strong); background: var(--inset); color: var(--ink); max-width: 9rem; }
-    #wire-log, #tel-feed {
+    #wire-log {
       height: 11rem; overflow-y: auto; background: var(--inset);
       border: 0.5px solid var(--border-default); border-radius: var(--radius);
       padding: 0.6rem 0.8rem; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
@@ -507,7 +507,6 @@
        Column shrinking + value wrapping ride the base dl/dd rule above. */
     #tel-facts { gap: 0.15rem 0.9rem; font-size: 0.85rem; margin-bottom: 0.7rem; }
     #tel-facts dt { color: var(--ink-muted); }
-    #tel-feed { height: 9rem; }
     /* A log line is a ROW, not a sentence. It used to be one text node —
        "→ robots/jonas/pwm {…}" — so nothing lined up and every line had to be
        read from the left to find the topic. Fixed tracks mean the topic column
@@ -548,8 +547,8 @@
        they sit in: an invisible hit extension. Vertical reach does the work
        (~26px visual + 2×9px); horizontal stays tight so adjacent chips
        (0.3rem gaps) don't fight over taps. */
-    button.cchip, .tchip, #wire-pause, #wire-beacons, .link-btn { position: relative; }
-    button.cchip::after, .tchip::after, #wire-pause::after, #wire-beacons::after {
+    button.cchip, .tchip, #wire-pause, .link-btn { position: relative; }
+    button.cchip::after, .tchip::after, #wire-pause::after {
       content: ""; position: absolute; inset: -10px -2px; }
     /* .link-btn opts out of --tap (a 44px-tall text link would read as a
        button), so it needs the same treatment or it ships a ~20px target on a
@@ -726,7 +725,7 @@
        chips, which is what made the professor gate look bolted on. */
     @media (pointer: coarse) {
       button, .btn-tile, input, select, .segmented button,
-      .wifi-net, #wire-filter { min-height: var(--tap); }
+      .wifi-net, #wire-filter, #wire-topic { min-height: var(--tap); }
       .link-btn { min-height: 0; }
     }
   </style>
@@ -949,7 +948,7 @@
        toll. (The old summary read "Details & troubleshooting", which never
        once rendered: the row is display:none until signIn, which retitles it
        first.) -->
-  <section id="student-details" hidden>
+  <section id="student-details">
     <div class="wire-head">
       <h2 id="details-label">Advanced diagnostics</h2>
       <!-- Link health at a glance, beside the title it qualifies. -->
@@ -957,17 +956,24 @@
       <span class="spacer"></span>
       <span id="wire-rate" aria-live="off"></span>
       <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
-      <!-- Labelled "sys" because that is literally what it filters, and the log
-           prints the topic on every line (robots/<id>/sys …) — so the label
-           matches the thing it acts on and teaches itself in place.
-           It was "Beacons": the firmware's word for a sys message, appearing
-           NOWHERE on screen, so it needed outside knowledge. "Status updates"
-           was worse — every line here is a pub/sub message and fleet/estop is a
-           status too, so it picked nothing out. What actually makes sys
-           different is that it's the only UNPROMPTED one: every rover, every
-           2s, forever, which is why it's hidden until asked for.
-           Toggle: pressed = shown. -->
-      <button id="wire-beacons" aria-pressed="false" title="robots/<id>/sys — each rover's status, sent every 2s unprompted. Most of the traffic, so it's hidden until you ask.">sys</button>
+      <!-- Topic filter. Options are CONTRACT.md's channels verbatim, because the
+           log prints the topic on every line — the filter names the thing it
+           acts on, so it teaches itself in place. This replaced a binary toggle
+           that could only ever express one of these seven choices, and that was
+           labelled "Beacons": the firmware's word for a sys message, appearing
+           NOWHERE on screen.
+           Default "all except sys": sys is the only UNPROMPTED channel — every
+           rover, every 2s, forever — so it drowns the events unless asked for. -->
+      <select id="wire-topic" aria-label="Filter log by topic">
+        <option value="-sys">all except sys</option>
+        <option value="">all topics</option>
+        <option value="sys">sys</option>
+        <option value="pwm">pwm</option>
+        <option value="cmd">cmd</option>
+        <option value="imu">imu</option>
+        <option value="led">led</option>
+        <option value="estop">estop</option>
+      </select>
       <button id="wire-pause" aria-pressed="false">Pause</button>
     </div>
     <!-- The arrow key is a CAPTION for the log, not a control: it sat inside
@@ -1470,7 +1476,6 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
               ? `<button class="cchip cchip-robot pool" data-assign="${esc(board)}" data-brobot="${esc(robot)}" title="Assign a name">${PERSON_SVG}<span>Unassigned</span></button>`
               : `<span class="cchip cchip-robot pool">${PERSON_SVG}<span>Unassigned</span></span>`;
       const chips = `<span class="card-chips">
-        ${sys.ip && prof ? `<button class="cchip" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(robot)}" data-board="${esc(board)}" title="Rover Wi-Fi settings">${WIFI_SVG}<span>${esc(sys.ip)}</span></button>` : ""}
         ${idChip}
       </span>`;
       // ONE row, ONE order, ONE name per action — buttons appear and disappear
@@ -1497,10 +1502,15 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // and pointless on a board that isn't answering.
       if (prof && !offline)
         actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-brobot="${esc(robot)}">${icon("zap")} Identify</button>`);
-      // The rendered sys. Offered to a student on their own rover too — it's
-      // the "why won't it move" surface, which is exactly a student question.
+      // "Details", not "Telemetry": this sheet is the board's facts — IP, RAM,
+      // Wi-Fi, signal, uptime, hardware, motor pins — and "Telemetry" named the
+      // transport instead of the content, so nobody could tell it was the info
+      // panel (Jonas asked for an info button that already existed). The student
+      // view called it "Details" before today's unification; that was the right
+      // survivor. Offered to a student on their own rover too — it's the "why
+      // won't it move" surface, which is exactly a student question.
       if (prof || !isPool)
-        actions.push(`<button class="btn-tile" data-tel="${esc(robot)}" data-tel-board="${esc(board)}">${icon("activity")} Telemetry</button>`);
+        actions.push(`<button class="btn-tile" data-tel="${esc(robot)}" data-tel-board="${esc(board)}">${icon("activity")} Details</button>`);
       // Claim: no sign-in, no approval — type a name and it's published.
       // The amber corner chip is the one entry (no idle-state button — one
       // CTA per card); this row only shows the inline name field once tapped.
@@ -1657,8 +1667,14 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
           hostGate.style.display = "flex";
         });
       }
-      publicClient.on("message", (topic, payload) =>
-        topic === "fleet/estop" ? ingestEstop(payload) : ingestSys(topic, payload));
+      publicClient.on("message", (topic, payload) => {
+        // Log it too: logLine("in", …) used to be called from the professor's
+        // driveClient ONLY, so an anonymous session's log showed its own "→ you
+        // send" lines and never one "← the rover answers" — the legend would
+        // have been a lie the moment students could see the panel.
+        logLine("in", `${topic} ${payload.toString()}`);
+        topic === "fleet/estop" ? ingestEstop(payload) : ingestSys(topic, payload);
+      });
     }
     function stopPublicClient() {
       if (!publicClient) return;
@@ -1716,18 +1732,18 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // beacons are ~90% of volume and drown the command traffic the log
     // exists to teach; the rendered per-rover Telemetry view is where sys
     // belongs. Robot filter narrows to one subtree.
-    let wireHideBeacons = true, wireRobot = "";
+    // "-sys" = everything except sys (default), "" = everything, else the one
+    // channel to show. The boolean this replaced could only say sys/not-sys.
+    let wireTopic = "-sys", wireRobot = "";
     const lineHidden = l =>
-      (wireHideBeacons && l.classList.contains("log-beacon")) ||
+      (wireTopic === "-sys" ? l.dataset.chan === "sys"
+        : wireTopic ? l.dataset.chan !== wireTopic : false) ||
       (wireRobot && l.dataset.robot !== wireRobot);
     function applyWireFilters() {
       for (const l of document.querySelectorAll("#wire-log .log-line"))
         l.style.display = lineHidden(l) ? "none" : "";
     }
-    // Telemetry modal tap: when open, lines for its robot also feed the sheet.
-    let telemetryHook = null;
     function logLine(dir, text) {
-      if (telemetryHook) telemetryHook(dir, text);
       wireMsgs++;   // before the pause/filter returns — see wireMsgs
       if (wirePaused) return; // paused = freeze what's on screen for reading
       const log = document.getElementById("wire-log");
@@ -1743,7 +1759,13 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       const sp = text.indexOf(" ");
       const topic = sp < 0 ? text : text.slice(0, sp);
       const payload = sp < 0 ? "" : text.slice(sp + 1);
-      if (dir === "in" && topic.endsWith("/sys")) line.classList.add("log-beacon");
+      // The channel is the topic's meaning: robots/<id>/<chan>[/...] -> chan,
+      // and fleet/estop -> estop. Stamped once here so the filter compares a
+      // field instead of re-parsing the text on every pass.
+      const seg = topic.split("/");
+      const chan = topic.startsWith("robots/") ? (seg[2] || "") : seg[seg.length - 1];
+      line.dataset.chan = chan;
+      if (dir === "in" && chan === "sys") line.classList.add("log-beacon");
       const cell = (cls, t) => { const e = document.createElement("span"); e.className = cls; e.textContent = t; return e; };
       line.append(cell("log-dir", dir === "out" ? "↑" : "↓"),
                   cell("log-topic", topic),
@@ -1759,9 +1781,8 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       e.target.setAttribute("aria-pressed", String(wirePaused));
       e.target.textContent = wirePaused ? "Resume" : "Pause";
     });
-    document.getElementById("wire-beacons").addEventListener("click", (e) => {
-      wireHideBeacons = !wireHideBeacons;
-      e.target.setAttribute("aria-pressed", String(!wireHideBeacons));
+    document.getElementById("wire-topic").addEventListener("change", (e) => {
+      wireTopic = e.target.value;
       applyWireFilters();
     });
     document.getElementById("wire-filter").addEventListener("change", (e) => {
@@ -1796,7 +1817,6 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       document.getElementById("signin-chip").classList.remove("show");
       closeChipPop();   // the sign-in popover's job is done
       document.getElementById("id-menu-scope").textContent = "Professor — full fleet control.";
-      document.getElementById("student-details").hidden = false;
       renderRobots(); // re-render cards now that scope is known (adds professor actions)
     }
 
@@ -2345,7 +2365,6 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       startPublicClient();      // signed-out cards go back to the anonymous sys feed
       if (!modal.hidden) closeModal();   // an open Drive/Camera/Telemetry sheet must not survive sign-out
       setConnPill("");
-      document.getElementById("student-details").hidden = true;
       document.getElementById("id-chip").classList.remove("show");
       document.getElementById("signin-chip").classList.add("show");
       closeChipPop();         // the logout button lives in the account popover
@@ -2542,12 +2561,22 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       wrap.className = "assign-sheet stack";
       const facts = document.createElement("dl");
       facts.id = "tel-facts";
-      const feedHead = document.createElement("p");
-      feedHead.className = "hint";
-      feedHead.textContent = `Live traffic on robots/${robot}/# — what this session's subscription carries.`;
-      const feed = document.createElement("div");
-      feed.id = "tel-feed";
-      wrap.append(facts, feedHead, feed);
+      // The board's Wi-Fi/role panel opens FROM here now. It used to hide
+      // behind the IP chip on the card, which showed a fact and secretly acted
+      // as a config link — one control doing two jobs, and the config half was
+      // undiscoverable (you had to know the chip was a button). The IP is a
+      // fact and lives in the facts list above; changing it is an action and
+      // lives here, next to the facts it changes. Same shape as Unassign
+      // sitting in the identity sheet the name pill opens.
+      // Professor-only, and only once the board has reported an address to
+      // reach it at (it's fetched cross-host over plain http).
+      const cfgRow = document.createElement("p");
+      // No live feed here: Advanced diagnostics already carries one, with a
+      // rover filter that does this sheet's job and the whole bus besides. This
+      // sheet is the board's FACTS. (A student sees no wire log — professor-only
+      // — but the facts are the "why won't it move" answers; a raw MQTT stream
+      // isn't.)
+      wrap.append(facts, cfgRow);
       const render = () => {
         const rec = board ? boards.get(board) : robots.get(robot);
         const sys = rec?.sys;
@@ -2566,18 +2595,20 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         facts.innerHTML = rows.join("");
       };
       render();
-      telemetrySync = render;                 // the 2 s tick keeps the facts live
-      telemetryHook = (dir, text) => {        // logLine feeds robot-matching lines
-        if (!text.startsWith(`robots/${robot}/`)) return;
-        const line = document.createElement("div");
-        line.className = `log-line log-${dir}`;
-        line.textContent = `${dir === "out" ? "→" : "←"} ${text}`;
-        feed.appendChild(line);
-        while (feed.children.length > 40) feed.removeChild(feed.firstChild);
-        feed.scrollTop = feed.scrollHeight;
+      const renderCfg = () => {
+        const sys = (board ? boards.get(board) : robots.get(robot))?.sys;
+        cfgRow.textContent = "";
+        if (!(sys?.ip && myScope?.scope === "all")) return;
+        const b = document.createElement("button");
+        b.className = "link-btn";
+        b.textContent = "Wi-Fi & role settings…";
+        b.addEventListener("click", () => openConfig(robot, sys.ip, board));
+        cfgRow.append(b);
       };
-      openModal(`${board || robot} — telemetry`, wrap);
-      modalRestore = () => { telemetryHook = null; telemetrySync = null; };
+      renderCfg();
+      telemetrySync = () => { render(); renderCfg(); };   // the 2 s tick keeps both live
+      openModal(`${board || robot} — details`, wrap);
+      modalRestore = () => { telemetrySync = null; };
     }
 
     // Drive opens the same per-board modal as Camera/Telemetry, parented with
