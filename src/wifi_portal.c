@@ -568,7 +568,16 @@ static esp_err_t captive_ack_post(httpd_req_t *req)
  * that doesn't, which breaks the phone's own cellular fallback (hardware-
  * verified 2026-07-14, this same file). Continue only ever helps the sheet
  * close cleanly; it was never the only way to the dashboard. */
-static const char WELCOME[] =
+/* Split so welcome_get() can splice a runtime AP_BASE between them (the AP's
+ * own IP, computed once at wifi_portal_start() — see s_ap_base below). WELCOME
+ * used to just do `d0.href=j.dash||'/'`, which is a bare relative path in the
+ * common case (board_net_state_set(..., "/") — hub_role.c). A target=_blank
+ * tap on that relative href only ever escapes the captive sandbox to a real
+ * browser tab reliably when it resolves to an address the OS is willing to
+ * hand off — exactly the "never redirect a walled-garden client to a
+ * hostname" problem s_welcome_url already solves for the initial redirect
+ * (2026-07-15, live-reported: the link visibly did nothing on iOS's CNA). */
+static const char WELCOME_PRE[] =
 "<!doctype html><html><head><meta charset=utf-8>"
 "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
 "<title>BetterRobotics</title><style>"
@@ -609,10 +618,17 @@ static const char WELCOME[] =
 "this pop-up forgets sign-ins when it closes.</p>"
 "<a class=btn id=dashlink href=/ target=_blank rel=noopener>Open the dashboard</a></div>"
 "</main>"
-"<script>"
+"<script>";
+/* welcome_get() sends "const AP_BASE='http://a.b.c.d';" here, then this. */
+static const char WELCOME_POST[] =
 "let lede=document.getElementById('lede'),go=document.getElementById('go'),"
 "d0=document.getElementById('dashlink0');"
 "let tries=0;"
+/* AP_BASE is this board's own literal IP — always safe to hand a real
+ * browser tab regardless of what hostname the captive sheet itself loaded
+ * this page as. A dash already starting with 'http' (the remote/hub-joined
+ * case, hub_role.c's board_run) is already absolute and passes through. */
+"function abs(u){return u&&u.indexOf('http')==0?u:AP_BASE+(u||'/')}"
 /* ?done=1 is the post-Continue view. Continue REACHES it by a real navigation
  * (location.href), never a DOM swap: the captive sheet re-runs its probe only
  * on a full-page load, so an AJAX-only accept leaves the sheet stuck on
@@ -622,7 +638,7 @@ static const char WELCOME[] =
 "document.getElementById('before').style.display='none';"
 "document.getElementById('after').style.display='block';"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
-"document.getElementById('dashlink').href=j.dash||'/'}).catch(()=>{})"
+"document.getElementById('dashlink').href=abs(j.dash)}).catch(()=>{})"
 "}else{refresh()}"
 /* Poll, don't check once: right after a connect-reboot the phone rejoins and
  * this sheet reopens while the STA is still mid-join — a single check showed
@@ -632,7 +648,7 @@ static const char WELCOME[] =
  * never happen. dashlink0 stays live the whole time regardless. */
 "function refresh(){"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
-"d0.href=j.dash||'/';"
+"d0.href=abs(j.dash);"
 "let v=document.getElementById('venue-go');v.style.display='none';"
 "if(j.uplink=='full'){tries=0;"
 "go.style.display='block';"
@@ -668,13 +684,24 @@ static const char WELCOME[] =
 "});"
 "</script></body></html>";
 
+/* This board's own literal IP, "http://a.b.c.d" — set once at
+ * wifi_portal_start() (AP IP is fixed for the boot), spliced into WELCOME's
+ * AP_BASE. Empty until then, which resolves to a harmless relative link (the
+ * pre-boot window this page is never actually served in). */
+static char s_ap_base[24] = "";
+
 static esp_err_t welcome_get(httpd_req_t *req)
 {
     char host[64] = "?";
     httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
     ESP_LOGI(TAG, "GET /welcome (Host: %s)", host);
     httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_send(req, WELCOME, HTTPD_RESP_USE_STRLEN);
+    char ap_base_js[48];
+    snprintf(ap_base_js, sizeof ap_base_js, "const AP_BASE='%s';", s_ap_base);
+    if (httpd_resp_send_chunk(req, WELCOME_PRE, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+    if (httpd_resp_send_chunk(req, ap_base_js, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+    if (httpd_resp_send_chunk(req, WELCOME_POST, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+    return httpd_resp_send_chunk(req, NULL, 0);   /* terminates the chunked response */
 }
 
 /* GET /captive-portal-api — RFC 8908, what the DHCP option 114 URI
@@ -818,11 +845,14 @@ void wifi_portal_start(void)
         return;
     }
     /* The AP IP is fixed for the boot — bake the absolute portal URL every
-     * probe/catch-all redirect points at (falls back to the relative path). */
+     * probe/catch-all redirect points at (falls back to the relative path),
+     * and s_ap_base for WELCOME's own dashboard link (same reasoning). */
     esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
     esp_netif_ip_info_t ipi = {0};
-    if (ap && esp_netif_get_ip_info(ap, &ipi) == ESP_OK)
+    if (ap && esp_netif_get_ip_info(ap, &ipi) == ESP_OK) {
         snprintf(s_welcome_url, sizeof s_welcome_url, "http://" IPSTR "/welcome", IP2STR(&ipi.ip));
+        snprintf(s_ap_base, sizeof s_ap_base, "http://" IPSTR, IP2STR(&ipi.ip));
+    }
     httpd_uri_t u_page  = { .uri = "/wifi",        .method = HTTP_GET,  .handler = page_get };
     httpd_uri_t u_scan  = { .uri = "/wifi/scan",   .method = HTTP_GET,  .handler = scan_get };
     httpd_uri_t u_save  = { .uri = "/wifi/save",    .method = HTTP_POST, .handler = save_post };
