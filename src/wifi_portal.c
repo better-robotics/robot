@@ -34,25 +34,38 @@ static httpd_handle_t s_http = NULL;
 
 #define SCAN_MAX 24
 
-/* The config page. Self-contained (no external CSS/JS/fonts — it is served by the
- * board with no internet): Scan lists visible networks by name/signal; tapping one
- * fills the SSID; Save posts and the board restarts onto the chosen network. */
-static const char PAGE[] =
+/* ── The one UI vocabulary these pages share ──────────────────────────────────
+ * All three portal pages (/wifi, /, /welcome) are standalone documents — the
+ * board serves them with no internet, so they can't <link> a stylesheet. That
+ * constraint used to mean three hand-maintained CSS copies, and they drifted
+ * exactly as you'd expect: /wifi still had a wall-of-pills network list and a
+ * full-width primary-blue button for EVERY button long after the dashboard
+ * fixed both (2026-07-16 audit).
+ *
+ * So: one HEAD constant, streamed as its own chunk (httpd_resp_send_chunk —
+ * /welcome already sent itself in pieces to splice AP_BASE). Three pages, one
+ * copy in flash instead of three, one place to fix.
+ *
+ * Mirrors hub/dashboard.html's encoded system rather than describing it:
+ * the base <button> IS the neutral tile (so a classless button is in-system,
+ * not primary-blue), tiers are classes, sizes come from tokens only, and
+ * .list-group is the iOS grouped-inset list — ONE filled panel with hairline
+ * separators, which is what iPhone/Android Settings › Wi-Fi actually are.
+ * Keep in sync with dashboard.html on touch; the tokens must match byte-for-
+ * byte (hub@f005439 converged them with better-robotics.github.io+workbench). */
+static const char HEAD[] =
 "<!doctype html><html><head><meta charset=utf-8>"
 "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
 "<title>BetterRobotics</title><style>"
-/* Shared HIG token system — values copied from the canonical hub/dashboard.html
- * (hub@f005439 converged it with better-robotics.github.io + workbench; these
- * three portal pages were resynced to it 2026-07-16, having drifted a whole
- * token family behind) so this panel and the drive dashboard read as one
- * product: grouped-background dark, elevated cards, a translucent blurred
- * sticky topbar, 44px tap targets. Phone-first by design (students open it on
- * a phone): a single 32rem column, with safe-area insets. */
 ":root{color-scheme:dark;--bg:#1a1d20;--surface:#212529;--inset:#2a3037;"
-"--ink:#e9ecef;--ink-muted:#adb5bd;--ink-faint:#8b929b;--border:rgba(255,255,255,0.10);"
-"--accent:#00539B;--accent-ink:#ffffff;--brand:#0577B1;--focus:#4aa3d6;"
-"--radius-lg:14px;--radius:8px;--tap:44px;--topbar:50px}"
+"--ink:#e9ecef;--ink-muted:#adb5bd;--ink-faint:#8b929b;"
+"--border:rgba(255,255,255,0.10);--border-strong:rgba(255,255,255,0.18);"
+"--accent:#00539B;--accent-ink:#ffffff;--accent-soft:rgba(5,119,177,0.16);"
+"--link:#4c9fd4;--brand:#0577B1;--focus:#4aa3d6;--danger:#ff453a;--warn-ink:#e8a900;"
+"--radius-lg:14px;--radius:8px;--radius-pill:999px;--tap:44px;--ctrl-h:2.2rem;--topbar:50px;"
+"--fs-small:0.78rem;--fs-body:0.85rem}"
 "*{box-sizing:border-box}"
+"[hidden]{display:none!important}"
 "body{margin:0;background:var(--bg);color:var(--ink);"
 "font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Helvetica Neue',Arial,sans-serif;"
 "font-size:16px;line-height:1.47;-webkit-font-smoothing:antialiased;"
@@ -64,28 +77,76 @@ static const char PAGE[] =
 ".topbar .a{font-weight:700;color:var(--ink)}"
 ".topbar .b{font-weight:400;color:var(--ink-muted)}"
 "main{max-width:32rem;margin:0 auto;padding:24px 16px 48px}"
+".card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-lg);"
+"padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.6)}"
+".card h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px}"
+".s{color:var(--ink-muted);font-size:13px}"
+/* Control vocabulary — the base is the neutral tile, tiers layer on. A bare
+ * <button> used to be primary blue here (button{background:var(--accent)}),
+ * which is why "Scan for networks" shouted louder than anything it sat beside. */
+"input,select,textarea{font:inherit}"
+"button,.btn{cursor:pointer;font:inherit;font-size:var(--fs-body);font-weight:600;"
+"min-height:var(--ctrl-h);padding:.4rem .8rem;border-radius:var(--radius);"
+"border:.5px solid var(--border);color:var(--ink);background:var(--inset);"
+"transition:filter .15s,transform .08s}"
+"button:hover,.btn:hover{filter:brightness(1.25)}"
+"button:active,.btn:active{transform:scale(.97)}"
+"button:disabled{opacity:.55;cursor:default;filter:none;transform:none}"
+".btn-primary{color:var(--accent-ink);background:var(--accent);border-color:transparent}"
+".btn-danger{color:var(--danger)}"
+/* A link that wears a button: block-level, full width. */
+".btn{display:block;width:100%;text-align:center;text-decoration:none;margin:.9rem 0 0}"
+".link-btn{background:none;border:none;padding:0;min-height:0;font-weight:400;color:var(--link);"
+"width:auto;display:inline;margin:0}"
+"input,select{background:var(--inset);color:var(--ink);font-size:var(--fs-body);width:100%;"
+"border:.5px solid var(--border);border-radius:var(--radius);padding:.4rem .7rem;min-height:var(--ctrl-h)}"
+"input::placeholder{color:var(--ink-faint)}"
+":focus-visible{outline:2px solid var(--focus);outline-offset:1px}"
+/* --tap under a finger only — a mouse never needed 44px. */
+"@media(pointer:coarse){button,.btn,input,select,.net{min-height:var(--tap)}.link-btn{min-height:0}}"
+/* iOS grouped-inset list: ONE panel, hairline separators. Rows bring layout
+ * only — a row with its own fill/border is the wall-of-pills bug. */
+".list-group{display:flex;flex-direction:column;overflow:hidden;background:var(--inset);"
+"border:.5px solid var(--border);border-radius:var(--radius);margin:.6rem 0 0}"
+".list-group>*{border:none;border-radius:0;background:transparent;width:100%;margin:0}"
+".list-group>*+*{border-top:.5px solid var(--border)}"
+".list-group>*:hover{background:color-mix(in srgb,var(--ink) 7%,transparent);filter:none}"
+".list-group>*:active{transform:none}"
+".net{display:flex;justify-content:space-between;align-items:center;gap:.6rem;"
+"text-align:left;font-weight:500;padding:.55rem .9rem;min-height:var(--ctrl-h)}"
+".list-note{padding:.7rem .9rem;color:var(--ink-muted);font-size:var(--fs-body)}"
+".stack{display:flex;flex-direction:column;gap:.6rem;min-width:0}";
+
+/* Every page = HEAD (chrome + the vocabulary) + its own CSS + body. Chunked,
+ * so the shared core lives once. */
+static esp_err_t send_head(httpd_req_t *req, const char *page_css)
+{
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    if (httpd_resp_send_chunk(req, HEAD, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+    if (page_css && httpd_resp_send_chunk(req, page_css, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+    return httpd_resp_send_chunk(req, "</style></head><body>", HTTPD_RESP_USE_STRLEN);
+}
+
+/* The config page. Self-contained (no external CSS/JS/fonts — it is served by the
+ * board with no internet): Scan lists visible networks by name/signal; tapping one
+ * fills the SSID; Save posts and the board restarts onto the chosen network. */
+static const char PAGE_CSS[] =
 /* Embed mode (?embed=1): the panel is iframed inside a dashboard card, so drop
  * its own topbar + trim outer padding and let the host card provide the chrome. */
 ".embed .topbar{display:none}.embed main{padding:14px 14px 20px}"
-".card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-lg);"
-"padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.6)}"
-".card>h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px}"
-".s{color:var(--ink-muted);font-size:13px}"
-"input,button,select{font:inherit;width:100%;box-sizing:border-box;padding:.7rem .85rem;margin:.35rem 0;"
-"border-radius:var(--radius);border:.5px solid var(--border);background:var(--inset);color:var(--ink);min-height:var(--tap)}"
-"input::placeholder{color:var(--ink-faint)}"
-"button{background:var(--accent);color:var(--accent-ink);border:0;font-weight:600;cursor:pointer;"
-"transition:filter .15s,transform .08s}button:hover{filter:brightness(1.08)}button:active{transform:scale(.98)}"
-"input:focus,select:focus{outline:2.5px solid var(--focus);outline-offset:2px;border-color:transparent}"
-/* Network list: inset rows, name left / signal right — an iOS list; each row is a
- * full 44px tap target (no min-height:0 override). */
-"#nets button{background:var(--inset);border:.5px solid var(--border);color:var(--ink);text-align:left;"
-"display:flex;justify-content:space-between;align-items:center;gap:.5rem;font-weight:500}"
 "#msg,#rmsg{margin-top:1rem}"
-".btn{display:block;text-align:center;background:var(--accent);color:var(--accent-ink);"
-"border-radius:var(--radius);padding:.75rem .85rem;margin:.6rem 0 0;font-weight:600;"
-"text-decoration:none;min-height:var(--tap);box-sizing:border-box}"
-"</style></head><body>"
+"form{margin:.6rem 0 0}"
+"form input{margin:.35rem 0}"
+/* The join row rides inside the list, under the network you tapped. */
+/* Grid, not a wrapping flex row — the SSID owns its line, input+Connect share
+ * the next, so a long name can't strand Connect on a ragged third line. */
+"#join{display:grid;grid-template-columns:1fr auto;gap:.5rem;align-items:center;"
+"padding:.6rem .9rem;background:var(--accent-soft)!important}"
+"#join input{min-width:0;margin:0}"
+"#jssid{grid-column:1/-1;font-size:var(--fs-body);min-width:0;overflow-wrap:anywhere}"
+".foot{display:flex;gap:.9rem;flex-wrap:wrap;margin-top:.6rem;font-size:var(--fs-body)}";
+
+static const char PAGE_BODY[] =
 /* Set the embed class synchronously before first paint (no topbar flash) when
  * the dashboard iframes this panel with ?embed=1. */
 "<script>if(location.search.indexOf('embed')>=0)document.documentElement.className='embed'</script>"
@@ -100,14 +161,15 @@ static const char PAGE[] =
 "</div>"
 "<div class=card>"
 "<h2>Set the rover&rsquo;s Wi-Fi</h2>"
-"<p class=s>Pick your home network, enter its password, and the rover restarts to join it.</p>"
-"<button onclick=scan()>Scan for networks</button>"
-"<div id=nets></div>"
-"<form onsubmit=\"return save(event)\">"
-"<input id=ssid name=ssid placeholder=\"Network name\" autocapitalize=off autocorrect=off required>"
-"<input id=pass name=pass type=password placeholder=\"Password (blank if open)\">"
-"<button type=submit>Save &amp; restart</button></form>"
-"<div id=msg></div>"
+"<p class=s>Pick your home network and the rover restarts to join it.</p>"
+/* No Scan button: opening the page IS the scan request, same as the dashboard
+ * picker and as iPhone/Android. Rescan is a quiet link in .foot. */
+"<div id=nets class=list-group></div>"
+"<div id=join hidden><strong id=jssid></strong>"
+"<input id=pass type=password placeholder=\"Network password\" autocapitalize=off autocorrect=off>"
+"<button id=go class=btn-primary>Connect</button></div>"
+"<div id=msg class=s></div>"
+"<p class=foot><button id=rescan class=link-btn>Rescan</button></p>"
 "</div>"
 "<div class=card>"
 "<h2>Board role</h2>"
@@ -117,33 +179,55 @@ static const char PAGE[] =
 "<option value=hub>Classroom hub &#8212; hosts the class, no driving</option>"
 "<option value=rover>Rover only &#8212; always joins a hub</option>"
 "</select>"
-"<button onclick=setrole()>Apply role &amp; restart</button>"
-"<div id=rmsg></div>"
+"<button onclick=setrole() class=btn>Apply role &amp; restart</button>"
+"<div id=rmsg class=s></div>"
 "</div>"
 "</main>"
 "<script>"
-"async function scan(){let d=document.getElementById('nets');d.innerHTML='<p class=s>scanning\\u2026</p>';"
-"try{let r=await fetch('/wifi/scan');let a=await r.json();"
-"if(!a.length){d.innerHTML='<p class=s>no networks found \\u2014 try again</p>';return}"
-"d.innerHTML='';a.forEach(n=>{let b=document.createElement('button');b.type='button';"
+"let chosen=null,scanning=false;"
+"const nets=document.getElementById('nets'),join=document.getElementById('join'),"
+"pass=document.getElementById('pass'),msg=document.getElementById('msg');"
+"const note=t=>{nets.innerHTML='';let p=document.createElement('p');p.className='list-note';"
+"p.textContent=t;nets.appendChild(p)};"
+/* join is MOVED into the list; park it before any rebuild or it's deleted. */
+"function park(){join.hidden=true;document.getElementById('msg').before(join)}"
+"async function scan(){if(scanning)return;scanning=true;park();note('Scanning\\u2026');"
+"let a;try{a=await(await fetch('/wifi/scan')).json()}"
+"catch(e){note('Scan failed \\u2014 tap Rescan to try again.');scanning=false;return}"
+"finally{scanning=false}"
+"if(!a.length){note('No networks found.');return}"
+"a.sort((x,y)=>y.signal-x.signal);"
+"nets.innerHTML='';"
+"a.forEach(n=>{let b=document.createElement('button');b.type='button';b.className='net';"
 /* textContent, NOT innerHTML: an SSID is attacker-controllable (any nearby AP can
  * name itself with markup), so it must never be parsed as HTML. */
-"let s1=document.createElement('span');s1.textContent=n.ssid+(n.open?'':' \\uD83D\\uDD12');"
-"let s2=document.createElement('span');s2.className='s';s2.textContent=n.rssi+' dBm';"
+"let s1=document.createElement('span');s1.textContent=n.ssid;"
+"let s2=document.createElement('span');s2.className='s';"
+"s2.textContent=(n.security==='NO'?'open':n.security)+' \\u00b7 '+n.signal+'%';"
 "b.append(s1,s2);"
-"b.onclick=()=>{document.getElementById('ssid').value=n.ssid;document.getElementById('pass').focus()};"
-"d.appendChild(b)})}catch(e){d.innerHTML='<p class=s>scan failed \\u2014 try again</p>'}}"
-"async function save(e){e.preventDefault();let m=document.getElementById('msg');m.textContent='saving\\u2026';"
-"let f=new URLSearchParams(new FormData(e.target));"
-"try{await fetch('/wifi/save',{method:'POST',body:f});"
-/* textContent again: the ssid value is device-derived, so echo it as text, never HTML. */
-/* The rover stays your access point (Pi model): its STA leg is only the internet
- * uplink, so the student keeps their device on the rover's OWN Wi-Fi throughout. */
-"let nm=document.createElement('b');nm.textContent=document.getElementById('ssid').value;"
-"m.textContent='Saved. The rover is restarting to use ';m.appendChild(nm);"
-"m.append(' for internet \\u2014 it stays your Wi-Fi. Keep this device on the rover\\u2019s network "
-"(it reappears with the same name in ~10s), then reopen rover.local.')}"
-"catch(x){m.textContent='Saved. The rover is restarting \\u2014 stay on its Wi-Fi and reopen rover.local.'}return false}"
+"b.onclick=()=>{chosen=n.ssid;b.after(join);join.hidden=false;"
+"document.getElementById('jssid').textContent=n.ssid;"
+"pass.style.display=n.security==='NO'?'none':'block';pass.value='';"
+"(n.security==='NO'?document.getElementById('go'):pass).focus();"
+"join.scrollIntoView({block:'nearest'})};"
+"nets.appendChild(b)})}"
+"document.getElementById('rescan').addEventListener('click',scan);"
+"scan();"
+/* /wifi/connect trial-joins and only persists a verified join (connect_post),
+ * so a typo comes back as an error instead of a saved-and-rebooted dead board. */
+"document.getElementById('go').addEventListener('click',async()=>{"
+"if(!chosen)return;msg.textContent='Trying to join '+chosen+'\\u2026 (up to ~20s)';"
+"let res;try{res=await(await fetch('/wifi/connect',{method:'POST',"
+"headers:{'Content-Type':'application/json'},"
+"body:JSON.stringify({ssid:chosen,password:pass.value})})).json()}"
+"catch(e){msg.textContent='Connect request failed \\u2014 try again.';return}"
+"if(res.ok){park();"
+"msg.textContent='Joined \\u2713 \\u2014 saved; restarting to settle in. The rover stays your "
+"Wi-Fi ('+chosen+' is only its internet uplink), but it blips off for ~10 seconds. If your phone "
+"doesn\\u2019t re-join the rover\\u2019s Wi-Fi by itself, pick it again in Wi-Fi settings, then "
+"reopen rover.local.';setTimeout(()=>location.reload(),12000)}"
+"else{msg.textContent='Couldn\\u2019t join: '+(res.error||'check the password and try again.')}"
+"});"
 /* Reflect the board's current role in the select on load. */
 "fetch('/wifi/role').then(r=>r.json()).then(j=>{document.getElementById('role').value=j.role}).catch(()=>{});"
 /* Status card: poll /wifi/status. In embed mode the panel already sits inside the
@@ -162,7 +246,7 @@ static const char PAGE[] =
 "document.getElementById('bst').textContent=t;"
 "let g=document.getElementById('bgo');g.textContent='';"
 "if(j.dash&&document.documentElement.className!='embed'){"
-"let a=document.createElement('a');a.className='btn';a.href=j.dash;a.target='_blank';a.rel='noopener';"
+"let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target='_blank';a.rel='noopener';"
 "a.textContent=j.dash=='/'?'Open the dashboard':'Open the class dashboard';g.appendChild(a)}"
 "}catch(e){}setTimeout(stat,5000)}"
 "stat();"
@@ -177,8 +261,9 @@ static const char PAGE[] =
 
 static esp_err_t page_get(httpd_req_t *req)
 {
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_send(req, PAGE, HTTPD_RESP_USE_STRLEN);
+    if (send_head(req, PAGE_CSS) != ESP_OK) return ESP_FAIL;
+    if (httpd_resp_send_chunk(req, PAGE_BODY, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+    return httpd_resp_send_chunk(req, NULL, 0);
 }
 
 /* The landing at "/", replacing a naked 302→/wifi (scar 2026-07-10: a first-time
@@ -189,30 +274,10 @@ static esp_err_t page_get(httpd_req_t *req)
  * reload lands on the dashboard), a button to the hub's copy when the board
  * joined a classroom (reachable from this AP via NAPT), a holding line while the
  * board is still deciding. /wifi stays one tap away. */
-static const char LANDING[] =
-"<!doctype html><html><head><meta charset=utf-8>"
-"<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-"<title>BetterRobotics</title><style>"
-":root{color-scheme:dark;--bg:#1a1d20;--surface:#212529;--ink:#e9ecef;--ink-muted:#adb5bd;"
-"--border:rgba(255,255,255,0.10);--accent:#00539B;--accent-ink:#ffffff;--radius-lg:14px;--radius:8px;--tap:44px}"
-"*{box-sizing:border-box}"
-"body{margin:0;background:var(--bg);color:var(--ink);"
-"font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Helvetica Neue',Arial,sans-serif;"
-"font-size:16px;line-height:1.47;-webkit-font-smoothing:antialiased;"
-"padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}"
-".topbar{display:flex;align-items:center;height:50px;padding:0 20px;border-bottom:.5px solid var(--border)}"
-".topbar h1{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}"
-".topbar .a{font-weight:700}.topbar .b{font-weight:400;color:var(--ink-muted)}"
-"main{max-width:32rem;margin:0 auto;padding:24px 16px 48px}"
-".card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-lg);"
-"padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.6)}"
-".card h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px}"
-".s{color:var(--ink-muted);font-size:13px}"
-".btn{display:block;text-align:center;background:var(--accent);color:var(--accent-ink);"
-"border-radius:var(--radius);padding:.75rem .85rem;margin:.9rem 0 0;font-weight:600;"
-"text-decoration:none;min-height:var(--tap)}"
-".foot{text-align:center}.foot a{color:var(--ink-muted)}"
-"</style></head><body>"
+static const char LANDING_CSS[] =
+".foot{text-align:center}.foot a{color:var(--ink-muted)}";
+
+static const char LANDING_BODY[] =
 "<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
 "<main>"
 "<div class=card><h2 id=bn>&#8230;</h2><p class=s id=st>Starting up&#8230;</p><div id=act></div></div>"
@@ -228,7 +293,7 @@ static const char LANDING[] =
 "if(j.dash){"
 "st.textContent='Part of the classroom network'+(j.ssid?' '+j.ssid:'')+' \\u2014 drive it from the class dashboard.';"
 /* DOM, not innerHTML: dash derives from a stored locator (user-supplied NVS). */
-"if(!act.firstChild){let a=document.createElement('a');a.className='btn';a.href=j.dash;a.target='_blank';a.rel='noopener';"
+"if(!act.firstChild){let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target='_blank';a.rel='noopener';"
 "a.textContent='Open the class dashboard';act.appendChild(a)}"
 "setTimeout(go,5000);return}"
 "act.innerHTML='';"
@@ -240,8 +305,9 @@ static const char LANDING[] =
 
 static esp_err_t landing_get(httpd_req_t *req)
 {
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_send(req, LANDING, HTTPD_RESP_USE_STRLEN);
+    if (send_head(req, LANDING_CSS) != ESP_OK) return ESP_FAIL;
+    if (httpd_resp_send_chunk(req, LANDING_BODY, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+    return httpd_resp_send_chunk(req, NULL, 0);
 }
 
 /* Live board state for the landing page + the panel's status card (facts owned
@@ -615,46 +681,24 @@ static esp_err_t captive_ack_post(httpd_req_t *req)
  * hand off — exactly the "never redirect a walled-garden client to a
  * hostname" problem s_welcome_url already solves for the initial redirect
  * (2026-07-15, live-reported: the link visibly did nothing on iOS's CNA). */
-static const char WELCOME_PRE[] =
-"<!doctype html><html><head><meta charset=utf-8>"
-"<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-"<title>BetterRobotics</title><style>"
-":root{color-scheme:dark;--bg:#1a1d20;--surface:#212529;--ink:#e9ecef;--ink-muted:#adb5bd;"
-"--border:rgba(255,255,255,0.10);--accent:#00539B;--accent-ink:#ffffff;--radius-lg:14px;--radius:8px;--tap:44px}"
-"*{box-sizing:border-box}"
-"body{margin:0;background:var(--bg);color:var(--ink);"
-"font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Helvetica Neue',Arial,sans-serif;"
-"font-size:16px;line-height:1.47;-webkit-font-smoothing:antialiased;"
-"padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}"
-".topbar{display:flex;align-items:center;height:50px;padding:0 20px;border-bottom:.5px solid var(--border)}"
-".topbar h1{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}"
-".topbar .a{font-weight:700}.topbar .b{font-weight:400;color:var(--ink-muted)}"
-"main{max-width:32rem;margin:0 auto;padding:24px 16px 48px}"
-".card{background:var(--surface);border:.5px solid var(--border);border-radius:var(--radius-lg);"
-"padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.6)}"
-".card h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px}"
-".s{color:var(--ink-muted);font-size:13px}"
-".btn{display:block;width:100%;text-align:center;background:var(--accent);color:var(--accent-ink);"
-"border:0;border-radius:var(--radius);padding:.75rem .85rem;margin:.9rem 0 0;font:inherit;font-weight:600;"
-"text-decoration:none;min-height:var(--tap);cursor:pointer}"
-"</style></head><body>"
+static const char WELCOME_BODY[] =
 "<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
 "<main>"
 "<div class=card id=before><h2>Welcome</h2>"
 "<p class=s id=lede>Checking this board&rsquo;s internet&#8230;</p>"
-"<a class=btn id=dashlink0 href=/ target=_blank rel=noopener>Open the dashboard</a>"
+"<a class=\"btn btn-primary\" id=dashlink0 href=/ target=_blank rel=noopener>Open the dashboard</a>"
 /* Venue-gate path (uplink=='portal'): the network the BOARD joined has its
  * own captive sign-in; behind the NAT every client shares the board's
  * venue-side MAC, so one sign-in from this phone clears it for the board.
  * The one thing on this page that genuinely can't move to the dashboard —
  * it has to happen from inside this specific captive session. */
-"<a class=btn id=venue-go style=display:none>Sign in</a>"
-"<button class=btn id=go style=display:none>Continue</button>"
+"<a class=\"btn btn-primary\" id=venue-go hidden>Sign in</a>"
+"<button class=\"btn btn-primary\" id=go hidden>Continue</button>"
 "</div>"
-"<div class=card id=after style=display:none><h2>You're set</h2>"
+"<div class=card id=after hidden><h2>You're set</h2>"
 "<p class=s>Now open the dashboard in your regular browser, not this pop-up &#8212; "
 "this pop-up forgets sign-ins when it closes.</p>"
-"<a class=btn id=dashlink href=/ target=_blank rel=noopener>Open the dashboard</a></div>"
+"<a class=\"btn btn-primary\" id=dashlink href=/ target=_blank rel=noopener>Open the dashboard</a></div>"
 "</main>"
 "<script>";
 /* welcome_get() sends "const AP_BASE='http://a.b.c.d';" here, then this. */
@@ -673,8 +717,8 @@ static const char WELCOME_POST[] =
  * Cancel with no auto-dismiss (WBA/Purple implementer consensus; the Cisco
  * ISE CNA bug is exactly this). */
 "if(location.search.indexOf('done')>=0){"
-"document.getElementById('before').style.display='none';"
-"document.getElementById('after').style.display='block';"
+"document.getElementById('before').hidden=true;"
+"document.getElementById('after').hidden=false;"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
 "document.getElementById('dashlink').href=abs(j.dash)}).catch(()=>{})"
 "}else{refresh()}"
@@ -687,29 +731,29 @@ static const char WELCOME_POST[] =
 "function refresh(){"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
 "d0.href=abs(j.dash);"
-"let v=document.getElementById('venue-go');v.style.display='none';"
+"let v=document.getElementById('venue-go');v.hidden=true;"
 "if(j.uplink=='full'){tries=0;"
-"go.style.display='block';"
+"go.hidden=false;"
 "lede.textContent='This board is online'+(j.ssid?' via '+j.ssid:'')+'. Tap Continue to finish, or open the dashboard now.'"
 "}else if(j.uplink=='portal'){"
 /* The venue's own captive gate answers for the internet until THIS board's
  * MAC signs in — and one sign-in from here covers it (NAT: every client
  * shares the board's venue-side MAC). Navigating in this very sheet is
  * exactly right for once. */
-"go.style.display='none';"
+"go.hidden=true;"
 "lede.textContent='This board joined '+(j.ssid||'the venue Wi-Fi')+', but that network asks for its own "
 "sign-in before it gives internet. Sign in once below and this board is set for everyone.';"
 "v.href=j.portal_url||'http://example.com/';"
 "v.textContent='Sign in to '+(j.ssid||'the venue Wi-Fi');"
-"v.style.display='block'"
+"v.hidden=false"
 "}else if(j.state=='searching'){"
-"go.style.display='none';"
+"go.hidden=true;"
 "lede.textContent='The board is connecting\\u2026 this takes a few seconds.'"
 "}else if(j.ssid&&++tries<7){"
-"go.style.display='none';"
+"go.hidden=true;"
 "lede.textContent='Reconnecting to '+j.ssid+'\\u2026'"
 "}else{"
-"go.style.display='none';"
+"go.hidden=true;"
 "lede.textContent='This board isn\\u2019t online yet \\u2014 open the dashboard to drive it offline, or set up its Wi-Fi there.'"
 "}"
 "setTimeout(refresh,3000)"
@@ -733,10 +777,10 @@ static esp_err_t welcome_get(httpd_req_t *req)
     char host[64] = "?";
     httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
     ESP_LOGI(TAG, "GET /welcome (Host: %s)", host);
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
     char ap_base_js[48];
     snprintf(ap_base_js, sizeof ap_base_js, "const AP_BASE='%s';", s_ap_base);
-    if (httpd_resp_send_chunk(req, WELCOME_PRE, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+    if (send_head(req, NULL) != ESP_OK) return ESP_FAIL;   /* no page-specific CSS */
+    if (httpd_resp_send_chunk(req, WELCOME_BODY, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
     if (httpd_resp_send_chunk(req, ap_base_js, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
     if (httpd_resp_send_chunk(req, WELCOME_POST, HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
     return httpd_resp_send_chunk(req, NULL, 0);   /* terminates the chunked response */
