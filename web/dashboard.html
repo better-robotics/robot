@@ -937,7 +937,17 @@
       <span id="details-age"></span>
       <span class="spacer"></span>
       <select id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
-      <button id="wire-beacons" aria-pressed="false" title="sys beacons are most of the traffic — shown only on demand">Beacons</button>
+      <!-- Labelled "sys" because that is literally what it filters, and the log
+           prints the topic on every line (robots/<id>/sys …) — so the label
+           matches the thing it acts on and teaches itself in place.
+           It was "Beacons": the firmware's word for a sys message, appearing
+           NOWHERE on screen, so it needed outside knowledge. "Status updates"
+           was worse — every line here is a pub/sub message and fleet/estop is a
+           status too, so it picked nothing out. What actually makes sys
+           different is that it's the only UNPROMPTED one: every rover, every
+           2s, forever, which is why it's hidden until asked for.
+           Toggle: pressed = shown. -->
+      <button id="wire-beacons" aria-pressed="false" title="robots/<id>/sys — each rover's status, sent every 2s unprompted. Most of the traffic, so it's hidden until you ask.">sys</button>
       <button id="wire-pause" aria-pressed="false">Pause</button>
     </div>
     <!-- The arrow key is a CAPTION for the log, not a control: it sat inside
@@ -1443,27 +1453,34 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         ${sys.ip && prof ? `<button class="cchip" data-cfg-ip="${esc(sys.ip)}" data-id="${esc(robot)}" data-board="${esc(board)}" title="Rover Wi-Fi settings">${WIFI_SVG}<span>${esc(sys.ip)}</span></button>` : ""}
         ${idChip}
       </span>`;
+      // ONE row, ONE order, ONE name per action — buttons appear and disappear
+      // with state, they never reorder or rename. All three used to drift: a
+      // pool board read Drive/Identify/Telemetry while an assigned one read
+      // Drive/Telemetry/Identify — the same two actions in opposite order,
+      // because each branch rebuilt the row by hand. "Identify" was also
+      // "Identify rover" when assigned, and Telemetry was "Details" (and the
+      // only action with no icon) for a student. Same button, same handler,
+      // three names.
+      // Order is importance, not history: Drive is the product, Camera is
+      // seeing through it, then the two diagnostics.
       const actions = [];
-      if (!offline && sys.cam && sys.ip)
-        actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(robot)}" data-board="${esc(board)}">${icon("camera")} Camera</button>`);
-      // Drive opens the joystick/D-pad in the same per-board modal as Camera —
-      // no separate Drive card, no target picker; the button IS the target.
-      // Pool boards drive too when the viewer is the professor: the "unassigned"
-      // ACL role (CONTRACT.md) exists precisely so a board nobody has claimed
-      // yet can still be test-driven from the bench, before it's handed to a robot.
+      // Drive opens the joystick/D-pad in a per-board modal — no separate Drive
+      // card, no target picker; the button IS the target. Pool boards drive too
+      // when the viewer is the professor: the "unassigned" ACL role
+      // (CONTRACT.md) exists precisely so a board nobody has claimed yet can
+      // still be test-driven from the bench, before it's handed to a robot.
       if (!offline && (!isPool || prof))
         actions.push(`<button class="btn-accent" data-drive-open="${esc(robot)}" data-drive-board="${esc(board)}">${icon("drive")} Drive</button>`);
-      if (prof && isPool) {
-        // A fresh board's two jobs, surfaced as buttons instead of a note:
-        // blink it to find which board on the desk it is, then name it.
-        if (!offline) actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-brobot="${esc(robot)}">${icon("zap")} Identify</button>`);
+      if (!offline && sys.cam && sys.ip)
+        actions.push(`<button class="btn-tile" data-cam-ip="${esc(sys.ip)}" data-id="${esc(robot)}" data-board="${esc(board)}">${icon("camera")} Camera</button>`);
+      // Blink the board to find which one on the desk it is — professor-only,
+      // and pointless on a board that isn't answering.
+      if (prof && !offline)
+        actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-brobot="${esc(robot)}">${icon("zap")} Identify</button>`);
+      // The rendered sys. Offered to a student on their own rover too — it's
+      // the "why won't it move" surface, which is exactly a student question.
+      if (prof || !isPool)
         actions.push(`<button class="btn-tile" data-tel="${esc(robot)}" data-tel-board="${esc(board)}">${icon("activity")} Telemetry</button>`);
-      } else if (prof) {
-        actions.push(`<button class="btn-tile" data-tel="${esc(robot)}" data-tel-board="${esc(board)}">${icon("activity")} Telemetry</button>`);
-        if (!offline) actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-brobot="${esc(robot)}">${icon("zap")} Identify rover</button>`);
-      } else if (!isPool) {
-        actions.push(`<button class="btn-tile" data-tel="${esc(robot)}" data-tel-board="${esc(board)}">Details</button>`);
-      }
       // Claim: no sign-in, no approval — type a name and it's published.
       // The amber corner chip is the one entry (no idle-state button — one
       // CTA per card); this row only shows the inline name field once tapped.
