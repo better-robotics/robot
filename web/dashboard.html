@@ -329,6 +329,21 @@
       border-radius: var(--radius-pill); padding: 0 0.4rem; min-width: 1.15rem; text-align: center;
     }
     .navitem[aria-current="page"] .nav-badge { background: var(--accent-ink); color: var(--accent); }
+    /* The wire's pulse — NOT a .nav-badge, on purpose. That badge is the one
+       warn hue and it means "act here" (these boards need a name); a rate never
+       asks for anything, so it takes ink and leaves amber alone.
+       aria-hidden because a badge's text joins its BUTTON's accessible name:
+       right for a count that moves when boards do, wrong for a number that
+       moves every second — it would leave "click Messages" targeting a string
+       that is mostly digits, which is the defect the old drawer toggle's own
+       comment recorded. #wire-rate in the panel head is the readable copy.
+       Collapsed rail drops it rather than dotting it: .nav-badge survives as a
+       bare dot because "something needs a name" is binary and a dot can carry
+       it — a rate with its digits removed says nothing at all. */
+    .nav-meter { margin-left: auto; font-size: var(--fs-micro); font-variant-numeric: tabular-nums;
+      color: var(--ink-faint); font-weight: 400; }
+    .navitem[aria-current="page"] .nav-meter { color: var(--accent-ink); }
+    .rail-collapsed .nav-meter { display: none; }
 
     /* Content column. Was a centered 60rem reading column; the rail now
        supplies the structure that centering used to fake. */
@@ -399,38 +414,40 @@
     .dir-pill.out { color: var(--link); border-color: color-mix(in srgb, var(--accent-text) 40%, transparent); background: var(--accent-soft); }
     .td-pre { background: var(--inset); border: 0.5px solid var(--border-default); border-radius: var(--radius); padding: 0.55rem 0.7rem; font-family: var(--mono); font-size: var(--fs-small); overflow-x: auto; color: var(--ink-muted); white-space: pre; margin: 0; }
     .td-note { font-size: var(--fs-small); color: var(--warn-ink); background: color-mix(in srgb, var(--warn) 8%, transparent); border: 0.5px solid color-mix(in srgb, var(--warn) 30%, transparent); border-radius: var(--radius); padding: 0.5rem 0.65rem; }
+    /* The board's own log in the Details sheet. Extends .td-pre — same inset
+       block, same mono scale — and adds only what a scrollback needs: a bounded
+       height, and vertical scroll to go with the horizontal one .td-pre already
+       has (log lines are long; the container scrolls, never the page).
+       --ink-muted, not --ink-faint: this is a wall of small mono text someone
+       reads to debug, not a placeholder. */
+    .dev-log { max-height: 16rem; overflow-y: auto; overscroll-behavior: contain;
+      font-size: var(--fs-micro); line-height: 1.45; color: var(--ink-muted); }
 
     /* Code: the ide bundle, same origin, in the shell. */
     #ide-host { flex: 1; display: flex; min-height: 32rem; }
     #ide-host iframe { flex: 1; border: 0.5px solid var(--border-default); border-radius: var(--radius-lg); background: var(--inset); min-height: 32rem; }
 
-    /* Log drawer — global chrome under every panel. */
-    .log-toggle {
-      display: flex; align-items: center; justify-content: flex-start; gap: 0.5rem; width: 100%;
-      background: none; border: 0; border-radius: 0; height: 2.6rem; padding: 0 0.7rem;
-      cursor: pointer; color: var(--ink);
-      /* font-size AFTER `font: inherit` — the same trap .link-btn already
-         documents: the shorthand resets size, so this took whatever its
-         container set. Once the <h2> became its wrapper (APG accordion shape),
-         "whatever the container set" was the UA's h2 1.5em, and the control
-         jumped to 24px. Caught by the token-scale audit, not by looking. */
-      font: inherit; font-size: var(--fs-body);
-    }
-    .log-toggle:hover { background: var(--inset); }
-    .log-body { border-top: 0.5px solid var(--border-default); padding: 0.6rem 0.7rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
-    /* Narrow: the rail stacks above the content instead of eating 40% of the
-       width. A source list cannot become a horizontal strip — a tree has
-       nowhere to go in one — so the column stays a column and moves. Desktop is
-       the platform (this is graceful degradation, not the design target); the
-       likely right answer is a slide-over sheet behind a topbar control, which
-       keeps exactly one tree and gives the content all its width back. Unbuilt
-       on purpose — it wants a decision made against a real narrow viewport, not
-       a guess extrapolated from a desktop one. */
+    /* Phone: the rail becomes a floating tab bar (iOS 26's shape — a glass
+       capsule over the content, pill behind the current tab).
+       This block used to stack the rail on top of the page and say so: "a
+       source list cannot become a horizontal strip — a tree has nowhere to go
+       in one", with the likely answer filed as a slide-over sheet behind a
+       topbar control. That was true while the tree lived only in the rail. The
+       Messages merge retired it: Messages owns the tree AND the traffic, so on
+       a phone the tree renders inside the panel (moveTree(), the ONE tree
+       moving — never a second copy) and the rail is left holding exactly four
+       destinations, which is what a tab bar is for. HIG's 2–5 fits.
+       Bottom, because the old strip put navigation at the top of a phone — the
+       one place a thumb can't reach — and charged the log its height to do it.
+       Labels stay. Instagram drops them and earns it with a decade of
+       familiarity; a broadcast glyph meaning "Messages" is exactly the
+       vocabulary this tab exists to teach, so icon-only would ask the student
+       to learn the navigation before the lesson. */
     @media (max-width: 720px) {
       .shell { grid-template-columns: minmax(0, 1fr); }
-      /* The rail is a horizontal strip here, so its COLLAPSE handle has nothing
-         to collapse — and it was still absolutely positioned at
+      /* The rail is not a column here, so its COLLAPSE handle has nothing to
+         collapse — and it was still absolutely positioned at
          `left: calc(var(--rail-w) - 0.62rem)`, because this block changes
          grid-template-columns but never touches --rail-w. Measured at 320px:
          the chevron sat at x=222, y=375 — detached from the rail, floating in
@@ -438,15 +455,68 @@
          only job is to narrow a column that no longer exists. */
       .rail-toggle { display: none; }
       .rail {
-        position: static; flex-direction: row; flex-wrap: wrap; align-items: center;
-        min-height: 0; max-height: none; overflow: visible;
-        border-right: 0; border-bottom: 0.5px solid var(--border-default);
+        position: fixed; z-index: 30;
+        left: max(0.6rem, env(safe-area-inset-left));
+        right: max(0.6rem, env(safe-area-inset-right));
+        /* Clear the home indicator. Without the inset this bar sits ON the
+           gesture area, where the OS eats the first tap. */
+        bottom: calc(env(safe-area-inset-bottom) + 0.55rem);
+        flex-direction: row; gap: 0.15rem; align-items: stretch;
+        padding: 0.25rem; min-height: 0; max-height: none; overflow: visible;
+        border: 0.5px solid var(--border-default); border-radius: var(--radius-pill);
+        /* The topbar's material, not a second one — same mix, same blur, so the
+           page has ONE glass. Both fall back to a near-opaque bar where
+           backdrop-filter is missing; @media (prefers-reduced-transparency)
+           below makes that fallback the deliberate answer rather than a lucky
+           one. */
+        background: color-mix(in srgb, var(--bg) 82%, transparent);
+        -webkit-backdrop-filter: saturate(180%) blur(20px);
+        backdrop-filter: saturate(180%) blur(20px);
+        box-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
       }
-      .navitem { width: auto; }
+      .navitem {
+        flex: 1 1 0; min-width: 0; position: relative;
+        flex-direction: column; justify-content: center; gap: 0.1rem;
+        padding: 0.3rem 0.15rem; border-radius: var(--radius-pill);
+        min-height: var(--tap);   /* a tab bar is only ever touched */
+      }
+      .navitem > span:first-of-type {
+        font-size: var(--fs-micro); line-height: 1.1;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+      }
       .rail-spacer { display: none; }
-      /* The tree needs the full row once the rail is horizontal. */
-      .tw { flex-basis: 100%; max-height: 40dvh; }
-      .tw-tree { max-height: 32dvh; }
+      /* No rate on a tab. It was tried cornered here (the move .rail-collapsed
+         makes for .nav-badge when a row runs out of width) and a ~90px tab has
+         no room for it beside a label — it read as debris stuck to the icon
+         rather than as the wire's pulse. The desktop rail keeps it: that rail
+         is a 232px column with room to be quiet in, and a tab bar is not.
+         What this costs, honestly: the badge exists so that leaving Messages
+         doesn't cost you "is the wire alive?" — which the log answered for free
+         back when it was global chrome. On a phone that answer is now one tap
+         away, in the panel head. A phone is a one-destination-at-a-time device;
+         it already made that trade everywhere else. */
+      .nav-meter { display: none; }
+      /* In the panel the tree is content, not a rail sub-list: it gives up the
+         rail's indent guide and takes a bounded height so the log — the reason
+         you opened this panel — is never pushed off the bottom of it. */
+      #p-messages > .tw { max-height: 34dvh; }
+      #p-messages > .tw .tw-tree { max-height: 27dvh; margin-left: 0; padding-left: 0; border-left: 0; }
+      /* The bar floats OVER the content, so the content must end above it or
+         the log's newest line — the whole point of a tail-following log — sits
+         under frosted glass. Instagram's feed can scroll past its bar; a log
+         that pins itself to the bottom cannot. */
+      .content { padding-bottom: calc(var(--tap) + env(safe-area-inset-bottom) + 1.4rem); }
+    }
+    /* The material must never be the only thing carrying legibility (HIG, and
+       SC 1.4.11 for the boundary). Reduce Transparency turns both glass
+       surfaces opaque; the border is what still says "this is a bar" once the
+       blur is gone, so it firms up rather than disappearing. */
+    @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+      .topbar, .rail {
+        background: var(--bg);
+        -webkit-backdrop-filter: none; backdrop-filter: none;
+        border-color: var(--ink-faint);
+      }
     }
     a { color: var(--link); text-decoration: none; }
     a:hover { text-decoration: underline; }
@@ -773,12 +843,6 @@
     #drive-status-sub { color: var(--ink-muted); font-size: 0.85rem; margin-top: 0.2rem; }
     /* Live status: the telemetry dl pattern, titled to the joystick's beat. */
     #details-age { color: var(--ink-faint); font-size: 0.85rem; font-weight: 400; }
-    /* Fleet vitals table — scrolls inside its own box; the page never grows
-       a horizontal scrollbar on a phone. min-width:0 on the details (a
-       #controls grid item) lets the track shrink below the table's nowrap
-       min-content — without it every sibling card inherits the table's width. */
-    #student-details { min-width: 0; }
-
     /* Segmented control (iOS): a pill track holding equal segments, the selected
        one raised on an elevated thumb. Here it switches the drive input between
        an analog joystick and a discrete D-pad — the D-pad is the one-handed
@@ -787,6 +851,17 @@
       display: inline-flex; gap: 2px; padding: 2px; margin-bottom: 1rem;
       background: var(--inset); border-radius: var(--radius); border: 0.5px solid var(--border-default);
     }
+    /* inline-flex means "hug the buttons", and a .stack silently overrules it:
+       .stack is a flex column with no align-items, so it defaults to stretch and
+       pulls the track to full width while the buttons keep their natural size —
+       a wide empty rail with the pills stranded at the left end. Caught in the
+       Details sheet's Facts/Log tabs (2026-07-16), the first .segmented ever put
+       inside a .stack. Not scoped to that sheet: any .segmented in a .stack has
+       this, and the next one should not have to rediscover it.
+       The coarse rule below still wins where it should — it sets an explicit
+       width, which align-self cannot undo, so phones keep the full-width strip
+       with equal thumbs. */
+    .stack > .segmented { align-self: start; }
     .segmented button {
       cursor: pointer; border: none; background: transparent; color: var(--ink-muted);
       font-size: var(--fs-body); font-weight: 600; padding: 0.4rem 1rem; min-height: var(--ctrl-h);
@@ -851,12 +926,6 @@
     .wire-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem;
       margin-bottom: 0.5rem; }
     .wire-head .spacer { flex: 1; }
-    /* The <h2#details-label> is now a bare wrapper around the toggle (APG
-       accordion shape) — it must add no box of its own, or it inserts a line
-       above the drawer bar. The type it used to carry moved to .log-title,
-       which is the element the text actually lives in now. */
-    #details-label { display: contents; }
-    .log-title { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
     .wire-legend { margin-bottom: 0.35rem; font-size: var(--fs-small); color: var(--ink-muted); }
     /* Chip-scale log toggles: the base tile with a transparent fill, opting out
        of --ctrl-h like the other chip-scale controls (they carry the ::after
@@ -1012,11 +1081,6 @@
        rail's full-height min-height plus any notice above the shell push the
        column past the viewport, which leaves the drawer correct and permanently
        out of sight. */
-    #student-details { flex: none; margin: 0 1.25rem 1.25rem;
-      border: 0.5px solid var(--border-default);
-      border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
-    .log-toggle .log-title { font-size: var(--fs-body); font-weight: 600; color: var(--ink); margin: 0; }
-    .wire-head { margin: 0; }
     #prof-advanced > summary { cursor: pointer; color: var(--ink-muted);
       font-weight: 600; padding: 0.65rem 0; }
     #prof-advanced { grid-column: 1 / -1; }
@@ -1272,12 +1336,24 @@
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
         <span>Code</span>
       </button>
-      <button class="navitem" data-panel="topics" title="Topics">
+      <!-- Messages, not Topics: a topic is an ADDRESS, and the word only means
+           something once "message" exists to be addressed. This destination is
+           both — the tree is the addresses that exist, the log is what is on
+           them right now — and they were two rooms teaching one vocabulary
+           until 2026-07-16, with a comment in each holding them in sync (the
+           tree's arrows ARE the log's arrows, and the file said so twice).
+           The badge is the wire's pulse: the log used to be global chrome, so
+           every panel could answer "is the wire alive?" without opening it.
+           Trapping the log in one destination would have cost that — the badge
+           is what buys it back, at zero panel height. Keep the broadcast icon:
+           it is pub/sub radiating, which is the honest glyph for what this
+           carries; an envelope would say mail. -->
+      <button class="navitem" data-panel="messages" title="Messages">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49"/><path d="M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
-        <span>Topics</span>
+        <span>Messages</span><span class="nav-meter" id="nav-rate" aria-hidden="true" hidden></span>
       </button>
       <!-- The topic tree nests under its own nav item and discloses only while
-           Topics is the destination — a source list shows the section you are
+           Messages is the destination — a source list shows the section you are
            IN, it does not carry every section's contents at once. -->
       <div class="tw" id="topic-tree" hidden>
         <div class="tw-filter"><input id="tw-filter" type="search" placeholder="Filter&#8230;" aria-label="Filter topics" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
@@ -1385,14 +1461,84 @@
         <div id="ide-host"><p class="hint" id="ide-missing" hidden>No code editor on this hub. Everything else on this dashboard works without it.</p></div>
       </section>
 
-      <!-- Topics: the tree lives in the rail; this pane is the selected topic's
-           detail. Direction glyphs are the LOG's own arrows, same point of view,
-           so the two surfaces teach one vocabulary. -->
-      <section class="panel" id="p-topics" hidden>
-        <div class="panel-head"><h2>Topics</h2>
+      <!-- Messages: the tree lives in the rail (the addresses that exist), this
+           pane is the selected address's detail and the traffic on it. The two
+           halves were separate destinations until 2026-07-16 — a student had to
+           work out on their own that `robots/a044/sys` in the tree and
+           `↓ robots/a044/sys {…}` in the log were the same address. Now that
+           connection is the layout, and picking a topic drives the filters
+           below rather than explaining them.
+           The metrics ride the panel head, which is the same claim the closed
+           drawer bar used to make ("is the wire alive?") in the place that now
+           answers it. -->
+      <section class="panel" id="p-messages" hidden>
+        <div class="panel-head"><h2>Messages</h2>
           <span class="hint">every address on the wire &#183; <span class="log-in">&#8595;</span> the rover talks &#183; <span class="log-out">&#8593;</span> you talk</span>
+          <span class="spacer"></span>
+          <span id="details-age"></span>
+          <span id="wire-rate" aria-live="off"></span>
         </div>
         <div id="topic-detail"></div>
+        <div class="wire-head">
+          <select class="select-sm" id="wire-filter" aria-label="Filter messages to one rover"><option value="">all rovers</option></select>
+          <!-- Topic filter. The log prints the topic on every line, so naming the
+               options after the channels makes the filter teach itself in place.
+               Replaced a binary toggle ("Beacons" — the firmware's word for sys,
+               appearing nowhere on screen) that could only express one of these.
+
+               SHOW EVERYTHING by default, filter down — what every log viewer does
+               (DevTools, Wireshark). The old default hid sys, inherited from when
+               this panel was instructor-only: a instructor watching for events doesn't
+               want 2s chatter. That premise died when students got the panel, because
+               sys is the ONLY thing a rover ever publishes (rover_role.c:567; pwm and
+               cmd/* are things it SUBSCRIBES to). So "all except sys" meant the rover
+               never appeared to answer at all — the "← the rover answers" legend
+               promising something that could never arrive, and an idle student
+               reading an empty log as broken.
+
+               Only channels the wire actually carries: imu and led are in
+               CONTRACT.md but no firmware publishes them, so offering them would be
+               a filter that can never match. Add them when they ship. -->
+          <select class="select-sm" id="wire-topic" aria-label="Filter messages by topic">
+            <option value="">all topics</option>
+            <option value="-sys">all except sys</option>
+            <option value="sys">sys</option>
+            <option value="pwm">pwm</option>
+            <option value="cmd">cmd</option>
+            <option value="estop">estop</option>
+          </select>
+          <span class="spacer"></span>
+          <button id="wire-pause">Pause</button>
+        </div>
+        <!-- The arrow key is a CAPTION for the log, not a control: it sat inside
+             the control row, which is what made that row read as a jumble. -->
+        <!-- The arrows must be the ones the log actually draws: this said → / ←
+             while logLine drew ↑ / ↓ from the moment the lines became columns — a
+             key that keys nothing.
+             "the rover answers" was wrong twice over: sys is UNPROMPTED (every 2s,
+             answering nothing), and inbound also carries fleet/estop, which comes
+             from a instructor, not a rover. Direction is the honest claim — what
+             this page sent vs what it received. -->
+        <!-- It rode the closed toggle bar until 2026-07-16, where it keyed arrows
+             that are only on screen once the drawer is OPEN — and the bar was a
+             fixed 2.6rem flex row with no wrap, so on a phone the legend shrank and
+             wrapped to 3 lines inside a 41.6px bar and was clipped. That was live at
+             320px before the title was even touched; widening "Log" to "Messages"
+             took it to 5 lines and pushed 390px (iPhone) into the same clip. The
+             horizontal sweep read clean throughout — flex shrank the legend instead
+             of overflowing, so the failure went vertical. Its margin-bottom has
+             always been styled for this slot. -->
+        <p class="wire-legend"><span class="log-out">&#8593; sent from this page</span> &#183; <span class="log-in">&#8595; received</span></p>
+        <!-- aria-live="off" is REQUIRED here, not belt-and-braces: role="log"
+             carries an implicit aria-live="polite", so every frame logLine() appends
+             became an announcement. sys alone is one per rover per 2 s — six rovers
+             is three utterances a second, forever, each reading a full JSON payload.
+             The polite queue never drains, so every other announcement in the app
+             (including the e-stop) starves behind a wall of telemetry. This is a
+             READING surface: it's scrollable and focusable, which is the right
+             affordance. Let the user read it; announce nothing.
+             #wire-rate beside it already had exactly this fix. -->
+        <div id="wire-log" role="log" aria-live="off" tabindex="0" aria-label="Live command and telemetry messages"></div>
       </section>
 
       <section class="panel" id="p-settings" hidden>
@@ -1415,104 +1561,6 @@
        first.) -->
       </main>
 
-  <!-- The log is GLOBAL chrome, below every panel — not a Topics sub-view.
-       Trapping it in one destination would mean leaving the editor to watch
-       what the editor just sent, which is the round trip this shell exists to
-       close. Collapsed by default: sys beacons every 2 s per rover, so this is
-       ambient evidence you glance at, not a thing to stare at. -->
-  <section id="student-details">
-    <!-- APG's accordion shape: the heading WRAPS the button. The <h2> used to
-         live inside it, and role=button is Children Presentational: True — so
-         every descendant was stripped from the accessibility tree and flattened
-         into the button's name. Two things followed. (1) The heading didn't
-         exist for AT, so the log was unreachable by heading navigation and this
-         section had no accessible name at all. (2) The name became
-         "Messages · last message 3s ago 12 msg/s ↑ sent from this page · ↓ received"
-         — and #details-age / #wire-rate are rewritten every 1–2 s, so the name
-         mutated continuously; aria-live="off" silences announcements but does
-         nothing about a NAME, and voice control ("click Messages") can't target
-         a string that's mostly numbers.
-         Wrapping instead of restructuring keeps the whole bar clickable, which
-         is the point of the closed drawer. aria-label pins the name to the
-         visible word (SC 2.5.3 satisfied: "Messages" is on screen); the metrics stay
-         visible but out of the a11y tree — they're ambient glance-evidence,
-         and the log itself is reachable below. -->
-    <h2 id="details-label">
-    <button class="log-toggle" id="log-toggle" aria-expanded="false" aria-controls="log-body" aria-label="Messages">
-      <svg class="chev" viewBox="0 0 10 10" width="10" height="10" fill="currentColor" aria-hidden="true"><polygon points="1,3 9,3 5,8"/></svg>
-      <span class="log-title">Messages</span>
-      <!-- Link health at a glance, beside the title it qualifies. Both of these
-           stay on the closed bar: the point of a collapsed drawer is that it
-           still answers "is the wire alive?" without opening. -->
-      <span id="details-age"></span>
-      <span id="wire-rate" aria-live="off"></span>
-    </button>
-    </h2>
-    <div class="log-body" id="log-body" hidden>
-    <div class="wire-head">
-      <select class="select-sm" id="wire-filter" aria-label="Filter messages to one rover"><option value="">all rovers</option></select>
-      <!-- Topic filter. The log prints the topic on every line, so naming the
-           options after the channels makes the filter teach itself in place.
-           Replaced a binary toggle ("Beacons" — the firmware's word for sys,
-           appearing nowhere on screen) that could only express one of these.
-
-           SHOW EVERYTHING by default, filter down — what every log viewer does
-           (DevTools, Wireshark). The old default hid sys, inherited from when
-           this panel was instructor-only: a instructor watching for events doesn't
-           want 2s chatter. That premise died when students got the panel, because
-           sys is the ONLY thing a rover ever publishes (rover_role.c:567; pwm and
-           cmd/* are things it SUBSCRIBES to). So "all except sys" meant the rover
-           never appeared to answer at all — the "← the rover answers" legend
-           promising something that could never arrive, and an idle student
-           reading an empty log as broken.
-
-           Only channels the wire actually carries: imu and led are in
-           CONTRACT.md but no firmware publishes them, so offering them would be
-           a filter that can never match. Add them when they ship. -->
-      <select class="select-sm" id="wire-topic" aria-label="Filter messages by topic">
-        <option value="">all topics</option>
-        <option value="-sys">all except sys</option>
-        <option value="sys">sys</option>
-        <option value="pwm">pwm</option>
-        <option value="cmd">cmd</option>
-        <option value="estop">estop</option>
-      </select>
-      <span class="spacer"></span>
-      <button id="wire-pause">Pause</button>
-    </div>
-    <!-- The arrow key is a CAPTION for the log, not a control: it sat inside
-         the control row, which is what made that row read as a jumble. -->
-    <!-- The arrows must be the ones the log actually draws: this said → / ←
-         while logLine drew ↑ / ↓ from the moment the lines became columns — a
-         key that keys nothing.
-         "the rover answers" was wrong twice over: sys is UNPROMPTED (every 2s,
-         answering nothing), and inbound also carries fleet/estop, which comes
-         from a instructor, not a rover. Direction is the honest claim — what
-         this page sent vs what it received. -->
-    <!-- It rode the closed toggle bar until 2026-07-16, where it keyed arrows
-         that are only on screen once the drawer is OPEN — and the bar is a
-         fixed 2.6rem flex row with no wrap, so on a phone the legend shrank and
-         wrapped to 3 lines inside a 41.6px bar and was clipped. That was live at
-         320px before the title was even touched; widening "Log" to "Messages"
-         took it to 5 lines and pushed 390px (iPhone) into the same clip. The
-         horizontal sweep read clean throughout — flex shrank the legend instead
-         of overflowing, so the failure went vertical. Its margin-bottom has
-         always been styled for this slot. -->
-    <p class="wire-legend"><span class="log-out">&#8593; sent from this page</span> &#183; <span class="log-in">&#8595; received</span></p>
-    <!-- aria-live="off" is REQUIRED here, not belt-and-braces: role="log"
-         carries an implicit aria-live="polite", so every frame logLine() appends
-         became an announcement. sys alone is one per rover per 2 s — six rovers
-         is three utterances a second, forever, each reading a full JSON payload.
-         The polite queue never drains, so every other announcement in the app
-         (including the e-stop) starves behind a wall of telemetry. The drawer
-         being collapsed by default is the only reason this wasn't already
-         shipping broken — hubLogOpen makes it permanent for anyone who opened
-         it once. This is a READING surface: it's scrollable and focusable, which
-         is the right affordance. Let the user read it; announce nothing.
-         #wire-rate beside it already had exactly this fix. -->
-    <div id="wire-log" role="log" aria-live="off" tabindex="0" aria-label="Live command and telemetry messages"></div>
-    </div>
-  </section>
     </div>
   </div>
 
@@ -2418,7 +2466,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       renderNavBadge();
       // Same reason the grid repaints here: rovers arrive and age out. Only the
       // visible panel pays — and never under a hand that's typing in the filter.
-      if (panel === "topics" && document.activeElement?.id !== "tw-filter") {
+      if (panel === "messages" && document.activeElement?.id !== "tw-filter") {
         renderTopicTree(); renderTopicDetail();
       }
       // Settings shows hostLabel, which arrives async from /fleet — so a panel
@@ -2640,7 +2688,8 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // fact (the fleet went silent, which is worth seeing next to "last
       // message 45s ago"), "" is the absence of one, and collapsing the two is
       // what made the node vanish mid-class: a layout shift, not just a fade.
-      if (!wireSince) { el.textContent = ""; return; }
+      const nav = document.getElementById("nav-rate");
+      if (!wireSince) { el.textContent = ""; if (nav) nav.hidden = true; return; }
       const now = Date.now();
       let i = 0;
       while (i < wireAt.length && wireAt[i] < now - RATE_WIN_MS) i++;
@@ -2668,6 +2717,12 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         // always did. tabular-nums on #wire-rate keeps the width from
         // twitching across either form.
         el.textContent = `${wireShown < 10 ? wireShown.toFixed(1) : Math.round(wireShown)} msg/s`;
+        // The badge rides the SAME hysteresis, not a second timer: it is the
+        // same number, so it must not disagree with the head about it, and the
+        // blink this block exists to stop would otherwise reappear in the rail.
+        // The unit is dropped — the rail is 40px of chrome, and "msg/s" beside
+        // an icon labelled Messages is the only thing it could be counting.
+        if (nav) { nav.hidden = false; nav.textContent = wireShown < 10 ? wireShown.toFixed(1) : String(Math.round(wireShown)); }
       }
     }, 1000);
 
@@ -2719,11 +2774,15 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // reads it, and Pause freezes the VIEW, not the wire.
       // Buffer the DATA either way — that's an array push, no DOM, no layout —
       // and cap it at the same MAX_LOG the DOM is capped at. Only the DOM work
-      // is skipped while closed, so opening the drawer still shows the recent
+      // is skipped while unseen, so arriving at Messages still shows the recent
       // history it always did rather than an empty box that fills in later.
       logPending.push({ dir, text, topic, payload });
       if (logPending.length > MAX_LOG) logPending.splice(0, logPending.length - MAX_LOG);
-      if (document.getElementById("log-body").hidden) return;
+      // The gate the drawer's `hidden` used to be. It got STRICTER in the move,
+      // not weaker: an open drawer used to pay the DOM path from every panel,
+      // including Code, where nobody was looking at it. Now the log is only
+      // built while it is the thing on screen.
+      if (document.getElementById("p-messages").hidden) return;
       if (!logFlushQueued) { logFlushQueued = true; requestAnimationFrame(flushLog); }
     }
     // One layout per FRAME instead of one per message. The old code appended
@@ -2940,17 +2999,47 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     let panel = "fleet", topicSel = null, twFilter = "", twClosed = new Set();
     const railTree = () => document.getElementById("topic-tree");
 
+    // ONE tree, moved — never a second copy. On a phone the rail is a tab bar
+    // (four destinations, no room for a source list), so the tree renders in
+    // the Messages panel instead; Messages owns both halves, which is what
+    // makes this a move rather than a redesign. Two trees would be two sources
+    // of truth over one topicSeen, free to disagree about what the wire
+    // carries — the failure this file already refuses for the log's filters.
+    // matchMedia, not resize: this fires on the breakpoint crossing, not on
+    // every pixel of a drag, and it fires once on load.
+    const phone = window.matchMedia("(max-width: 720px)");
+    function moveTree() {
+      const tree = railTree(), rail = document.querySelector(".rail");
+      const panel = document.getElementById("p-messages");
+      // Where it belongs NOW. Re-parenting an element it already parents is a
+      // no-op in the DOM, but it would still blow away focus inside the filter
+      // input mid-type, so ask first.
+      const home = phone.matches ? panel : rail;
+      if (tree.parentElement === home) return;
+      // Both anchors are named, not counted: .rail-spacer is what pins Settings
+      // to the bottom of the rail, so inserting before it puts the tree under
+      // Messages wherever the nav items move to.
+      if (phone.matches) panel.insertBefore(tree, document.getElementById("topic-detail"));
+      else rail.insertBefore(tree, rail.querySelector(".rail-spacer"));
+    }
+    // Crossing the breakpoint re-decides both: where the tree lives, and
+    // whether a stored "collapsed" applies at all in the layout we just entered.
+    phone.addEventListener("change", () => {
+      moveTree();
+      setRail(localStorage.getItem("hubRailCollapsed") === "true");
+    });
+
     function setPanel(name) {
       panel = name;
       for (const b of document.querySelectorAll(".navitem")) {
         if (b.dataset.panel === name) b.setAttribute("aria-current", "page");
         else b.removeAttribute("aria-current");
       }
-      for (const id of ["fleet", "code", "topics", "settings"])
+      for (const id of ["fleet", "code", "messages", "settings"])
         document.getElementById(`p-${id}`).hidden = id !== name;
       // The tree discloses only with its own section: a source list shows the
       // section you are IN, not every section's contents at once.
-      railTree().hidden = name !== "topics";
+      railTree().hidden = name !== "messages";
       // Two of the five notices are the FLEET's, not the shell's, and they
       // followed you into every panel. #app-notice carries fleet-card outcomes
       // (blink / unassign / pins / test-pulse), reachable from nowhere else;
@@ -2965,7 +3054,20 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       for (const id of ["app-notice", "uplink"])
         document.getElementById(id).hidden = name !== "fleet";
       if (name === "code") mountIde();
-      if (name === "topics") { renderTopicTree(); renderTopicDetail(); }
+      if (name === "messages") {
+        renderTopicTree(); renderTopicDetail();
+        // Drain what buffered while this panel was elsewhere and land on the
+        // newest — the drawer's open handler did both, and arriving at the
+        // panel is now the moment that used to be. While the panel is hidden
+        // #wire-log has zero height, so logLine's follow-the-bottom check can't
+        // run and every buffered line would otherwise leave scrollTop pinned at
+        // the top: opening onto the OLDEST message, on a log whose point is the
+        // live tail, reads as frozen. flushLog() reads the follow position
+        // first, and at zero height that read says "at the bottom" — which is
+        // the intent; the explicit scroll settles it either way.
+        flushLog();
+        const l = document.getElementById("wire-log"); l.scrollTop = l.scrollHeight;
+      }
       if (name === "settings") renderSettings();
       try { localStorage.setItem("hubPanel", name); } catch {}
     }
@@ -3332,14 +3434,22 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     const shell = document.querySelector(".shell");
     const railToggle = document.getElementById("rail-toggle");
     function setRail(collapsed) {
-      shell.classList.toggle("rail-collapsed", collapsed);
+      // Collapsed is a DESKTOP state — it means "narrow the column to icons",
+      // and a phone has no column to narrow (the toggle is display:none there).
+      // The preference still has to be honoured on return, so it stays stored
+      // and only the class is withheld: .rail-collapsed hides .navitem labels
+      // and .nav-meter, so letting it reach the tab bar would hand a student
+      // who once collapsed a laptop rail a phone with four unlabelled icons.
+      // hubPanel's "topics" was the same shape of bug — stored state outliving
+      // the context that gave it meaning.
+      shell.classList.toggle("rail-collapsed", collapsed && !phone.matches);
       railToggle.setAttribute("aria-expanded", String(!collapsed));
       const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
       railToggle.title = label;
       railToggle.setAttribute("aria-label", label);
       // The tree is hidden by CSS when collapsed; keep the [hidden] state in
       // step so expanding again doesn't reveal a tree for a panel you left.
-      railTree().hidden = panel !== "topics";
+      railTree().hidden = panel !== "messages";
       try { localStorage.setItem("hubRailCollapsed", String(collapsed)); } catch {}
     }
     railToggle.addEventListener("click", () =>
@@ -3347,7 +3457,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
 
     document.getElementById("tw-tree").addEventListener("click", (e) => {
       const row = e.target.closest(".tw-row"), grp = e.target.closest(".tw-group");
-      if (row) { topicSel = row.dataset.topic; renderTopicTree(); renderTopicDetail(); }
+      if (row) { topicSel = row.dataset.topic; selectTopic(topicSel); }
       else if (grp) {
         const k = grp.dataset.group;
         twClosed.has(k) ? twClosed.delete(k) : twClosed.add(k);
@@ -3358,29 +3468,41 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       twFilter = e.target.value.trim().toLowerCase();
       renderTopicTree();
     });
-    const logToggle = document.getElementById("log-toggle");
-    logToggle.addEventListener("click", () => {
-      const open = logToggle.getAttribute("aria-expanded") === "true";
-      logToggle.setAttribute("aria-expanded", String(!open));
-      document.getElementById("log-body").hidden = open;
-      try { localStorage.setItem("hubLogOpen", String(!open)); } catch {}
-      // Jump to the newest on open. While hidden, #wire-log has zero height, so
-      // the follow-the-bottom check in logLine can't run — every line appended
-      // behind a closed drawer leaves scrollTop pinned at the top. Opening onto
-      // the oldest message, on a log whose point is the live tail, reads as
-      // frozen. Land on the newest; from there the follow logic keeps up.
-      if (!open) {
-        // Drain whatever buffered while closed: logLine keeps the data but
-        // skips the DOM behind a hidden drawer, so this is where those lines
-        // become elements. flushLog() reads the follow position first, and at
-        // zero height that read says "at the bottom" — which is exactly the
-        // intent, and the explicit scroll below settles it either way.
-        flushLog();
-        const l = document.getElementById("wire-log"); l.scrollTop = l.scrollHeight;
-      }
-    });
-    if (localStorage.getItem("hubLogOpen") === "true") logToggle.click();
-    setPanel(localStorage.getItem("hubPanel") || "fleet");
+    // Picking an address in the tree narrows the traffic to it — that IS the
+    // merge: the tree says which addresses exist, the log says what is on them,
+    // and a student had to infer that `robots/a044/sys` and `↓ robots/a044/sys`
+    // were the same thing back when they were two destinations.
+    // It drives the SELECTS rather than keeping a third filter state beside
+    // them: they stay the one source of truth (so the filters can't disagree
+    // with the tree), and the controls visibly move when you pick a topic —
+    // the tree teaches the filter instead of going around it. Parsed the same
+    // way buildLogLine stamps the line it must match: robots/<id>/<chan>.
+    function selectTopic(topic) {
+      const seg = (topic || "").split("/");
+      const robot = seg[0] === "robots" ? (seg[1] || "") : "";
+      const chan  = seg[0] === "robots" ? (seg[2] || "") : seg[seg.length - 1];
+      const rSel = document.getElementById("wire-filter");
+      const tSel = document.getElementById("wire-topic");
+      // Only if the option exists: the rover list tracks the live fleet and the
+      // channel list is deliberately short (imu/led are in CONTRACT.md but no
+      // firmware publishes them). Assigning an absent value silently selects
+      // nothing, which would read as "the filter cleared itself".
+      if ([...rSel.options].some(o => o.value === robot)) { rSel.value = robot; wireRobot = robot; }
+      if ([...tSel.options].some(o => o.value === chan))  { tSel.value = chan;  wireTopic = chan; }
+      applyWireFilters();
+      renderTopicTree(); renderTopicDetail();
+      announce(`Showing ${topic}`);
+    }
+    // "topics" was this panel's id until 2026-07-16. It is in the localStorage
+    // of every student who ever opened it, and setPanel would dereference a
+    // getElementById("p-topics") that no longer resolves — a stored preference
+    // outlives the name it was stored under.
+    const storedPanel = localStorage.getItem("hubPanel");
+    // Before setPanel: it sets the tree's [hidden], and on a phone the tree has
+    // to be in the panel by then or it lands hidden in the wrong parent.
+    moveTree();
+    setPanel(storedPanel === "topics" ? "messages"
+             : document.getElementById(`p-${storedPanel}`) ? storedPanel : "fleet");
     setRail(localStorage.getItem("hubRailCollapsed") === "true");
     // Drive input mode — the segmented control switches between the analog
     // joystick and the discrete D-pad. Only reveal an input once a target is
@@ -4144,7 +4266,6 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // sheet is the board's FACTS. (A student sees no wire log — instructor-only
       // — but the facts are the "why won't it move" answers; a raw MQTT stream
       // isn't.)
-      wrap.append(facts, cfgRow);
       const render = () => {
         const rec = board ? boards.get(board) : robots.get(robot);
         const sys = rec?.sys;
@@ -4176,10 +4297,98 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         b.addEventListener("click", () => openConfig(robot, sys.ip, board));
         cfgRow.append(b);
       };
+      // Same gate, same reason, one tick apart: the log is raw firmware output
+      // naming networks and internals. Collapse on the way out — a sign-out
+      // with the sheet open must stop the poll, not just hide the box.
+      const renderLog = () => {
+        const ok = myScope?.scope === "all";
+        tabs.hidden = !ok;                 // no tabs for a student: facts are the whole sheet
+        if (!ok && !logPre.hidden) showTab(false);   // sign-out with Log open must stop the poll
+      };
       renderCfg();
-      telemetrySync = () => { render(); renderCfg(); };   // the 2 s tick keeps both live
+
+      // Device log — the board's OWN ESP_LOG (robot's device_log.c), not the
+      // wire. The facts answer "what is it doing"; this answers "why did it
+      // reboot", and it is the only thing here that survives the reboot it
+      // describes (the ring lives in the chip's RTC memory).
+      //
+      // A TAB, not a section stacked under the facts: the log wants ~16rem of
+      // scrollback, and appending that to a sheet already holding the facts
+      // list pushes the sheet past the modal's 90vh and gives it two scrollbars,
+      // one inside the other. Switching views keeps the sheet's height a
+      // function of the taller panel instead of the sum of both.
+      //
+      // .segmented is the file's existing "switch which view shows" control (it
+      // drives joystick/D-pad) — same track, same thumb, same aria-pressed.
+      const tabs = document.createElement("div");
+      tabs.className = "segmented";
+      // role=group + a label, matching #drive-mode: a bare div of buttons is
+      // announced as two unrelated toggles with nothing saying they are one
+      // choice.
+      tabs.setAttribute("role", "group");
+      tabs.setAttribute("aria-label", "Details view");
+      const tabFacts = document.createElement("button");
+      const tabLog = document.createElement("button");
+      tabFacts.textContent = "Facts";
+      tabLog.textContent = "Log";
+      tabs.append(tabFacts, tabLog);
+
+      const factsPane = document.createElement("div");
+      factsPane.className = "stack";
+      factsPane.append(facts, cfgRow);        // the facts list + its settings button
+
+      const logPre = document.createElement("pre");
+      logPre.className = "td-pre dev-log";    // the sheet's preformatted block + scrollback
+      logPre.tabIndex = 0;                    // a scrollable region must be keyboard-reachable
+      logPre.setAttribute("role", "log");
+      logPre.setAttribute("aria-label", `${board || robot} device log`);
+      logPre.hidden = true;
+
+      wrap.append(tabs, factsPane, logPre);
+
+      let logTimer = null;
+      const pullLog = async () => {
+        const sys = (board ? boards.get(board) : robots.get(robot))?.sys;
+        if (!sys?.ip) { logPre.textContent = "No address for this board yet."; return; }
+        // Stick to the bottom only if the reader is already there — otherwise a
+        // refresh yanks them off the line they were reading.
+        const atEnd = logPre.scrollTop + logPre.clientHeight >= logPre.scrollHeight - 8;
+        try {
+          const r = await fetch(`http://${boardHost(sys.ip)}/log`, { cache: "no-store" });
+          if (!r.ok) throw new Error(r.status);
+          // textContent, NEVER innerHTML: sys.ip is published over an ACL that
+          // admits anyone (hub_role.c connect_cb), so the host this text came
+          // from is chosen by whoever published the beacon, not by us.
+          logPre.textContent = (await r.text()) || "(empty)";
+          if (atEnd) logPre.scrollTop = logPre.scrollHeight;
+        } catch {
+          logPre.textContent =
+            "Couldn't reach this board's log. It may be on a network this page can't see, "
+            + "or running firmware from before /log existed.";
+        }
+      };
+      const showTab = (wantLog) => {
+        tabFacts.setAttribute("aria-pressed", String(!wantLog));
+        tabLog.setAttribute("aria-pressed", String(wantLog));
+        factsPane.hidden = wantLog;
+        logPre.hidden = !wantLog;
+        clearInterval(logTimer); logTimer = null;
+        if (!wantLog) return;
+        // Poll only while the tab is showing: 6 KB a pull against the one AP
+        // radio a whole class shares.
+        pullLog();
+        logTimer = setInterval(pullLog, 5000);
+      };
+      tabFacts.addEventListener("click", () => showTab(false));
+      tabLog.addEventListener("click", () => showTab(true));
+      showTab(false);
+
+      renderLog();
+      telemetrySync = () => { render(); renderCfg(); renderLog(); };   // the 2 s tick keeps all three live
       openModal(`${board || robot} — details`, wrap);
-      modalRestore = () => { telemetrySync = null; };
+      // Poll dies with the sheet. Without this the interval outlives every close
+      // and keeps pulling 6 KB off the board forever, once per sheet ever opened.
+      modalRestore = () => { telemetrySync = null; clearInterval(logTimer); logTimer = null; };
     }
 
     // Drive opens the same per-board modal as Camera/Telemetry, parented with

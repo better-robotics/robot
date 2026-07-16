@@ -60,7 +60,11 @@ RTC_NOINIT_ATTR static uint32_t s_reset;
  *   - spinlock: esp_log_write is reachable from contexts where taking a mutex
  *     is fatal. The critical section covers one vsnprintf and a byte copy. */
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
-static char s_line[192];
+/* 256: the rover's own telemetry line ("pub {…}", every 2 s) is ~250 bytes and
+ * is by far the most common thing in this ring. It is static, so its size costs
+ * DRAM once and nothing per call — 192 was chosen against a stack cost this
+ * design does not pay. */
+static char s_line[256];
 static vprintf_like_t s_chain;   /* the vprintf we replaced — serial still works */
 
 static void ring_put(const char *p, int n)
@@ -79,8 +83,21 @@ static int log_vprintf(const char *fmt, va_list ap)
     va_copy(ap2, ap);
 
     portENTER_CRITICAL(&s_mux);
+    /* vsnprintf reports the length it WANTED, not what it wrote. */
     int n = vsnprintf(s_line, sizeof s_line, fmt, ap2);
-    if (n > 0) ring_put(s_line, n < (int)sizeof s_line ? n : (int)sizeof s_line - 1);
+    if (n > 0) {
+        int w = n < (int)sizeof s_line ? n : (int)sizeof s_line - 1;
+        ring_put(s_line, w);
+        /* A truncated line loses its own trailing "\n" — that newline is the
+         * last thing in the format string, so it is the first casualty. The ring
+         * then holds one enormous line instead of a log: unreadable in a browser,
+         * un-greppable everywhere, and it degrades only once the ring fills with
+         * the longest lines, which is to say only in the classroom and never on
+         * the bench. Bench-caught 2026-07-16: a 6 KB ring came back with exactly
+         * ONE newline in it. Guarantee the line ending rather than size a buffer
+         * and hope. */
+        if (s_line[w - 1] != '\n') ring_put("…\n", 4);   /* … marks the cut */
+    }
     portEXIT_CRITICAL(&s_mux);
     va_end(ap2);
 

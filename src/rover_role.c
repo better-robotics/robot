@@ -684,8 +684,23 @@ void rover_client_run(const char *broker_uri) {
                      camera_running() ? "true" : "false", rssi, es,
                      s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4);
 #endif
+            /* DEBUG, not INFO — so it is compiled out at this firmware's Info
+             * ceiling and reaches neither the UART nor the RTC ring.
+             *
+             * This is the most repetitive line in the system: ~250 bytes every
+             * 2 s. At INFO it wrote ~125 B/s into device_log.c's 6 KB ring,
+             * giving /log a memory of about 50 seconds — all of it this line.
+             * A board up for a minute answered "why did it reboot" with nothing
+             * but its own heartbeat (seen on the bench 2026-07-16: 27 log lines,
+             * 27 of them this). The ring is for the events around a failure, and
+             * a heartbeat is not an event.
+             *
+             * Nothing is lost: this duplicates the message the dashboard's
+             * Messages drawer already shows, live, off the wire it was published
+             * on. A publish that FAILS is still a warning, because that is an
+             * event. */
             if (esp_mqtt_client_publish(cli, key, buf, 0, 0, 0) >= 0)
-                ESP_LOGI(TAG, "pub %s", buf);
+                ESP_LOGD(TAG, "pub %s", buf);
             else
                 ESP_LOGW(TAG, "publish enqueue failed");
         } else if (++down >= 10) {
