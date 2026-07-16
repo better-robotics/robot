@@ -46,7 +46,13 @@ def _post(host, blob, password, timeout):
     ), timeout
 
 
-def preflight(host, password, timeout=10):
+def preflight(host, password, timeout=30):
+    # 30, not 10: a healthy esp32cam answered its first cold request in 5.7 s on
+    # the bench (2026-07-16) and its next two in 0.2 s and 0.06 s — that board
+    # runs a second httpd for the camera and is slowest exactly when nothing is
+    # wrong with it. A 10 s budget left under 2x margin on the slowest board
+    # observed, which turns radio contention in a full classroom into "timed
+    # out" against a board that is fine. This costs nothing when healthy.
     """Check auth with an empty body before sending megabytes.
 
     The board checks auth BEFORE it looks at the image, so a zero-byte push
