@@ -2,11 +2,18 @@
  * wifi_portal.c — the per-board Wi-Fi config panel (robot#2 / #17).
  *
  * One always-on httpd on the board's :80, started by board_run right after the AP
- * comes up. It is what cashes in always-APSTA's promise: the board keeps its own
- * open rover-<id> AP up forever, so a student joins it, browses rover.local, and
- * sets home Wi-Fi WITHOUT the board ever switching radio mode. Works in every mode
- * — a classroom rover runs no broker or dashboard of its own, so without this it
- * would serve nothing at rover.local.
+ * comes up — before any broker decision, so it is already serving whatever the
+ * board turns out to be.
+ *
+ * Its job is the ISLAND board: no hub, so no dashboard until it self-brokers, and
+ * a home uplink that cannot be configured over the network it hasn't joined. The
+ * student joins the open rover-<id> AP, browses rover.local, sets home Wi-Fi.
+ *
+ * A HUB-JOINED board is the other case, and it needs almost none of this: it has
+ * no AP at all (hub_role.c board_ap_down — one network in the room, the hub's),
+ * takes its name and pins over MQTT, and drives off the hub's dashboard. This
+ * httpd stays up for it, reachable at rover-<id>.local on the hub's LAN, but
+ * nothing routine sends anyone here.
  *
  * The scan itself lives in hub_role.c (board_wifi_scan) because that file owns the
  * radio and the s_want_connect reconnect gate; this file is only presentation +
@@ -751,8 +758,11 @@ static esp_err_t captive_ack_post(httpd_req_t *req)
  * sheet (Apple's CNA sandboxes localStorage away from Safari, so a sign-in
  * made in here would silently vanish the moment the sheet closes) — but
  * reaching it is this page's one job, and that doesn't need to wait on
- * anything. The rover's own AP stays up regardless of uplink (always-APSTA),
- * so the dashboard is already reachable the instant a phone joins; "Open the
+ * anything. This page is only ever reached from the board's own AP, which by
+ * construction means the board is islanding and its dashboard is up (a
+ * hub-joined board has no AP to serve it — hub_role.c board_ap_down), and the
+ * AP does not drop on an uplink change either — so the dashboard is already
+ * reachable the instant a phone joins; "Open the
  * dashboard" is the first, unconditional thing offered here (2026-07-15 —
  * this used to be the LAST thing offered, behind a full scan/connect wizard
  * that duplicated what the dashboard's own Set-up-Wi-Fi panel already does

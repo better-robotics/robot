@@ -1,15 +1,19 @@
 /*
  * Wi-Fi + broker services of the unified image. TWO entry points:
  *
- *   board_run(self_broker_ok)  — the NORMAL board (tiers 1 + 3). Always APSTA:
- *       it raises its own open `rover-<id>` AP AND an STA uplink from line one,
- *       and never switches radio mode again. So home↔classroom is runtime state,
- *       not a boot role, and there is NO mode-switch reboot (the old RTC-flag
- *       self-hub claim is deleted — CLAUDE.md § Status & design history):
- *         - joins a hub-* (classroom) → drives off that shared broker (central).
+ *   board_run(self_broker_ok)  — the NORMAL board (tiers 1 + 3). Comes up APSTA:
+ *       its own open `rover-<id>` AP AND an STA uplink, from line one. So
+ *       home↔classroom is runtime state, not a boot role, and there is NO
+ *       mode-switch reboot to *reach* a state (the old RTC-flag self-hub claim
+ *       is deleted — CLAUDE.md § Status & design history):
+ *         - joins a hub-* (classroom) → drives off that shared broker (central),
+ *           and DROPS its AP for as long as it stays a hub client: one network
+ *           in the room, the hub's (board_ap_down has the full argument).
  *         - no hub, AUTO → runs a LOCAL broker and drives itself (home/island).
  *         - no hub, ROVER-pinned → keeps looking (never self-brokers).
  *       Its AP is `rover-<id>` (NOT hub-*), so no other rover joins a home board.
+ *       The only mode change is APSTA→STA on a hub join, which is safe live; the
+ *       way BACK is a clean restart, never a live switch.
  *
  *   hub_role_run()             — tier 2: a dedicated professor hub. Raises a
  *       `hub-*` AP (the SSID a rover's scan joins → it gathers a fleet), runs the
@@ -71,6 +75,15 @@ void ws_bridge_reap_all(void);   /* force-close every open bridge — a departin
 static const char *TAG = "hub-broker";
 static esp_netif_t *ap_netif;
 static esp_netif_t *sta_netif;
+
+/* Is our own AP still beaconing? A board drops it once cleanly joined to a hub
+ * (board_ap_down); the tier-2 hub never does. Gates the two things that exist
+ * only to serve AP clients: NAPT, and the rover.local alias. */
+static volatile bool s_ap_up = false;
+
+/* MDNS_BOARD_ALIAS — the friendly name, delegated, AP-only (wifi_apsta_up). The
+ * board's PRIMARY mDNS name is its unique rover-<id>; see the mDNS block there. */
+#define MDNS_BOARD_ALIAS "rover"
 
 /* STA state, shared with the event handler below. */
 static volatile bool s_sta_got_ip = false;
@@ -352,7 +365,14 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
         ESP_LOGI(TAG, "uplink up, got IP " IPSTR " — enabling NAT (probe decides full vs portal)",
                  IP2STR(&e->ip_info.ip));
         esp_netif_set_default_netif(sta_netif);
-        if (esp_netif_napt_enable(ap_netif) != ESP_OK) {
+        /* NAPT exists to route OUR AP's clients out the uplink. A hub-joined
+         * board has no AP (board_ap_down), so arming it would be inert at best
+         * — and this handler re-fires on every STA reconnect, so without the
+         * gate a re-dial to the hub would quietly re-arm the very door
+         * board_ap_down closed. */
+        if (!s_ap_up) {
+            ESP_LOGI(TAG, "NAT stays off — no AP of our own to route (hub client)");
+        } else if (esp_netif_napt_enable(ap_netif) != ESP_OK) {
             ESP_LOGE(TAG, "NAPT enable failed");
         } else {
             ESP_LOGI(TAG, "NAT on: AP clients now route out the uplink");
@@ -363,8 +383,11 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
 /* ── APSTA bring-up shared by both entry points ──────────────────────────────
  * Brings up netif + Wi-Fi in APSTA with the given open AP SSID and mDNS
  * hostname, and starts the radio. The STA leg is left unconfigured — the caller
- * sets it (a fixed uplink for the hub, a discovered/stored one for a board). */
-static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, bool ap_alt_subnet)
+ * sets it (a fixed uplink for the hub, a discovered/stored one for a board).
+ * ap_alias = an extra, friendly <alias>.local answered ONLY on our own AP
+ * (NULL for none) — see the mDNS block below. */
+static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, const char *ap_alias,
+                          bool ap_alt_subnet)
 {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -432,6 +455,7 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, bool ap_al
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_start());
+    s_ap_up = true;   /* before any STA join can fire IP_EVENT_STA_GOT_IP, which reads it */
     /* Default WIFI_PS_MIN_MODEM dozes the radio between DTIM beacons — but drive
      * commands reach a classroom rover over this STA leg, so modem sleep puts
      * beacon-interval latency spikes on the joystick path (and delays AP-side
@@ -448,16 +472,47 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, bool ap_al
      * internet. */
     captive_nat_install((struct netif *)esp_netif_get_netif_impl(ap_netif));
 
-    /* mDNS: <host>.local — "hub" for a hub (matches the Pi's avahi name), "rover"
-     * for a board, so a kid reaches their board's dashboard at http://rover.local/
-     * (on the board's own AP it is the only responder, so the name is unambiguous;
-     * a shared LAN with several boards would collide — the classroom uses the
-     * dashboard's per-id list there, not rover.local). */
+    /* ── mDNS: two names, split by which link they belong to ─────────────────
+     * PRIMARY (mdns_hostname_set) = the UNIQUE name: "hub" for a hub (matches
+     * the Pi's avahi name), "rover-<id>" for a board. The responder tracks its
+     * addresses automatically on every netif, so it is right on the board's own
+     * AP and on a hub's LAN alike, with no maintenance.
+     *
+     * Why unique-as-primary, when a bare "rover" reads nicer: the primary is
+     * the name that gets MANGLED on a collision. RFC 6762 conflict resolution
+     * is implemented here (mdns_receive.c, mangle_name → "-2", "-3"...), so N
+     * boards sharing a LAN do NOT fail — they silently become rover, rover-2,
+     * rover-3..., and `rover.local` resolves to WHICHEVER BOOTED FIRST. A name
+     * that works and points somewhere arbitrary is worse than one that doesn't
+     * resolve, and the ordinals land in the same namespace as the MAC-suffix
+     * ids (rover-2 next to rover-3f2a, indistinguishable by shape). MAC
+     * suffixes don't collide, so a unique primary never mints one.
+     *
+     * ALIAS (delegated) = the friendly "rover.local", pinned to our AP's own
+     * IP. A delegated hostname carries a STATIC address list the caller must
+     * maintain — normally the catch, and here exactly why it fits: this name
+     * is only ever answered on our own AP, whose IP is fixed above, so the
+     * list is a constant. Read back from the netif rather than restating
+     * 192.168.99.1 — one source for the AP's address. That pinning IS the
+     * policy: rover.local is the AP's name, rover-<id>.local is the board's,
+     * so "stop claiming rover.local on a hub" needs no separate rule — it
+     * falls out of dropping the AP (board_ap_down). */
     if (mdns_init() == ESP_OK) {
         mdns_hostname_set(mdns_host);
         mdns_instance_name_set("Better Robotics");
         mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
         ESP_LOGI(TAG, "mDNS up: dashboard also at http://%s.local/", mdns_host);
+        esp_netif_ip_info_t ap_ip = {0};
+        if (ap_alias && esp_netif_get_ip_info(ap_netif, &ap_ip) == ESP_OK) {
+            mdns_ip_addr_t a = { .addr = { .type = ESP_IPADDR_TYPE_V4 }, .next = NULL };
+            a.addr.u_addr.ip4.addr = ap_ip.ip.addr;
+            if (mdns_delegate_hostname_add(ap_alias, &a) == ESP_OK) {
+                ESP_LOGI(TAG, "mDNS alias: http://%s.local/ (on our AP only)", ap_alias);
+            } else {
+                ESP_LOGW(TAG, "mDNS alias '%s' failed (http://%s.local still works)",
+                         ap_alias, mdns_host);
+            }
+        }
     } else {
         ESP_LOGW(TAG, "mDNS init failed (http://%s.local won't resolve; IP still works)", mdns_host);
     }
@@ -774,10 +829,58 @@ static void broker_task(void *arg)
     vTaskDelete(NULL);
 }
 
-/* ── board_run: the normal board, always APSTA (tiers 1 + 3) ──────────────────
+/* ── board_ap_down: a hub client has no AP of its own ─────────────────────────
+ * Once cleanly joined to a hub, a board's own AP has no job left: dashboard,
+ * broker and config all live on the hub, reachable over the STA leg. Keeping it
+ * up cost three things, in ascending order of what actually matters:
+ *   1. Beacons on the HUB'S OWN CHANNEL. One radio means the AP cannot pick a
+ *      channel — it follows the STA. So every board's beacons contend with the
+ *      exact link carrying its own drive commands, and PS is deliberately NONE.
+ *   2. A second, password-less door into the classroom network, via NAPT: join
+ *      any rover-<id> and you route straight to the hub's broker without ever
+ *      touching the hub's Wi-Fi. (Not a privilege escalation — the hub's AP is
+ *      open too — but it makes "connect to the hub" a suggestion, not a fact.)
+ *   3. A second topology to explain. The room should be "everything is on the
+ *      hub", not "everything is on the hub, and also each robot is its own
+ *      network". CLAUDE.md asks for topology that is explicit, never emergent;
+ *      a board that is both a hub client and its own AP is the third state that
+ *      principle was written against.
+ * hub#3 named this exact mitigation ("drop the beacon when cleanly joined to a
+ * hub") and gated it on measuring the beacon cost. Reason 3 doesn't need the
+ * measurement, so the gate is spent on it.
+ *
+ * APSTA→STA is safe to do live: it is subtractive, and the STA keeps its channel
+ * and its association. The REVERSE is not — a live STA→APSTA switch is the exact
+ * thing always-APSTA exists to dodge, and it cost two hardware bugs (the
+ * RTC_DATA wipe loop, the pi-watch stack panic; CLAUDE.md § Status & design
+ * history). So coming back is a clean restart, never a mode flip — see board_run. */
+static void board_ap_down(void)
+{
+    if (!s_ap_up) return;
+    /* rover.local is the AP's name, pinned to the AP's IP (wifi_apsta_up) — with
+     * no AP there is no link for it to answer on, and on a hub LAN it is the
+     * name that would collide with every peer. The unique rover-<id>.local
+     * (primary) is untouched and now answers over the hub's LAN. */
+    mdns_delegate_hostname_remove(MDNS_BOARD_ALIAS);
+    esp_netif_napt_disable(ap_netif);
+    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) {
+        /* Not fatal: a board that keeps beaconing still drives fine — it just
+         * costs the airtime above. Don't panic a classroom over it. */
+        ESP_LOGW(TAG, "AP down failed (%s) — still beaconing, drive path unaffected",
+                 esp_err_to_name(err));
+        return;
+    }
+    s_ap_up = false;
+    ESP_LOGI(TAG, "AP down — one network in the room: the hub's. This board is now "
+                  "http://%s.local/ on the hub's LAN.", s_board_id);
+}
+
+/* ── board_run: the normal board (tiers 1 + 3) ────────────────────────────────
  * self_broker_ok = AUTO (may become its own island if no hub is found); false =
- * ROVER-pinned (must never self-broker — keeps looking for a hub). Never returns;
- * never a mode-switch reboot — it re-evaluates in a loop instead. */
+ * ROVER-pinned (must never self-broker — keeps looking for a hub). Never returns.
+ * Comes up APSTA always; drops to STA-only for as long as it is a hub client
+ * (board_ap_down), and restarts rather than switch back live. */
 void board_run(bool self_broker_ok)
 {
     rover_button_start();   /* recover button: hold to reboot (rover_role.c) */
@@ -787,14 +890,20 @@ void board_run(bool self_broker_ok)
     char ap_ssid[16];
     rover_format_robot_id(stamac, ap_ssid);   /* "rover-<suffix>" — matches the board id */
     snprintf(s_board_id, sizeof s_board_id, "%s", ap_ssid);
-    wifi_apsta_up(ap_ssid, "rover", true);    /* AP on 192.168.99.1 (so the STA can join a
-                                               * hub cleanly); mDNS → rover.local */
+    /* AP on 192.168.99.1 (so the STA can join a hub cleanly). mDNS: primary is the
+     * UNIQUE rover-<id>.local (survives a hub LAN full of peers); "rover.local" is
+     * the friendly alias, answered on this AP only. */
+    wifi_apsta_up(ap_ssid, ap_ssid, MDNS_BOARD_ALIAS, true);
 
     /* The Wi-Fi config panel — always on, on this board's :80, before any broker
-     * decision. This is what makes "join rover.local, set your home Wi-Fi" work in
-     * EVERY mode (a classroom rover has no broker/dashboard of its own otherwise).
-     * When the board later islands, start_ws_mqtt_bridge registers the drive
-     * dashboard onto this same :80 handle. */
+     * decision, so it is already serving whatever this board turns out to be. It
+     * is what makes "join rover.local, set your home Wi-Fi" work on an ISLAND —
+     * the only case that needs it, since a board with no hub has no dashboard
+     * until it self-brokers, and its uplink can't be set over a network it hasn't
+     * joined. A hub-joined board drops its AP below and reaches this panel only
+     * over the hub's LAN (rover-<id>.local), which is enough: its name and pins
+     * arrive over MQTT. When the board islands, start_ws_mqtt_bridge registers the
+     * drive dashboard onto this same :80 handle. */
     wifi_portal_start();
 
     /* Camera (esp32cam only; a no-op elsewhere). After Wi-Fi so it fits in what
@@ -828,18 +937,31 @@ void board_run(bool self_broker_ok)
             if (!joined) ESP_LOGW(TAG, "stored network '%s' unreachable", ssid);
         }
 
+        /* Coming back from hub-client to anything else needs our AP again, and a
+         * live STA→APSTA switch is precisely what always-APSTA exists to avoid.
+         * Restart instead — board_run re-runs and is APSTA from line one. This is
+         * hub_watch_task's own yield idiom pointed the other way, and the cost
+         * lands only where the hub already vanished, i.e. nothing was driving. */
+        if (!joined_hub && !s_ap_up) {
+            ESP_LOGW(TAG, "no hub and our AP is down — restarting to come back up APSTA");
+            vTaskDelay(pdMS_TO_TICKS(500));
+            esp_restart();
+        }
+
         char uri[80];
         if (joined_hub) {
             /* Classroom: the DHCP gateway is the hub/broker — central control. The
-             * hub also serves the class dashboard on :80, and NAPT (armed on our
-             * STA lease) lets a phone on THIS board's AP reach it — so the landing
-             * page can hand out the URL. IP, not hub.local: mDNS is link-local and
-             * doesn't cross the NAT hop. */
+             * hub also serves the class dashboard on :80. IP, not hub.local: mDNS
+             * is link-local, and this board is a plain station on the hub's LAN. */
             snprintf(uri, sizeof uri, "mqtt://" IPSTR ":1883", IP2STR(&s_gw));
             char dash[32];
             snprintf(dash, sizeof dash, "http://" IPSTR "/", IP2STR(&s_gw));
             board_net_state_set(BOARD_NET_HUB, discovered, dash);
             ESP_LOGI(TAG, "joined hub '%s' — driving off its broker (central)", discovered);
+            /* The room has ONE network now: the hub's. Everything this AP used to
+             * offer (config panel, captive onboarding, NAT to the hub dashboard)
+             * is either on the hub already or is an island-only concern. */
+            board_ap_down();
         } else if (joined && loc[0] && strncmp(loc, "mqtt://", 7) == 0) {
             /* A stored network with an explicit broker locator (e.g. a home Pi). */
             snprintf(uri, sizeof uri, "%s", loc);
@@ -874,10 +996,11 @@ void board_run(bool self_broker_ok)
 
         rover_client_run(uri);   /* blocks driving the board; returns on a dead session */
 
-        /* Session died — re-evaluate without a reboot. If we were islanding, the
-         * broker + AP stay up and we simply re-dial localhost; if the classroom hub
-         * vanished, the next pass rediscovers (and an AUTO board can now island). */
-        ESP_LOGW(TAG, "drive session ended — re-evaluating (no reboot)");
+        /* Session died — re-evaluate. If we were islanding, the broker + AP stay up
+         * and we simply re-dial localhost (no reboot). If the classroom hub
+         * vanished, the next pass rediscovers: still there → rejoin in place; gone
+         * → the AP has to come back, so the check at the top of the loop restarts. */
+        ESP_LOGW(TAG, "drive session ended — re-evaluating");
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
@@ -893,8 +1016,10 @@ void hub_role_run(void)
     char ap_ssid[16];
     snprintf(ap_ssid, sizeof ap_ssid, AP_SSID_PREFIX "%02x%02x", apmac[4], apmac[5]);
     snprintf(s_board_id, sizeof s_board_id, "%s", ap_ssid);
-    wifi_apsta_up(ap_ssid, "hub", false);     /* AP stays 192.168.4.1 — boards join THIS;
-                                               * mDNS → hub.local (matches the Pi) */
+    wifi_apsta_up(ap_ssid, "hub", NULL, false);   /* AP stays 192.168.4.1 — boards join THIS;
+                                                   * mDNS → hub.local (matches the Pi). No alias:
+                                                   * hub.local IS the unique name, and a hub
+                                                   * never drops its AP. */
 
     /* The config panel runs here too (hub.local/wifi): so designating a board as
      * HUB isn't a one-way trip (flip role back to auto), and the professor sets the

@@ -64,7 +64,7 @@ void rover_config_load_professor_pass(char pass[65]);
 esp_err_t rover_config_set_professor_pass(const char *pass);
 
 /* Boot role for the unified image. The dispatcher (main.c) reads this to pick
- * board_run (AUTO/ROVER, always-APSTA) vs hub_role_run (HUB, tier-2 professor
+ * board_run (AUTO/ROVER, APSTA at boot) vs hub_role_run (HUB, tier-2 professor
  * hub). AUTO is the default: the board may become its own island if no hub is
  * found; ROVER pins it to never self-broker; HUB makes it a dedicated hub. Set
  * from the hub dashboard / config page. Stored as one byte under "role"; load

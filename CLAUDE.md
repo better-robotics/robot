@@ -2,11 +2,12 @@
 
 ESP32 firmware for the classroom Robotics Hub
 ([`better-robotics/hub`](https://github.com/better-robotics/hub)). **One unified
-image, always-APSTA** (self-election collapsed into an always-on AP+STA board
-2026-07-09 — see below):
+image, APSTA at boot** (self-election collapsed into an AP+STA board 2026-07-09;
+the AP drops while joined to a hub 2026-07-15 — see below):
 
 - **`board_run`** (`hub_role.c`, the norm): every board comes up **APSTA** — its
-  own open `rover-<id>` AP *and* an STA uplink — and stays that way. It's an
+  own open `rover-<id>` AP *and* an STA uplink — and **drops the AP for as long
+  as it is joined to a hub** (one network in the room: the hub's). It's an
   `esp-mqtt` client that drives an L298N from `robots/<id>/pwm` and takes its name
   + pins post-join, dialing whichever broker is reachable: a discovered `hub-*`'s
   (classroom) or its **own on-chip broker** at `127.0.0.1` (home/island). One
@@ -99,17 +100,23 @@ returns):
 ```
 app_main ─► role_pref == HUB → hub_role_run()   (tier 2: dedicated hub-* + broker + NAT; no drive)
             else             → board_run(self_broker_ok = role==AUTO)
-                                 always-APSTA board: own OPEN rover-<id> AP + STA,
-                                 loops (NO reboot): join hub-* → drive its broker;
+                                 APSTA at boot: own OPEN rover-<id> AP + STA,
+                                 loops: join hub-* → AP DOWN, drive its broker;
                                  else AUTO → local broker, drive 127.0.0.1 (island);
                                  else ROVER-pinned → rescan, never island.
+                                 (AP down + no hub → restart, never a live switch)
 ```
-**Always-APSTA, no mode-switch reboot** (decided 2026-07-09; § Status & design
-history). The board is APSTA from line one and never switches radio mode, so
-home↔classroom is a **runtime re-point** of the broker URI, not a boot role — the
-old `role_boot_as_hub`/`RTC_NOINIT` claim-by-reboot is **deleted** (it only ever
+**APSTA at boot; STA-only while a hub client** (2026-07-09, amended 2026-07-15;
+§ Status & design history). The board is APSTA from line one, so home↔classroom is
+a **runtime re-point** of the broker URI, not a boot role — the old
+`role_boot_as_hub`/`RTC_NOINIT` claim-by-reboot is **deleted** (it only ever
 existed to dodge a live STA→APSTA switch; it also caused two HW bugs — the
-`RTC_DATA` wipe loop and the pi-watch stack panic). **Islands, not attraction:** a
+`RTC_DATA` wipe loop and the pi-watch stack panic). The one mode change that
+remains is **APSTA→STA on a hub join** (`board_ap_down`), which is safe live —
+subtractive, and the STA keeps its channel and association. **The way back is
+never a live switch**: a board whose AP is down and whose hub is gone does a clean
+`esp_restart` and comes up APSTA (the yield idiom, pointed the other way), so
+STA→APSTA still never happens live. **Islands, not attraction:** a
 self-broker board's AP is `rover-<id>`, *not* `hub-*`, so nothing joins it. A
 shared broker (central control) is opt-in via an explicit hub (a Pi, or a board
 pinned to `role_pref=HUB`). An island board yields to any **`hub-*`** via a
@@ -120,12 +127,31 @@ islands. A board's own AP sits on **192.168.99.1** (not the ESP default
 192.168.4.1) so its STA can pull a clean 192.168.4.x lease from a hub — else it
 associates but can't route (two interfaces, one subnet) and wrongly islands.
 `discover_hub` retries the scan 3× (a single active scan can miss a present AP).
-All APs **open** by default. mDNS: a board is **`rover.local`**, a hub is
-`hub.local` (a board never claims `hub.local` — it would collide with the Pi).
-The always-on AP keeps `http://rover.local/` reachable for the #17 config panel
-("set your home Wi-Fi" = the home switch); cost is per-board beacons in a
-classroom (measure-then-mitigate; `hub#3` closed 2026-07-10 — the per-board-AP
-topology question dissolved into always-APSTA).
+All APs **open** by default.
+
+**mDNS: two names, split by link** (2026-07-15). A board's **primary** name is its
+unique **`rover-<id>.local`**, tracked on every netif — so it still answers on a
+hub's LAN, full of peers. **`rover.local`** is a *delegated alias* pinned to the
+board's own AP IP, so it exists only while the AP does: dropping the AP drops the
+alias, with no separate rule. A hub is `hub.local` (a board never claims it — it
+would collide with the Pi). **Unique-as-primary is load-bearing, not cosmetic:**
+the primary is what gets mangled on collision, and RFC 6762 conflict resolution is
+implemented (`mangle_name` → `-2`, `-3`), so N boards on one LAN don't fail —
+`rover.local` silently resolves to **whichever booted first**, and the ordinals
+(`rover-2`) land in the same namespace as MAC-suffix ids (`rover-3f2a`),
+indistinguishable by shape. MAC suffixes don't collide, so a unique primary never
+mints one. (Latent, needs a duplicate MAC to fire: `mangle_name` `strtol`s the
+tail after the last `-`, so an all-decimal id — ~15% of boards, `(10/16)^4` —
+mangles `rover-3210`→`rover-3211`, i.e. into another board's plausible id.)
+
+The AP keeps `http://rover.local/` reachable for the #17 config panel ("set your
+home Wi-Fi" = the home switch) **in the island case, which is the only case that
+needs it** — a hub-joined board takes its name and pins over MQTT
+(`cmd/config`), and its panel stays reachable at `rover-<id>.local` on the hub's
+LAN. Per-board beacons in a classroom were the named cost; `hub#3`'s mitigation
+("drop the beacon when cleanly joined to a hub") **shipped 2026-07-15** — see
+`board_ap_down` for the three-part argument, of which the beacon cost is the
+*weakest* third.
 
 ### Rover role
 One radio: Wi-Fi STA + esp-mqtt (BLE removed 2026-07-09 — see below).
@@ -259,9 +285,28 @@ chosen-against:
   re-point of the broker URI, and the room's topology is explicit (a hub exists
   or it doesn't), never emergent. Don't re-propose coordination between boards.
 - **Per-board-AP-vs-shared-hub dichotomy dissolved (hub#3, closed 2026-07-10)** —
-  always-APSTA runs both topologies, split by hub presence; the beacon/client-cap
-  cost stays measure-then-mitigate (if it bites, drop the beacon when cleanly
-  joined to a hub).
+  always-APSTA runs both topologies, split by hub presence.
+- **The AP drops while joined to a hub (2026-07-15)** — hub#3's deferred
+  mitigation, spent. It was gated on *measuring* the beacon cost; what actually
+  bought it was the **mental model**: the room should be "everything is on the
+  hub", not "everything is on the hub, and also each robot is its own network".
+  A board that is simultaneously a hub client and its own AP is exactly the
+  emergent third state the entry above says the topology must never have — the
+  principle was already written down, and the AP was quietly violating it.
+  Two supporting costs, both real but neither sufficient alone: beacons land on
+  the **hub's own channel** (single radio → the AP follows the STA, so they
+  contend with the drive path itself), and NAPT made each rover a second
+  password-less door into the classroom network (*not* an escalation — the hub's
+  AP is open too — but it made "connect to the hub" a suggestion rather than a
+  fact). **Chosen-against: dropping the AP in the `BOARD_NET_REMOTE` case too**
+  (stored home network + stored broker). Same redundancy argument, but the
+  classroom is where the cost concentrates and the model is taught; at home one
+  or two boards cost nothing and the AP is the recovery channel. Narrow the
+  change to the case that earned it.
+  **Chosen-against: keeping the AP as an escape hatch on a hub-joined board.**
+  It isn't one — a misjoined board is reachable at `rover-<id>.local` on the
+  hub's LAN, and the true dead-end (an ESP32-CAM, no BOOT button, joined to a
+  hub you don't control) is recovered by powering it up out of the hub's range.
 - **OS-native captive-portal onboarding, rebuilt end to end (2026-07-13 →
   2026-07-14, all live-diagnosed against real boards + real phones, not
   designed ahead of the bugs).** Rover→hub auto-discovery needs no human and

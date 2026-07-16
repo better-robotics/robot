@@ -12,7 +12,9 @@ Raspberry Pi hub live at [`better-robotics/hub`](https://github.com/better-robot
 ```
 power on
    │
-   ├── sees an open hub-… ────────▶ joins it · drives off its broker
+   ├── sees an open hub-… ────────▶ joins it · drives off its broker ·
+   │                                 shuts its OWN network off — one
+   │                                 network in the room, the hub's
    │                                 (ESP32 hub-XXXX, or Pi hub-pi-…; a stored
    │                                  hub pin narrows this to ONE exact hub)
    │
@@ -25,10 +27,21 @@ power on
                                             appears, steps down and joins it
 ```
 
-The board is always **AP + station at once** — its own open `rover-XXXX`
-network never goes away. `http://rover.local` always answers with a landing
-page that routes to wherever the dashboard is *right now*, and holds the
-**Wi-Fi & role settings** (network scanner, home Wi-Fi, rover/hub/auto switch).
+A board comes up as **AP + station at once**, then follows the room:
+
+- **On its own** it keeps its open `rover-XXXX` network up. `http://rover.local`
+  answers with a landing page that routes to wherever the dashboard is *right
+  now*, and holds the **Wi-Fi & role settings** (network scanner, home Wi-Fi,
+  rover/hub/auto switch).
+- **Joined to a hub** it shuts that network down. The hub is the one place to
+  connect: its Wi-Fi, its dashboard, its broker. A robot on a hub is just a
+  robot — it isn't also a network to get lost in, and it isn't spending the
+  hub's airtime advertising itself. Its settings page follows it, at
+  `http://rover-XXXX.local` on the hub's network.
+
+Every board answers at its own **`rover-XXXX.local`** wherever it is. The short
+`rover.local` is a convenience on a board's own network, where it's the only
+one answering.
 
 ## Life of a board
 
@@ -92,8 +105,9 @@ LED = "reached the broker"; a ~6 s blink = someone pressed **Blink**.
 ```
 src/
 ├── main.c               boot dispatcher: role_pref → board_run | hub_role_run
-├── hub_role.c           Wi-Fi + broker services — always-APSTA board, tier-2 hub,
-│                        discovery + hub-watch (islands yield to real hubs), NAT
+├── hub_role.c           Wi-Fi + broker services — the board (AP until a hub takes
+│                        over), tier-2 hub, discovery + hub-watch (islands yield
+│                        to real hubs), NAT
 ├── rover_role.c         drive client — esp-mqtt, motors + watchdog, cmd/* handlers
 ├── wifi_portal.c        the board's :80 — landing, Wi-Fi & role settings, /wifi/status
 ├── ws_mqtt_bridge.c     :9001 WebSocket↔MQTT bridge + serves the embedded dashboard

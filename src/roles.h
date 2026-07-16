@@ -10,11 +10,12 @@
  * (main.c) reads role_pref from NVS and calls one; each brings up its own radio
  * and never returns. */
 
-/* The normal board (tiers 1 + 3), always APSTA — own open rover-<id> AP + STA
- * uplink, no mode switch ever. Joins a hub-* → drives off it (classroom); no hub
- * → runs a local broker and drives itself (home/island). self_broker_ok = AUTO
- * (may island); false = ROVER-pinned (keeps looking, never self-brokers).
- * Defined in hub_role.c (which owns the Wi-Fi + broker services). */
+/* The normal board (tiers 1 + 3), APSTA at boot — own open rover-<id> AP + STA
+ * uplink. Joins a hub-* → drives off it AND drops its own AP for as long as it
+ * stays a hub client (classroom: one network in the room, the hub's); no hub →
+ * keeps the AP and runs a local broker, driving itself (home/island).
+ * self_broker_ok = AUTO (may island); false = ROVER-pinned (keeps looking, never
+ * self-brokers). Defined in hub_role.c (which owns the Wi-Fi + broker services). */
 void board_run(bool self_broker_ok);
 
 /* Tier 2: a dedicated professor hub — hub-* AP + broker + NAT, no drive
@@ -87,9 +88,10 @@ typedef struct { char ssid[33]; signed char rssi; bool open; } board_ap_t;
 int board_wifi_scan(board_ap_t *out, int max);
 
 /* Live uplink re-dial (wifi_portal's POST /wifi/connect). Only the dedicated
- * hub role honors it — always-APSTA lets new credentials apply WITHOUT the
- * config-apply reboot that would drop the AP under the phone driving the
- * panel. Returns false outside hub mode (caller falls back to the reboot). */
+ * hub role honors it — a hub's AP never drops (it is the room's network), so new
+ * credentials can apply WITHOUT the config-apply reboot that would drop the AP
+ * under the phone driving the panel. Returns false outside hub mode (caller falls
+ * back to the reboot). */
 bool board_wifi_redial(const char *ssid, const char *pass);
 
 /* Trial-join (wifi_portal's POST /wifi/connect, board/rover mode): attempt
