@@ -71,3 +71,108 @@ jobs:
       - name: Static analysis (esp32dev = the union build; config in platformio.ini)
         if: matrix.env == 'esp32dev'
         run: pio check -e esp32dev --fail-on-defect=medium --fail-on-defect=high
+
+  # The flasher at better-robotics.github.io serves these bytes to students. It
+  # used to serve whatever a maintainer's laptop compiled, and a local checkout
+  # has gitignored build inputs (src/wifi_creds.h among them) that a clean clone
+  # does not — so what ended up inside a public image depended on the machine,
+  # while the manifest could only ever name the commit. Provenance that stops at
+  # the commit is not provenance over the bytes.
+  #
+  # Publishing from here closes that: this job sees only the example credentials,
+  # which makes the image a function of the commit alone. Release assets send no
+  # CORS headers, ruling them out for the browser but irrelevant to the runner
+  # that deploys the site — the same channel the Pi image ships on (hub's
+  # build-image.yml).
+  publish:
+    needs: [build, native-tests]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect the built images
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: firmware-*
+
+      # A positive control, not an absence check. The real password must never
+      # appear in this file, so grepping for it is not an option — instead prove
+      # the images came from the example header by requiring its placeholder to
+      # be present. A build carrying real credentials would not contain it.
+      # (Absence checks are how this went unnoticed: a scan that silently reads
+      # nothing reports clean.)
+      - name: Refuse to publish an image not built from the example credentials
+        run: |
+          set -u
+          shopt -s nullglob
+          images=(dist/firmware-*/firmware.bin)
+          if [ ${#images[@]} -ne 3 ]; then
+            echo "::error::expected 3 images, found ${#images[@]} — build artifacts missing"
+            exit 1
+          fi
+          fail=0
+          for f in "${images[@]}"; do
+            if LC_ALL=C grep -qa 'your-venue-wifi' "$f"; then
+              echo "ok: $f built from wifi_creds.example.h"
+            else
+              echo "::error::$f lacks the placeholder SSID — built from real credentials, refusing to publish"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Lay the images out the way the flasher addresses them
+        run: |
+          set -eu
+          mkdir -p out
+          emit() {  # <pio env> <board dir the page uses>
+            for part in bootloader partitions firmware; do
+              cp "dist/firmware-$1/$part.bin" "out/$2-$part.bin"
+            done
+          }
+          emit esp32dev          rover-esp32dev
+          emit esp32cam          rover-esp32cam
+          emit esp32c3-supermini rover-c3
+          cat > out/manifest.json <<EOF
+          {
+            "source": "better-robotics/robot",
+            "commit": "$(git rev-parse --short HEAD)",
+            "refreshed": "$(date -u +%F)",
+            "built_by": "robot firmware.yml run ${GITHUB_RUN_ID}",
+            "images": ["rover-esp32dev", "rover-esp32cam", "rover-c3"]
+          }
+          EOF
+          ls -l out
+
+      # A rolling tag, not a version: the flasher always wants main's images, and
+      # a release per commit would be twenty releases on a busy day.
+      - name: Publish as the rolling firmware-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release delete firmware-latest --yes --cleanup-tag || true
+          gh release create firmware-latest out/* \
+            --target "$GITHUB_SHA" \
+            --title "Firmware from main" \
+            --notes "Images built from ${GITHUB_SHA} by run ${GITHUB_RUN_ID}. The flasher at better-robotics.github.io deploys from this release."
+
+      # Without the token this is a no-op rather than a red build: the release is
+      # published either way and the site can redeploy on demand.
+      - name: Ask the flasher site to redeploy
+        env:
+          SITE_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "${SITE_TOKEN:-}" ]; then
+            echo "SITE_DEPLOY_TOKEN not set — skipping site trigger"
+            exit 0
+          fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $SITE_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/better-robotics/better-robotics.github.io/dispatches \
+            -d '{"event_type":"firmware-published"}'
