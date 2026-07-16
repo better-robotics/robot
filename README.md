@@ -55,18 +55,29 @@ or pio     hub, or      anyone on the hub's match id to   hub pin ·   until tol
 - **Flash from a browser** — [better-robotics.github.io](https://better-robotics.github.io/)
   (desktop Chrome/Edge over USB) — or `pio run -e <env> -t upload`
   (envs: `esp32dev` · `esp32c3-supermini` · `esp32cam` · `rover-l298n`).
-- **Update over Wi-Fi after that** — a board needs a cable once, then updates
-  in place:
+- **Update over Wi-Fi after that** — a freshly flashed board never needs the
+  cable again:
 
   ```
-  INSTRUCTOR_PASS=… tools/ota-push.py --host rover-a044.local firmware.bin
+  INSTRUCTOR_PASS=… tools/ota-push.py --host rover-XXXX.local \
+      .pio/build/<env>/firmware.bin
   ```
 
-  Boards hold two firmware slots and boot a pushed one on trial: an update that
-  doesn't come up is reverted automatically, on its own, with no cable. A push
-  that fails leaves the board running exactly what it was running before.
-  Updating needs the instructor password, the same one the hub's fleet controls
-  use.
+  Each board holds two firmware slots and boots a pushed image on trial: an
+  update that doesn't come up is reverted on its own, with no cable. A push that
+  fails — wrong password, unreachable board, corrupt image — leaves the board
+  running exactly what it was running before. What this can't catch is an update
+  that boots fine and is simply wrong: the board checks that it came up, not
+  that it works.
+
+  `INSTRUCTOR_PASS` is the board's instructor password — the same one the hub's
+  fleet controls need. It's `change-me` until you set one on the board's own
+  config page (`http://rover-XXXX.local/wifi` → **Instructor password**).
+
+  **Boards flashed before OTA existed need one more USB pass**, to pick up the
+  two-slot partition table; until then they answer a push with *"no OTA slot on
+  this board"*. Re-check their Wi-Fi and name afterwards — the new table
+  reclaims a slice of the config area, so stored settings may not survive.
 - **Zero-touch join**: no stored network → scan, join the strongest open
   `hub-…`, dial its gateway at `mqtt://<gateway>:1883`. Publishing in seconds.
 - **Assignment is remote** (dashboard → `cmd/config` → NVS): no per-device

@@ -129,6 +129,16 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
     `FLASH_EXTRA_IMAGES`, **not** by reading `sdkconfig.defaults`, whose
     `PARTITION_TABLE_SINGLE_APP_LARGE` is an inert idf.py fallback that does not
     describe what is on the chip.
+  - **Reusing one credential means every surface that spends it must be able to
+    set it.** The config panel's instructor-password field was `role=='hub'`
+    only — correct while `connect_cb` was its lone reader, since only a hub runs
+    a broker, and on a rover the control did nothing. `/ota` runs on EVERY board
+    and checks that same password, so hub-gating the field left a rover's OTA
+    endpoint behind a password its own panel would not let you set: it stayed
+    the compile-time default, which ships in every `.bin` this public repo
+    publishes. Anyone on the classroom Wi-Fi could have reflashed the fleet. The
+    field is unconditional now. Caught on the cold-read pass, not by a test —
+    nothing here tests reachable-vs-settable, and the build was green.
 - **`src/wifi_creds.h`** (gitignored) — the hub role's STA uplink credentials;
   copy `src/wifi_creds.example.h`. NEVER commit the real one.
 

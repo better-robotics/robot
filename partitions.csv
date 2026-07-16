@@ -18,10 +18,12 @@
 # each, ending at 0x3F0000. The last 64 KB is unallocated — there is no aligned
 # way to hand it to either slot.
 #
-# nvs stays at 0x9000 so a repartitioned board keeps its stored Wi-Fi
-# credentials, instructor password and rover config; it narrows 20K -> 16K to
-# make room for otadata, which is ESP-IDF's own default and holds this
-# firmware's handful of small keys with room to spare.
+# nvs keeps its 0x9000 start and narrows 20K -> 16K to make room for otadata.
+# 16K is ESP-IDF's own default and holds this firmware's handful of small keys
+# with room to spare. It does NOT follow that an existing board keeps its stored
+# config across the repartition: the 5th page (0xd000) becomes otadata and is
+# overwritten, and NVS wear-levels across its pages, so live entries can be
+# sitting in it. Treat re-provisioning as expected, not as a failure.
 #
 # phy_init is vestigial here (ESP_PHY_INIT_DATA_IN_PARTITION=n — the PHY blob is
 # compiled into the app) and is kept only because it costs one sector and every

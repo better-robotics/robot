@@ -197,19 +197,21 @@ static const char PAGE_BODY[] =
 "</select>"
 "<button onclick=setrole() class=btn>Apply role &amp; restart</button>"
 "<div id=rmsg class=s></div>"
-/* Instructor password: only a HUB board ever checks it (connect_cb), so it
- * lives in the role card. NVS, not a build flag — the compile-time literal is
- * plaintext in the image and firmware.yml publishes .bins from a public repo,
- * so baking a real classroom's password in would ship it to every downloader.
- * Blank = keep whatever is stored (so the field can render without leaking it);
- * "-" clears back to the compile-time default. */
+/* Instructor password. EVERY board checks it now — a hub's broker at
+ * connect_cb, and any board's POST /ota (ota_update.c) — so the field renders
+ * regardless of role; see the fetch below for what that cost when it didn't.
+ * NVS, not a build flag: the compile-time literal is plaintext in the image and
+ * firmware.yml publishes .bins from a public repo, so baking a real classroom's
+ * password in would ship it to every downloader. Blank = keep whatever is
+ * stored (so the field can render without leaking it); "-" clears back to the
+ * compile-time default. */
 "<div id=profwrap hidden>"
 "<h2 style=\"margin-top:20px\">Instructor password</h2>"
 /* Shown only while NVS is unset. Without it the placeholder is silent: the one
  * gated action in the whole classroom sits behind a string anyone can read out
  * of a published .bin, and nothing anywhere says so. */
-"<p class=\"s warn\" id=profwarn hidden>&#9888; Still the built-in password &#8212; it ships in every firmware download, so anyone on this Wi-Fi can stop the whole class. Set a real one below.</p>"
-"<p class=s id=profnote>Gates the fleet-wide emergency stop. Leave blank to keep the current one; &quot;-&quot; resets it to the built-in default.</p>"
+"<p class=\"s warn\" id=profwarn hidden>&#9888; Still the built-in password &#8212; it ships in every firmware download, so anyone on this Wi-Fi can stop the whole class or replace this board&#8217;s firmware. Set a real one below.</p>"
+"<p class=s id=profnote>Gates the fleet-wide emergency stop and firmware updates over Wi-Fi. Leave blank to keep the current one; &quot;-&quot; resets it to the built-in default.</p>"
 "<input id=profpass type=password placeholder=\"new instructor password\" autocapitalize=off autocorrect=off>"
 "<button onclick=setprof() class=btn>Save password</button>"
 "<div id=pmsg class=s></div>"
@@ -261,15 +263,24 @@ static const char PAGE_BODY[] =
 "reopen rover.local.';setTimeout(()=>location.reload(),12000)}"
 "else{msg.textContent='Couldn\\u2019t join: '+(res.error||'check the password and try again.')}"
 "});"
-/* ONE /wifi/role fetch feeds every role-dependent control — the select's value,
- * whether the password field exists at all (hub-only; on a rover it's a control
- * that does nothing), and whether that field is still warning. It was two
- * identical fetches, which is how one of them ended up commented "/wifi/status
- * carries role" while calling /wifi/role. */
+/* ONE /wifi/role fetch feeds every role-dependent control — the select's value
+ * and whether the password field is still warning. It was two identical
+ * fetches, which is how one of them ended up commented "/wifi/status carries
+ * role" while calling /wifi/role.
+ *
+ * The password field is NOT role-gated (2026-07-16). It used to be hub-only,
+ * correctly: connect_cb was the only thing that read the password, and only a
+ * hub runs a broker, so on a rover the control did nothing. POST /ota changed
+ * that — every board registers it and every board checks this same password.
+ * Leaving the field hub-only meant a rover's OTA endpoint was gated by a
+ * password its own panel would not let you set, so it stayed the compile-time
+ * default, which ships in every .bin this public repo publishes: anyone on the
+ * Wi-Fi could reflash the fleet. Reusing one credential means every surface
+ * that spends it must be able to set it. */
 "function setprofwarn(d){document.getElementById('profwarn').hidden=!d}"
+"document.getElementById('profwrap').hidden=false;"
 "fetch('/wifi/role').then(r=>r.json()).then(j=>{"
 "document.getElementById('role').value=j.role;"
-"document.getElementById('profwrap').hidden=j.role!='hub';"
 "setprofwarn(j.prof_default)}).catch(()=>{});"
 /* Status card: poll /wifi/status. In embed mode the panel already sits inside the
  * dashboard, so the "open the dashboard" button is suppressed (it would navigate
@@ -589,13 +600,14 @@ static const char *role_str(rover_role_pref_t r)
 
 static esp_err_t role_get(httpd_req_t *req)
 {
-    /* prof_default mirrors connect_cb's own test (`nvs_pass[0] ? nvs : baked`):
-     * unset NVS means this hub still admits the compile-time INSTRUCTOR_PASS,
-     * which ships in every published .bin — i.e. Stop-all is gated by a public
-     * string. Discloses nothing: anyone on the open AP can establish the same
-     * fact with one CONNECT. Told here, not polled from /wifi/status — it
-     * changes on a save, never on its own, and this is the fetch that already
-     * decides whether the password field exists at all. */
+    /* prof_default mirrors board_instructor_pass_ok's own test (`nvs_pass[0] ?
+     * nvs : baked`): unset NVS means this board still admits the compile-time
+     * INSTRUCTOR_PASS, which ships in every published .bin — i.e. Stop-all AND
+     * POST /ota are gated by a public string. Computed for every role, not just
+     * hub: since /ota, a rover has something worth gating too. Discloses
+     * nothing — anyone on the open AP can establish the same fact with one
+     * CONNECT, or one /ota probe. Told here, not polled from /wifi/status: it
+     * changes on a save, never on its own. */
     char nvs_pass[65];
     rover_config_load_instructor_pass(nvs_pass);
     char j[64];
