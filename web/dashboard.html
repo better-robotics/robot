@@ -2852,6 +2852,19 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // The tree discloses only with its own section: a source list shows the
       // section you are IN, not every section's contents at once.
       railTree().hidden = name !== "topics";
+      // Two of the five notices are the FLEET's, not the shell's, and they
+      // followed you into every panel. #app-notice carries fleet-card outcomes
+      // (blink / unassign / pins / test-pulse), reachable from nowhere else;
+      // #uplink's own text ends "Robots and this page are unaffected" — a
+      // notice announcing its own irrelevance has no business standing over
+      // Settings. The other three stay global deliberately: an engaged e-stop
+      // or a dead broker means the Code panel's blocks are publishing into
+      // nothing, which is the moment you most need to be told.
+      // The ATTRIBUTE, not style.display: notify() and refreshUplink own these
+      // elements' inline display, and [hidden] is !important — so this gates
+      // them without two writers fighting over one property.
+      for (const id of ["app-notice", "uplink"])
+        document.getElementById(id).hidden = name !== "fleet";
       if (name === "code") mountIde();
       if (name === "topics") { renderTopicTree(); renderTopicDetail(); }
       if (name === "settings") renderSettings();
