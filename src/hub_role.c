@@ -47,6 +47,7 @@
 #include "roles.h"
 #include "rover_config.h"        /* rover_config_load — the stored STA uplink */
 #include "provisioning_util.h"   /* rover_format_robot_id — the board's AP SSID = its rover-id */
+#include "device_log.h"
 #include "ota_update.h"
 #include "wifi_portal.h"         /* the always-on :80 Wi-Fi config panel (rover.local/wifi) */
 #include "captive_nat.h"         /* packet-layer backstop for clients that bypass our DNS */
@@ -921,6 +922,7 @@ void board_run(bool self_broker_ok)
      * rover-<id>.local, or over its own AP when islanded, can be updated
      * without a cable. Both roles call this; neither special-cases the other. */
     ota_update_start();
+    device_log_serve();   /* GET /log on the same handle — see device_log.h */
 
     /* Camera (esp32cam only; a no-op elsewhere). After Wi-Fi so it fits in what
      * memory is left, and after the portal so :80 is already claimed — the camera
@@ -1047,6 +1049,7 @@ void hub_role_run(void)
      * handle — see board_run's call. A dedicated hub is the board least likely
      * to be within reach of a cable, so it needs this most. */
     ota_update_start();
+    device_log_serve();   /* GET /log on the same handle — see device_log.h */
 
     /* Venue uplink: a stored network (set from the panel) wins; else the gitignored
      * compile-time creds. Fire-and-forget — the broker must come up NOW (the

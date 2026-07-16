@@ -21,12 +21,18 @@
  */
 #include "nvs_flash.h"
 #include "esp_log.h"
+#include "device_log.h"
 #include "rover_config.h"
 #include "roles.h"
 
 static const char *TAG = "boot";
 
 void app_main(void) {
+    /* FIRST, before even NVS: this installs the log hook, and anything logged
+     * ahead of it is gone. The failures worth reading back off a crashed board
+     * are boot failures, so every line from here on is the point. */
+    device_log_init();
+
     if (nvs_flash_init() != ESP_OK) {   /* first boot / version bump → erase + retry */
         nvs_flash_erase();
         nvs_flash_init();

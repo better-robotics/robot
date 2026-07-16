@@ -102,10 +102,41 @@ static void reboot_task(void *arg)
     esp_restart();
 }
 
+/* ── CORS ─────────────────────────────────────────────────────────────────────
+ * The dashboard is served BY THE HUB and pushes to a rover's own IP, so every
+ * browser-driven update is cross-origin. Basic auth is what forces a preflight:
+ * Authorization is not a CORS-safelisted header, so the browser sends OPTIONS
+ * first and never sends the 1.3 MB body unless this answers. Without it the
+ * update button fails in the console with the board completely untouched — it
+ * never hears about the request at all.
+ *
+ * Origin is echoed as * to match /fleet and /log: there are no cookies and no
+ * ambient authority here, the credential is an explicit header the pusher must
+ * already know, so a narrower origin would gate nothing an attacker on this
+ * Wi-Fi could not do with curl. */
+static void cors_headers(httpd_req_t *req)
+{
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "POST, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Authorization, Content-Type");
+    httpd_resp_set_hdr(req, "Access-Control-Max-Age", "600");
+}
+
+static esp_err_t ota_options(httpd_req_t *req)
+{
+    cors_headers(req);
+    httpd_resp_set_status(req, "204 No Content");
+    return httpd_resp_send(req, NULL, 0);
+}
+
 /* ── the push ─────────────────────────────────────────────────────────────── */
 static esp_err_t ota_post(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "application/json");
+    /* On every path below, including the failures: a CORS-less error response
+     * is unreadable to the page, which turns "wrong password" into an opaque
+     * network error and the operator into a guesser. */
+    cors_headers(req);
 
     if (!basic_auth_ok(req)) {
         /* The realm prompt is what makes a browser ask; curl -u works either
@@ -203,8 +234,13 @@ void ota_update_start(void)
         return;
     }
     httpd_uri_t u = { .uri = "/ota", .method = HTTP_POST, .handler = ota_post };
-    /* Counted against wifi_portal.c's max_uri_handlers — see its comment. */
+    httpd_uri_t o = { .uri = "/ota", .method = HTTP_OPTIONS, .handler = ota_options };
+    /* BOTH counted against wifi_portal.c's max_uri_handlers — see its comment.
+     * The preflight is a separate registration: this httpd matches on method as
+     * well as path, so a POST-only /ota answers OPTIONS with 405 and the
+     * browser stops there. */
     httpd_register_uri_handler(s, &u);
+    httpd_register_uri_handler(s, &o);
 
     /* Only a slot the bootloader is still judging needs confirming. On a
      * USB-flashed board the state is ESP_OTA_IMG_UNDEFINED and there is nothing
