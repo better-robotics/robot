@@ -417,7 +417,6 @@
       font: inherit; font-size: var(--fs-body);
     }
     .log-toggle:hover { background: var(--inset); }
-    .log-toggle .spacer { flex: 1 1 auto; }
     .log-body { border-top: 0.5px solid var(--border-default); padding: 0.6rem 0.7rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
     /* Narrow: the rail stacks above the content instead of eating 40% of the
@@ -1017,7 +1016,6 @@
       border: 0.5px solid var(--border-default);
       border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
     .log-toggle .log-title { font-size: var(--fs-body); font-weight: 600; color: var(--ink); margin: 0; }
-    .log-toggle .wire-legend { margin: 0; }
     .wire-head { margin: 0; }
     #prof-advanced > summary { cursor: pointer; color: var(--ink-muted);
       font-weight: 600; padding: 0.65rem 0; }
@@ -1384,7 +1382,7 @@
              carries the bundle at all — it is 619 KB and the chip has 4 MB).
              Naming a Pi env var here read as a misconfiguration to a student on
              a rover that is working exactly as designed. -->
-        <div id="ide-host"><p class="hint" id="ide-missing" hidden>No code editor on this hub. Driving, telemetry and the camera all work without it.</p></div>
+        <div id="ide-host"><p class="hint" id="ide-missing" hidden>No code editor on this hub. Everything else on this dashboard works without it.</p></div>
       </section>
 
       <!-- Topics: the tree lives in the rail; this pane is the selected topic's
@@ -1429,32 +1427,30 @@
          into the button's name. Two things followed. (1) The heading didn't
          exist for AT, so the log was unreachable by heading navigation and this
          section had no accessible name at all. (2) The name became
-         "Log · last message 3s ago 12 msg/s ↑ sent from this page · ↓ received"
+         "Messages · last message 3s ago 12 msg/s ↑ sent from this page · ↓ received"
          — and #details-age / #wire-rate are rewritten every 1–2 s, so the name
          mutated continuously; aria-live="off" silences announcements but does
-         nothing about a NAME, and voice control ("click Log") can't target a
-         string that's mostly numbers.
+         nothing about a NAME, and voice control ("click Messages") can't target
+         a string that's mostly numbers.
          Wrapping instead of restructuring keeps the whole bar clickable, which
          is the point of the closed drawer. aria-label pins the name to the
-         visible word (SC 2.5.3 satisfied: "Log" is on screen); the metrics stay
+         visible word (SC 2.5.3 satisfied: "Messages" is on screen); the metrics stay
          visible but out of the a11y tree — they're ambient glance-evidence,
          and the log itself is reachable below. -->
     <h2 id="details-label">
-    <button class="log-toggle" id="log-toggle" aria-expanded="false" aria-controls="log-body" aria-label="Log">
+    <button class="log-toggle" id="log-toggle" aria-expanded="false" aria-controls="log-body" aria-label="Messages">
       <svg class="chev" viewBox="0 0 10 10" width="10" height="10" fill="currentColor" aria-hidden="true"><polygon points="1,3 9,3 5,8"/></svg>
-      <span class="log-title">Log</span>
+      <span class="log-title">Messages</span>
       <!-- Link health at a glance, beside the title it qualifies. Both of these
            stay on the closed bar: the point of a collapsed drawer is that it
            still answers "is the wire alive?" without opening. -->
       <span id="details-age"></span>
       <span id="wire-rate" aria-live="off"></span>
-      <span class="spacer"></span>
-      <span class="wire-legend"><span class="log-out">&#8593; sent from this page</span> &#183; <span class="log-in">&#8595; received</span></span>
     </button>
     </h2>
     <div class="log-body" id="log-body" hidden>
     <div class="wire-head">
-      <select class="select-sm" id="wire-filter" aria-label="Filter log to one rover"><option value="">all rovers</option></select>
+      <select class="select-sm" id="wire-filter" aria-label="Filter messages to one rover"><option value="">all rovers</option></select>
       <!-- Topic filter. The log prints the topic on every line, so naming the
            options after the channels makes the filter teach itself in place.
            Replaced a binary toggle ("Beacons" — the firmware's word for sys,
@@ -1473,7 +1469,7 @@
            Only channels the wire actually carries: imu and led are in
            CONTRACT.md but no firmware publishes them, so offering them would be
            a filter that can never match. Add them when they ship. -->
-      <select class="select-sm" id="wire-topic" aria-label="Filter log by topic">
+      <select class="select-sm" id="wire-topic" aria-label="Filter messages by topic">
         <option value="">all topics</option>
         <option value="-sys">all except sys</option>
         <option value="sys">sys</option>
@@ -1493,6 +1489,16 @@
          answering nothing), and inbound also carries fleet/estop, which comes
          from a instructor, not a rover. Direction is the honest claim — what
          this page sent vs what it received. -->
+    <!-- It rode the closed toggle bar until 2026-07-16, where it keyed arrows
+         that are only on screen once the drawer is OPEN — and the bar is a
+         fixed 2.6rem flex row with no wrap, so on a phone the legend shrank and
+         wrapped to 3 lines inside a 41.6px bar and was clipped. That was live at
+         320px before the title was even touched; widening "Log" to "Messages"
+         took it to 5 lines and pushed 390px (iPhone) into the same clip. The
+         horizontal sweep read clean throughout — flex shrank the legend instead
+         of overflowing, so the failure went vertical. Its margin-bottom has
+         always been styled for this slot. -->
+    <p class="wire-legend"><span class="log-out">&#8593; sent from this page</span> &#183; <span class="log-in">&#8595; received</span></p>
     <!-- aria-live="off" is REQUIRED here, not belt-and-braces: role="log"
          carries an implicit aria-live="polite", so every frame logLine() appends
          became an announcement. sys alone is one per rover per 2 s — six rovers
@@ -1504,7 +1510,7 @@
          it once. This is a READING surface: it's scrollable and focusable, which
          is the right affordance. Let the user read it; announce nothing.
          #wire-rate beside it already had exactly this fix. -->
-    <div id="wire-log" role="log" aria-live="off" tabindex="0" aria-label="Live command and telemetry log"></div>
+    <div id="wire-log" role="log" aria-live="off" tabindex="0" aria-label="Live command and telemetry messages"></div>
     </div>
   </section>
     </div>
