@@ -165,10 +165,25 @@ static esp_err_t ota_post(httpd_req_t *req)
 
     ESP_LOGW(TAG, "push accepted: %d bytes -> %s", (int)req->content_len, dst->label);
 
-    /* Exact size, not OTA_SIZE_UNKNOWN: that erases the whole 1.9 MB slot up
-     * front, which is seconds of dead air before the first byte lands. */
+    /* OTA_WITH_SEQUENTIAL_WRITES — erase as the bytes arrive, never up front.
+     *
+     * Both sized alternatives block here before the first recv: OTA_SIZE_UNKNOWN
+     * erases the whole 1.9 MB slot, and passing content_len still erases ~1.4 MB
+     * — the first cut here passed content_len under a comment congratulating
+     * itself for avoiding exactly this. That is seconds in which the handler
+     * reads nothing while the pusher streams, and this handler's socket is then
+     * the idlest on a server with max_open_sockets = 5 and lru_purge_enable on.
+     *
+     * Whether that idle window is long enough for a new connection to get this
+     * socket purged is NOT established — a push did die mid-transfer on the
+     * bench (2026-07-16, esp32cam), but the laptop pushing it turned out to have
+     * dropped off the AP, which explains the failure without any of this. The
+     * up-front erase is worth removing on its own terms: it is dead air, it puts
+     * a multi-second flash erase in front of a socket nobody is reading, and
+     * sequential writes cost nothing to get instead. Treat the purge as a
+     * plausible mechanism this closes off, not a diagnosed one. */
     esp_ota_handle_t h = 0;
-    esp_err_t e = esp_ota_begin(dst, req->content_len, &h);
+    esp_err_t e = esp_ota_begin(dst, OTA_WITH_SEQUENTIAL_WRITES, &h);
     if (e != ESP_OK) {
         httpd_resp_set_status(req, "500 Internal Server Error");
         ESP_LOGE(TAG, "esp_ota_begin: %s", esp_err_to_name(e));
