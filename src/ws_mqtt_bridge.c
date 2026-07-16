@@ -318,8 +318,33 @@ static esp_err_t fleet_handler(httpd_req_t *req)
         int n = stations.num > ESP_WIFI_MAX_CONN_NUM ? ESP_WIFI_MAX_CONN_NUM : stations.num;
         for (int i = 0; i < n; i++) memcpy(pairs[i].mac, stations.sta[i].mac, 6);
         if (esp_netif_dhcps_get_clients_by_mac(ap, n, pairs) == ESP_OK) {
+            /* Two passes, because an id is only trustworthy once every station
+             * has had its say — the collision below can be with a station this
+             * loop has not reached yet. */
+            bool ok[ESP_WIFI_MAX_CONN_NUM];
+            for (int i = 0; i < n; i++) {
+                /* Real hardware MACs only. Students' phones join this AP too,
+                 * and a randomised MAC — every modern phone's default — has the
+                 * locally-administered bit set. A rover never does: its id comes
+                 * from esp_read_mac's Espressif-assigned global address. Without
+                 * this, every device in the room gets a rover name, because only
+                 * two bytes decide one. */
+                ok[i] = pairs[i].ip.addr && !(pairs[i].mac[0] & 0x02);
+            }
+            for (int i = 0; i < n; i++) {
+                for (int j = i + 1; j < n; j++) {
+                    /* Two devices claiming one id is the exact substitution this
+                     * map exists to stop, so an ambiguous id vouches for NOBODY
+                     * — both drop, and only they do. Letting the later station
+                     * win would hand the name to whoever spoofed a rover's low
+                     * two bytes; dropping the whole map would let them switch
+                     * Update off for the fleet. */
+                    if (pairs[i].mac[4] == pairs[j].mac[4] && pairs[i].mac[5] == pairs[j].mac[5])
+                        ok[i] = ok[j] = false;
+                }
+            }
             for (int i = 0; i < n && bl < sizeof boards - 48; i++) {
-                if (!pairs[i].ip.addr) continue;   /* associated, no lease yet */
+                if (!ok[i]) continue;
                 bl += snprintf(boards + bl, sizeof boards - bl,
                                "%s\"rover-%02x%02x\":\"" IPSTR "\"", bl ? "," : "",
                                pairs[i].mac[4], pairs[i].mac[5], IP2STR(&pairs[i].ip));
