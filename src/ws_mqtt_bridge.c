@@ -237,10 +237,14 @@ static esp_err_t ws_handler(httpd_req_t *req)
 
 /* The real dashboard.html (mqtt.js inlined), embedded so the ESP32 serves the
  * whole UI itself — no Pi, no separate web host. Browser loads it at "/"
- * (served mode → connects ws to "/" = the bridge above). Compiled in as a plain
+ * (served mode → connects ws to "/" = the bridge above). Compiled in as a
  * byte array from the generated src/dashboard_html.c (tools/embed_dashboard.py,
  * driven by platformio.ini pre-build) rather than an objcopy .S embed, which
- * PlatformIO's build doesn't wire into the link. */
+ * PlatformIO's build doesn't wire into the link.
+ *
+ * The array is GZIPPED (see embed_dashboard.py) and shipped straight from
+ * flash — the browser inflates, the chip never does, same as the IDE bundle
+ * below. dashboard_html_len is therefore the compressed length. */
 extern const unsigned char dashboard_html[];
 extern const unsigned int  dashboard_html_len;
 
@@ -249,6 +253,11 @@ extern const unsigned int  dashboard_html_len;
 static esp_err_t page_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
+    /* Unconditional, like the IDE bundle's: every browser sends
+     * Accept-Encoding: gzip, and this route only ever answers one. Without
+     * this header the body is gzip bytes labelled text/html — the tab renders
+     * binary, which is the whole failure mode this line prevents. */
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     httpd_resp_send(req, (const char *)dashboard_html, dashboard_html_len);
     return ESP_OK;
 }
