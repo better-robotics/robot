@@ -137,10 +137,15 @@ jobs:
           emit esp32dev          rover-esp32dev
           emit esp32cam          rover-esp32cam
           emit esp32c3-supermini rover-c3
+          # `release` travels in the manifest so the page links the artifact it
+          # flashed without hardcoding this repo's tag naming — the manifest is
+          # the contract between the two, and a tag rename should not need an
+          # edit on the site.
           cat > out/manifest.json <<EOF
           {
             "source": "better-robotics/robot",
             "commit": "$(git rev-parse --short HEAD)",
+            "release": "firmware-latest",
             "refreshed": "$(date -u +%F)",
             "built_by": "robot firmware.yml run ${GITHUB_RUN_ID}",
             "images": ["rover-esp32dev", "rover-esp32cam", "rover-c3"]
