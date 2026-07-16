@@ -769,7 +769,14 @@
        dashboard — anonymous fleet views included — shows the engaged state.
        The Clear button appears only for a signed-in professor. -->
   <div id="estop-banner" class="notice danger" role="alert" style="gap:0.6rem; align-items:center; flex-wrap:wrap">
-    <span style="flex:1; min-width:12rem; overflow-wrap:anywhere"><b>Emergency stop engaged</b> — <span id="estop-meta">rovers refuse drive commands until it is cleared</span></span>
+    <span style="flex:1; min-width:12rem; overflow-wrap:anywhere"><b>Emergency stop engaged</b> — <span id="estop-meta">rovers refuse drive commands until it is cleared</span><!--
+      Did every robot actually HEAR it? CONTRACT.md § Fleet e-stop has rovers
+      echo "estop":true in their sys beacon for exactly this check, and nothing
+      was reading it — a board that reconnects mid-emergency is the whole
+      reason the latch is retained. It belongs in the banner because the answer
+      only matters while engaged: a silent rover during an emergency earns a
+      second line, "everything is fine" never does.
+    --><span id="estop-confirm"></span></span>
     <button id="estop-clear" class="btn-danger" style="display:none">Clear — release the fleet</button>
   </div>
   <div id="uplink" class="notice"></div>
@@ -1608,6 +1615,9 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       renderRobots(); watchAssign(); syncPinsPanel(false);
       syncWireFilter(); telemetrySync?.();
       renderDriveStatus(); renderLiveStatus(); renderDetailsAge();
+      // The e-stop confirmation count is derived from sys beacons, so it moves
+      // on this clock, not on the retained latch that only arrives once.
+      renderEstop();
     }, 2000);
 
     // Anonymous mqtt.js connection — Mosquitto's ACL grants every connection,
@@ -1647,14 +1657,38 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       }
       renderEstop();
     }
+    // Who actually heard the latch. Counts the same live cards the grid draws
+    // — boards, plus the legacy name-keyed beacons that carry no board id — on
+    // the same 10 s liveness rule renderRobots uses, so this line can never
+    // disagree with the fleet below it.
+    function estopHeard() {
+      const fresh = Date.now() - 10000;
+      let live = 0, heard = 0;
+      const tally = (rec) => { live++; if (rec.sys.estop === true) heard++; };
+      for (const rec of boards.values()) if (rec.seenAt >= fresh) tally(rec);
+      for (const [t, rec] of robots)
+        if (!rec.sys.board && t !== "unassigned" && rec.seenAt >= fresh) tally(rec);
+      return { live, heard };
+    }
     function renderEstop() {
       const engaged = !!estopState;
       const prof = myScope && myScope.scope === "all" && driveClient && driveClient.connected;
       document.getElementById("estop-banner").style.display = engaged ? "flex" : "none";
-      if (engaged)   // textContent, so a hostile "by" can't inject markup
+      if (engaged) {   // textContent, so a hostile "by" can't inject markup
         document.getElementById("estop-meta").textContent =
           "rovers refuse drive commands until it is cleared" +
           (estopState.by ? ` (engaged by ${estopState.by})` : "");
+        // Silence is the alarming case, so it gets the words: a rover that
+        // hasn't echoed the latch is the reason this check exists. Say nothing
+        // when there's no live fleet to confirm — "0 of 0" reads as a fault.
+        const { live, heard } = estopHeard();
+        const el = document.getElementById("estop-confirm");
+        el.textContent = !live ? ""
+          : heard === live ? (live === 1 ? " · the rover confirmed stopped"
+                                         : ` · all ${live} confirmed stopped`)
+          : ` · ${heard} of ${live} confirmed — ${live - heard} not answering`;
+        el.style.fontWeight = live && heard !== live ? "700" : "400";
+      }
       document.getElementById("estop-clear").style.display = engaged && prof ? "" : "none";
       document.getElementById("estop-chip").classList.toggle("show", !!prof && !engaged);
     }
