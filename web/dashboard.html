@@ -259,7 +259,12 @@
        so they cannot disagree about where the line is. The chevron points the
        way the line will go, which is the one thing this control has to say. */
     .rail-toggle {
-      position: absolute; z-index: 5; top: 50%; transform: translateY(-50%);
+      /* `translate:`, not `transform: translateY()` — see the base button rule:
+         layout takes the individual properties so the press `scale:` composes
+         with it AND pivots around the centred box. Under `transform:` the two
+         still compose, but scale pivots on the UNtranslated centre and the
+         handle drifts 0.3px down on press. */
+      position: absolute; z-index: 5; top: 50%; translate: 0 -50%;
       left: calc(var(--rail-w) - 0.62rem);
       width: 1.25rem; height: 1.25rem; min-height: 0; padding: 0;
       display: flex; align-items: center; justify-content: center;
@@ -520,6 +525,16 @@
        align-items:center then centres the one-line dd against it. */
     dt > .hint { display: block; margin-top: 0.15rem; }
     dd { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); overflow-wrap: anywhere; }
+    /* A dd may hold the row's CONTROL rather than its value (Settings' Address
+       field). text-align only steers inline content, so a flex container inside
+       one ignores it and packs left, away from the value column every other row
+       aligns to. The .link-btn doors need nothing — they are inline. */
+    dd > .gate-row { justify-content: flex-end; }
+    /* Don't let it grow: the dl's value track is minmax(0, 1fr), so the row's
+       `flex: 1 1 11rem` stretched an IP field across ~1000px of desktop — the
+       widest control on the page for its shortest value. Basis without grow;
+       the column flip below restores stretch, where full width IS right. */
+    dd > .gate-row input { flex: 0 1 13rem; }
     #empty { color: var(--ink-muted); padding: 2rem 0; }
     footer { margin-top: 3rem; color: var(--ink-faint); font-size: 0.85rem; }
 
@@ -573,11 +588,19 @@
       min-height: var(--ctrl-h); padding: 0.4rem 0.8rem;
       border-radius: var(--radius); border: 0.5px solid var(--border-default);
       color: var(--ink); background: var(--inset);
-      transition: filter 0.15s ease, transform 0.08s ease;
+      transition: filter 0.15s ease, scale 0.08s ease;
     }
     button:hover, .btn-tile:hover { filter: brightness(1.25); }
-    button:active, .btn-tile:active { transform: scale(0.97); }
-    button:disabled { opacity: 0.55; cursor: default; filter: none; transform: none; }
+    /* `scale:`, NOT `transform: scale()` — the press effect must COMPOSE with
+       whatever transform a button uses for layout, never replace it. As
+       `transform: scale(0.97)` this rule wiped .rail-toggle's
+       translateY(-50%) on press and dropped the handle half its height; the
+       cure kept being a per-callsite `transform: none`, which no new button
+       knows to ask for. The individual transform properties (translate/
+       rotate/scale) apply alongside `transform`, so layout and affordance
+       stop sharing one slot. Any press/hover effect here belongs on `scale`. */
+    button:active, .btn-tile:active { scale: 0.97; }
+    button:disabled { opacity: 0.55; cursor: default; filter: none; scale: none; }
     /* Primary (filled): the one action a panel exists for. */
     .btn-primary { color: var(--accent-ink); background: var(--accent); border-color: transparent; }
     /* Tinted (secondary) — accent text on a soft accent wash. */
@@ -591,7 +614,7 @@
       font: inherit; font-size: var(--fs-body); font-weight: 400;
       color: var(--link); cursor: pointer; }
     .link-btn:hover { text-decoration: underline; filter: none; }
-    .link-btn:active { transform: none; }
+    .link-btn:active { scale: none; }
     /* Colour modifiers come LAST so they can ride on any structural tier —
        .link-btn.btn-danger rendered link-blue while this sat above it, since
        both are one class deep and the later rule simply won. */
@@ -648,7 +671,7 @@
     .list-group > * { border: none; border-radius: 0; background: transparent; width: 100%; }
     .list-group > * + * { border-top: 0.5px solid var(--border-default); }
     .list-group > *:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); filter: none; }
-    .list-group > *:active { transform: none; }
+    .list-group > *:active { scale: none; }
     /* A Wi-Fi row: name left, security · signal right. Layout only. */
     .wifi-net {
       display: flex; justify-content: space-between; align-items: center; gap: 0.6rem;
@@ -1078,8 +1101,14 @@
       #controls { grid-template-columns: 1fr; }
       .gate-row { flex-direction: column; align-items: stretch; }
       /* The row's flex-basis (a WIDTH hint) must not survive the column flip,
-         where it becomes a 176px HEIGHT — the giant-empty-input bug. */
-      .gate-row input { flex-basis: auto; }
+         where it becomes a HEIGHT — the giant-empty-input bug (176px as first
+         found; 208px when Settings' Address row re-broke it).
+         BOTH selectors, because this guard is only as strong as its
+         specificity: `dd > .gate-row input` (0,1,2) out-ranks a bare
+         `.gate-row input` (0,1,1), so the desktop cap sailed straight through
+         the flip and stood a 208px-tall empty field on a phone. Any future
+         basis needs its selector listed here too. */
+      .gate-row input, dd > .gate-row input { flex-basis: auto; }
       .segmented { display: flex; width: 100%; }
       #drive-mode { width: 100%; }
       .segmented button { flex: 1; }
@@ -1321,7 +1350,7 @@
       </section>
 
       <section class="panel" id="p-settings" hidden>
-        <div class="panel-head"><h2>Settings</h2><span class="hint">the wire under this page — endpoints, protocols, and what you're allowed to publish</span></div>
+        <div class="panel-head"><h2>Settings</h2><span class="hint">the wire under this page</span></div>
         <div id="settings-body"></div>
       </section>
 
@@ -1640,10 +1669,15 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // — is an XSS. textContent rather than a fixed esc(), so there is no
     // innerHTML left to forget. This is the file's own rule: compose, don't
     // hand-roll; every shipped defect here was an element skipping a pattern.
-    const panelHead = (t) => {
+    // The optional gloss is the same shape the static panel heads use
+    // (<h2> + a .hint span) — a section's caveat belongs in its heading, where
+    // it qualifies every row under it, not in a paragraph below them.
+    const panelHead = (t, gloss) => {
       const d = document.createElement("div");
       d.className = "panel-head";
       d.append(Object.assign(document.createElement("h2"), { textContent: t }));
+      if (gloss) d.append(Object.assign(document.createElement("span"),
+        { className: "hint", textContent: gloss }));
       return d;
     };
 
@@ -2328,8 +2362,12 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       }
       // Settings shows hostLabel, which arrives async from /fleet — so a panel
       // opened before the first beacon would sit on "—" forever. Repaint it on
-      // the clock like Topics, but never under the hand editing the host field.
-      if (panel === "settings" && !document.activeElement?.closest?.("#settings-body input"))
+      // the clock like Topics, but never under the hand.
+      // Any focused descendant, not just an input: this rebuilds the whole
+      // panel, and the panel now holds BUTTONS (the Identity and Uplink doors).
+      // Guarding only the host field meant a keyboard user who tabbed onto a
+      // door had it destroyed under them within 2 s, dumping focus on <body>.
+      if (panel === "settings" && !document.activeElement?.closest?.("#settings-body"))
         renderSettings();
     }, 2000);
 
@@ -3052,91 +3090,70 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // A row's key is either a plain label or [label, gloss] — the gloss is a
       // second, fainter line under it. A topic filter is an ADDRESS, not a
       // concept: "pair/#" names where, never what, and a panel built to teach
-      // owes the what.
+      // owes the what — in a word, not a sentence.
+      // A row's VALUE is text OR a node: the layers this page can actually
+      // change are a field and two doors, and a config stack should hand you
+      // the control rather than describe where it lives. A null value drops
+      // the row — a layer this copy doesn't have is not a row reading "—".
       const list = (rows) => {
         const dl = document.createElement("dl");
         for (const [k, v] of rows) {
+          if (v == null) continue;
           const dt = document.createElement("dt");
           if (Array.isArray(k)) {
             dt.append(k[0], Object.assign(document.createElement("span"),
               { className: "hint", textContent: k[1] }));
           } else dt.textContent = k;
-          dl.append(dt, Object.assign(document.createElement("dd"), { textContent: v }));
+          const dd = document.createElement("dd");
+          if (v instanceof Node) dd.append(v); else dd.textContent = v;
+          dl.append(dt, dd);
         }
         return dl;
+      };
+      // The corner chip IS the control — this file's own rule, the one the
+      // identity chip states: tap what-it-is to change it. So this is a second
+      // DOOR to that chip, never a second copy of it: the click is forwarded,
+      // leaving the popover, its restore and its focus handling with exactly
+      // one owner. Settings is where a student looks for a setting; the chip
+      // is where it lives. Both can be true without two of anything.
+      // Hidden chip → no door: #signin-chip is gone on a solo island (no fleet,
+      // no role to unlock) and #net-chip never shows unless /wifi answered.
+      const door = (chip, text) => {
+        if (!chip.getClientRects().length) return null;
+        const b = document.createElement("button");
+        b.className = "link-btn";
+        const mark = document.createElement("span");
+        mark.textContent = " ›";
+        mark.setAttribute("aria-hidden", "true");   // a chevron is not a word
+        b.append(text, mark);
+        b.addEventListener("click", (e) => {
+          // Consumed by forwarding. Without this the door opens the popover and
+          // the SAME click then closes it: the chip's handler runs, and the
+          // original event carries on bubbling to the document outside-click
+          // listener, which sees a target that is neither the popover nor its
+          // owner and shuts it. The chip exempts itself there; a door can't.
+          e.stopPropagation();
+          chip.click();
+        });
+        return b;
       };
       const hint = (t) => Object.assign(document.createElement("p"), { className: "hint", textContent: t });
       const wrap = document.createDocumentFragment();
 
-      // Settings is a teaching surface, not just a host field: the transport is
-      // the half of the contract the Topics panel can't show. Topics answers
-      // "what messages exist"; this answers "over what, as whom, allowed to do
-      // what" — the questions a student debugging a dead rover actually asks.
-      // The split below is deliberate and load-bearing: THIS section is what
-      // the page OBSERVES about its own link, the two after it are the wire
-      // contract mirrored (with the src: citations that keep them honest).
-      wrap.append(panelHead("This page"), list([
-        ["Hub", hostLabel || "—"],
-        ["Served from", standalone ? "a standalone copy" : "the hub itself"],
-        // wsPort, not a literal "9001" — the connect call and this row must
-        // read the same const or Settings will one day teach a stale port.
-        ["Endpoint", `ws://${brokerHost}:${wsPort}`],
-        ["Protocol", "MQTT over WebSocket"],
-        // Live: re-rendered on the 2 s tick, so signing in updates it in place.
-        ["Signed in as", prof ? "professor" : "anyone (no sign-in)"],
-      ]));
+      // Settings is the CONFIG STACK, not the lesson about it: Topics answers
+      // "what messages exist", this answers "over what, as whom, allowed to do
+      // what" — and answers it in rows a student can scan, not paragraphs they
+      // must read. The prose it used to carry (four hints, 90 of 163 words) is
+      // gone because the structure now says the same things: two Broker rows
+      // ARE "one broker, two doors"; "Auth: none" IS "the Wi-Fi is the real
+      // boundary, not a login"; the fleet/estop row flipping when you sign in
+      // IS the professor delta a paragraph used to spell out.
 
-      // The rover is a raw-TCP client, so it meets this page on the same topics
-      // through a different listener; that "one broker, two doors" picture is
-      // the thing students get wrong. The endpoint is the hub's OWN answer
-      // (/fleet's locator — the very string hubd tells rovers to point at), so
-      // this row is a read, not a guess. src for the fallback, used only when
-      // no hubd is behind the page: pi/deploy/mosquitto.conf (`listener 1883` /
-      // `protocol mqtt`) + CONTRACT.md § Discovery & isolation.
-      wrap.append(panelHead("How a rover connects"),
-        hint("The firmware is a raw-TCP MQTT client — a different door into the same broker, and the same topics once inside."),
-        list([
-          ["Endpoint", brokerLocator || `mqtt://${brokerHost}:1883`],
-          ["Protocol", "MQTT over TCP"],
-          ["Credentials", "none"],
-        ]));
-
-      // src: pi/mosquitto-acl.example.conf + CONTRACT.md § Discovery &
-      // isolation (the identity/scope table). Shown as YOUR grants, not a
-      // two-column matrix of every identity: the page knows who you are, and
-      // "what am I allowed to do right now" is the question — the professor
-      // delta is one line of prose below instead of a column students must
-      // read themselves out of.
-      // pair/# is the one row with no client in this repo — the hub grants it,
-      // nothing it serves speaks it. It is NOT dead: workbench signals
-      // phone↔desktop WebRTC over pair/<room>/s/<peer> on this very broker,
-      // camera tracks included. Worth naming rather than dropping, because the
-      // seam is the lesson: MQTT brokers every rover message, while for a
-      // phone the broker only introduces the peers and the media then flows
-      // LAN-direct, never through here.
-      wrap.append(panelHead("What you may publish"),
-        list([
-          [["robots/#", "every rover — telemetry, drive, LED"], "read + write"],
-          [["pair/#", "phone pairing — WebRTC signaling only; video goes peer-to-peer"], "read + write"],
-          [["fleet/estop", "the room-wide emergency stop"], prof ? "read + write" : "read only"],
-        ]),
-        hint(prof
-          ? "Professor: yours is the only credential the broker checks, and only to write fleet/estop — engaging or clearing the room-wide stop."
-          : "Driving, claiming a board and reading the fleet need no sign-in. Only fleet/estop — the room-wide stop — is write-gated, to the professor."),
-        // The honesty line. Everything above this point except "This page" is
-        // the hub's SHIPPED config, not a live read of whatever broker the
-        // field below points at — and pointing it at a public broker is a
-        // thing we invite. Say which is which rather than let a student trust
-        // an ACL table that stopped applying two sections ago.
-        hint("The hub's Wi-Fi is the real boundary, not a login. These are the rules a Better Robotics hub ships with — another broker enforces its own, which this page can't read."));
-      // Which hub this page talks to. The gate above already owns the input and
-      // the reload — this is the same control, findable when the gate isn't
-      // showing, rather than a second way to set the same value.
-      const p = document.createElement("p"); p.className = "hint";
-      p.textContent = standalone
-        ? "This copy isn't served by a hub, so it has to be told which one to talk to."
-        : "Served by the hub, so it talks to the hub that served it. Override only to point a local copy elsewhere.";
-      const row = document.createElement("div"); row.className = "gate-row";
+      // Which hub this page talks to — the ONE setting this page owns. The
+      // failure-state gate at the top owns the same input and the same reload;
+      // this is that control, findable when the gate isn't showing, rather
+      // than a second way to set the same value.
+      const addr = document.createElement("div"); addr.className = "gate-row";
       const inp = document.createElement("input");
       inp.type = "text"; inp.value = hubHost; inp.placeholder = "10.42.0.1 or hub.local";
       inp.setAttribute("aria-label", "Hub address");
@@ -3147,8 +3164,66 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         localStorage.setItem(standalone ? "hubHost" : "hubHostOverride", v);
         location.reload();
       });
-      row.append(inp, go);
-      wrap.append(panelHead("Which hub"), p, row);
+      addr.append(inp, go);
+
+      // The uplink's wording has exactly one author (renderStatus writes
+      // #net-chip-label); reuse it rather than compose a second phrasing that
+      // drifts. Which NETWORK is the config; online-vs-portal is runtime state
+      // the chip's own warn tint already carries, on the panel where it acts.
+      const netLabel = document.getElementById("net-chip-label").textContent;
+
+      wrap.append(panelHead("Hub"), list([
+        ["Address", addr],
+        ["Name", hostLabel || "—"],
+        ["Served from", standalone ? "a standalone copy" : "the hub"],
+        ["Uplink", door(document.getElementById("net-chip"), netLabel || "set up Wi-Fi")],
+      ]));
+
+      // Two rows under one head IS the "one broker, two doors" picture students
+      // get wrong — the rover meets this page on the same topics through a
+      // different listener. The scheme carries the transport (ws:// IS "over
+      // WebSocket"), so the glosses cost a word each instead of a paragraph.
+      // The rover endpoint is the hub's OWN answer (/fleet's locator — the very
+      // string hubd tells rovers to point at), so it is a read, not a guess.
+      // src for the fallback, used only when no hubd is behind the page:
+      // pi/deploy/mosquitto.conf (`listener 1883` / `protocol mqtt`) +
+      // CONTRACT.md § Discovery & isolation.
+      // wsPort, not a literal "9001" — the connect call and this row must read
+      // the same const or Settings will one day teach a stale port.
+      wrap.append(panelHead("Broker"), list([
+        [["This page", "MQTT over WebSocket"], `ws://${brokerHost}:${wsPort}`],
+        [["Rovers", "MQTT over TCP"], brokerLocator || `mqtt://${brokerHost}:1883`],
+        ["Auth", "none"],
+      ]));
+
+      // Live: rebuilt on the 2 s tick, so signing in flips this row AND the
+      // fleet/estop grant below it in place — which is the whole reason the
+      // professor delta needs no prose.
+      wrap.append(panelHead("You"), list([
+        ["Identity", door(document.getElementById(prof ? "id-chip" : "signin-chip"),
+                          prof ? (document.getElementById("id-chip-name").textContent || "professor") : "anyone")],
+      ]));
+
+      // src: pi/mosquitto-acl.example.conf + CONTRACT.md § Discovery &
+      // isolation (the identity/scope table). YOUR grants, not a matrix of
+      // every identity: the page knows who you are.
+      // pair/# is the one row with no client in this repo — the hub grants it,
+      // nothing it serves speaks it. It is NOT dead: workbench signals
+      // phone↔desktop WebRTC over pair/<room>/s/<peer> on this very broker.
+      // Kept because the seam is the lesson: MQTT brokers every rover message,
+      // while for a phone it only introduces the peers and the media then flows
+      // LAN-direct, never through here.
+      // "as shipped" is the honesty caveat, moved into the heading where it
+      // qualifies every row: this table is the hub's SHIPPED config, not a live
+      // read of whatever broker the Address field points at — and pointing it
+      // at a public broker is a thing we invite.
+      wrap.append(panelHead("Permissions", "as shipped"),
+        list([
+          [["robots/#", "rovers"], "read + write"],
+          [["pair/#", "phone pairing"], "read + write"],
+          [["fleet/estop", "emergency stop"], prof ? "read + write" : "read"],
+        ]),
+        hint("Hub defaults — another broker enforces its own."));
       host.replaceChildren(wrap);
     }
 
