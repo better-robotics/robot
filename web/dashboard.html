@@ -794,7 +794,11 @@
     }
     .list-group > * { border: none; border-radius: 0; background: transparent; width: 100%; }
     .list-group > * + * { border-top: 0.5px solid var(--border-default); }
-    .list-group > *:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); filter: none; }
+    /* Hover is a press affordance, so it belongs to what presses. This was
+       `> *` back when every child of a .list-group was a button; the uplink
+       popover's address rows are the first that aren't, and a row that lights
+       up under the cursor and then does nothing is a lie about itself. */
+    .list-group > :is(button, a):hover { background: color-mix(in srgb, var(--ink) 7%, transparent); filter: none; }
     .list-group > *:active { scale: none; }
     /* A Wi-Fi row: name left, security · signal right. Layout only. */
     .wifi-net {
@@ -2076,6 +2080,50 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         netChip.classList.toggle("warn", !healthy);
         // Nothing to forget until a network is actually stored.
         $("wifi-forget").style.display = s && s.ssid ? "inline-block" : "none";
+        renderAddrs(s);
+      };
+
+      // Where this hub can be reached, per radio.
+      //
+      // The hub is the only thing that reliably knows the hub's address. On its
+      // own AP you can always reach 10.42.0.1 and hub.local resolves — but the
+      // venue networks it joins are precisely the ones that make it unfindable
+      // from anywhere else: they filter multicast, so mDNS is dead, and isolate
+      // clients, so scanning for it fails. Asking it here, over the AP that
+      // always answers, is the one path that doesn't need the venue's help.
+      // (Wanted live 2026-07-16: the Pi sat on a building network on a
+      // different /24 and its address had to be read off a lease table over ssh
+      // from another machine entirely.)
+      //
+      // Rendered from the AP down, because the AP's address is the one that
+      // always works and the one you want when the uplink's has stopped.
+      const renderAddrs = s => {
+        const host = document.getElementById("wifi-addrs");
+        if (!host) return;                       // popover closed
+        host.textContent = "";
+        const ifaces = (s && Array.isArray(s.ifaces) ? s.ifaces : []).filter(i => i.ip);
+        host.hidden = !ifaces.length;
+        for (const i of ifaces) {
+          // .wifi-net: the same row shape as the network list directly below,
+          // so the two read as one sheet rather than two inventions.
+          const row = document.createElement("div");
+          row.className = "wifi-net";
+          const k = document.createElement("span");
+          // The role, not the interface name: "wlan1" is the kernel's per-boot
+          // enumeration, and which radio is the AP is a coin flip it has lost
+          // before (pi/CLAUDE.md).
+          //
+          // "Uplink" and not the SSID: the line directly above this already
+          // reads "Uplink: WhiteSky-PublicWiFi · online", so naming the network
+          // again says the same thing twice 8px apart — and a real venue SSID
+          // wrapped the row onto two lines to do it. Reuse the word the popover
+          // already uses rather than coin a second one for the same radio.
+          k.textContent = i.role === "ap" ? "This hub's Wi-Fi" : "Uplink";
+          const v = document.createElement("code");
+          v.textContent = i.ip;
+          row.append(k, v);
+          host.append(row);
+        }
       };
       renderStatus(status);
       // /fleet's polled verdict keeps the chip honest between /wifi/status reads.
@@ -2091,7 +2139,12 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         const st = document.createElement("p");
         st.className = "hint"; st.id = "wifi-pop-status";
         st.textContent = $("wifi-status").textContent;
-        wrap.append(st, panel);
+        // .list-group, not a bespoke row: this is a short list of facts inside a
+        // sheet, which is exactly what the grouped-inset list already is.
+        const addrs = document.createElement("div");
+        addrs.id = "wifi-addrs"; addrs.className = "list-group"; addrs.hidden = true;
+        wrap.append(st, addrs, panel);
+        renderAddrs(last);   // the poll may not tick before someone reads this
         panel.style.display = "flex";
         openChipPop(netChip, wrap,
                     () => { $("wifi-setup").append(panel); panel.style.display = "none"; });
