@@ -1,9 +1,9 @@
 name: firmware
 
 # Guards the unified rover+hub image from a CLEAN clone: all three board images
-# build (exercising the two seams a local checkout papers over — the vendored
-# web/ide bundle and the gitignored wifi_creds.h), the provisioning-util unit
-# tests pass on the native env, and cppcheck stays clean at medium+ severity.
+# build (exercising the seam a local checkout papers over — the gitignored
+# wifi_creds.h), the provisioning-util unit tests pass on the native env, and
+# cppcheck stays clean at medium+ severity.
 # rover-l298n is not in the matrix: it extends esp32dev with only an
 # upload_port change — same binary.
 on:
@@ -41,9 +41,6 @@ jobs:
 
       - name: Install PlatformIO
         run: python3 -m pip install --quiet platformio
-
-      - name: Vendor the IDE bundle (web/ide is gitignored; embed_ide.py hard-fails without it)
-        run: tools/sync-ide.sh
 
       - name: Stand in for the gitignored venue Wi-Fi credentials
         run: cp src/wifi_creds.example.h src/wifi_creds.h

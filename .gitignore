@@ -16,7 +16,3 @@ src/wifi_creds.h
 # hub role's embedded dashboard as a byte array. ~2.4 MB; regenerated every build.
 src/dashboard_html.c
 
-# Vendored by tools/sync-ide.sh from better-robotics/ide's ide-esp32 release
-# asset (pinned tag in the script), and its generated embed (tools/embed_ide.py).
-web/ide/
-src/ide_bundle.c

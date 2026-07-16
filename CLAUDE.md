@@ -60,8 +60,8 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   zenoh-pico's; the pin is now just stability (and 5.5.x is what the mosquitto
   component resolves against).
 - **CI** (`.github/workflows/firmware.yml`, verified green 2026-07-14): on push,
-  all three board images build from a clean clone (`tools/sync-ide.sh` +
-  `wifi_creds.example.h` stand-in cover the two gitignored seams), `pio test -e
+  all three board images build from a clean clone (the `wifi_creds.example.h`
+  stand-in covers the one gitignored seam), `pio test -e
   native` runs the Unity suite, and `pio check` (cppcheck, config in
   platformio.ini) gates at medium+. Flashable `.bin` trios upload as 7-day
   artifacts — the upload runs *before* check, whose cold-idedata configure
@@ -75,20 +75,27 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   `web/dashboard.html`, compiled as an ordinary source. `web/dashboard.html` is a
   VENDORED copy (canonical in the `hub` monorepo); `tools/sync-dashboard.sh`
   resyncs it and `--check` gates drift. `src/dashboard_html.c` is gitignored.
-- **IDE embed (hub role):** same mechanism, second bundle — `tools/embed_ide.py`
-  generates `src/ide_bundle.c` (one gzip blob per file + a path/type table,
-  `src/ide_bundle.h`) from `web/ide/`, and `ws_mqtt_bridge.c` serves it at
-  `/ide/?*` with `Content-Encoding: gzip` (browser inflates; the chip never
-  does). `web/ide/` is VENDORED from `better-robotics/ide`'s **release asset**
-  `ide-esp32-dist.tar.gz` (Blockly + textarea editor, no Monaco — the bundle
-  only exists built, it carries ide's gitignored vendor tree): `tools/sync-ide.sh`
-  fetches it, `--check` gates drift, and the tag pin lives IN the script —
-  bumping it is a deliberate commit, never a build side effect. Both `:80`
-  httpd configs use `httpd_uri_match_wildcard` for this route (exact URIs
-  still match exactly).
-- **Custom `partitions.csv`** (3 MB factory) — the unified image genuinely needs
-  it now (~67–68% used with the embedded dashboard + block IDE); the
-  "over-large, harmless" note from the lean rover-only era no longer applies.
+- **The block IDE is not on this firmware — it is a Pi-hub feature** (2026-07-16).
+  The ESP32 hub role serves the dashboard and nothing else; `better-robotics/ide`
+  is served only by `hub/pi`'s hubd at `/ide/`. The bundle used to be embedded
+  here the same way the dashboard is (`tools/embed_ide.py` → `src/ide_bundle.c`,
+  a `/ide/?*` wildcard route), and it cost **619,632 bytes** — 32% of the image,
+  more than every line of C in the firmware put together. Dropping it is what
+  made A/B OTA fit on a 4 MB part; before, two slots could not hold two copies.
+  **The reason it can't be lazy-loaded from the `ide` repo instead:** the bundle
+  is an MQTT client that opens `ws://<hub>:9001`, and a page served over HTTPS
+  from GitHub Pages cannot open a `ws://` socket (mixed content) — the hub has no
+  CA-signed cert for an mDNS name, so it can never offer `wss://`. Anything the
+  browser talks to over `ws://` must be same-origin with the page, which
+  structurally obliges whoever serves the broker to serve the app. Having the
+  chip fetch-and-cache it instead would mean adding `esp_http_client` + mbedTLS +
+  a cert bundle (~100 KB and a cert-rotation liability) to a firmware that today
+  has **no TLS client at all**, and would still need a flash partition to cache
+  into. `dashboard.html` already degrades for this: it probes `GET /ide/` and
+  renders a "no editor on this hub" hint on 404 — a state it had for the Pi's
+  empty-`HUB_IDE_DIR` case, which an ESP32 hub now always hits.
+- **Custom `partitions.csv`** — see the file itself for the live layout. The
+  image is ~1.3 MB per board since the IDE left and `-Os` landed.
 - **`src/wifi_creds.h`** (gitignored) — the hub role's STA uplink credentials;
   copy `src/wifi_creds.example.h`. NEVER commit the real one.
 

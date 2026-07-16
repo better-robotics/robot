@@ -1379,7 +1379,12 @@
           <span class="spacer"></span>
           <a id="ide-pop" class="link-btn" href="/ide/" target="_blank" rel="noopener">Open in a tab &#8599;</a>
         </div>
-        <div id="ide-host"><p class="hint" id="ide-missing" hidden>The editor isn&#8217;t installed on this hub &#8212; <code>HUB_IDE_DIR</code> is empty. The rest of the dashboard works without it.</p></div>
+        <!-- Names no cause: the two hubs are missing the editor for unrelated
+             reasons (a Pi with an empty HUB_IDE_DIR; an ESP32 hub, which never
+             carries the bundle at all — it is 619 KB and the chip has 4 MB).
+             Naming a Pi env var here read as a misconfiguration to a student on
+             a rover that is working exactly as designed. -->
+        <div id="ide-host"><p class="hint" id="ide-missing" hidden>No code editor on this hub. Driving, telemetry and the camera all work without it.</p></div>
       </section>
 
       <!-- Topics: the tree lives in the rail; this pane is the selected topic's
@@ -2967,7 +2972,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       if (ideMounted) return;
       ideMounted = true;
       // ASK before framing. An iframe fires no "error" for an HTTP 404 — it just
-      // renders the 404 body — so a hub with no HUB_IDE_DIR would show a broken
+      // renders the 404 body — so a hub without the editor would show a broken
       // frame and no reason.
       // GET, not HEAD: hubd answers HEAD /ide/ with a 404 while GET /ide/ serves
       // the page, so probing with HEAD reports "no editor" on a hub that has
@@ -2975,7 +2980,15 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // small, so the duplicate fetch costs a cache hit, once, per session.
       let ok = false;
       try { ok = (await fetch("/ide/")).ok; } catch { ok = false; }
-      if (!ok) { document.getElementById("ide-missing").hidden = false; return; }
+      if (!ok) {
+        document.getElementById("ide-missing").hidden = false;
+        // The pop-out lives in the panel head, outside #ide-host, so the hint
+        // above does not replace it — it would sit there offering a tab onto
+        // the same 404 the frame was just spared. Every ESP32 hub takes this
+        // path by design, so it is the common case, not a misconfiguration.
+        document.getElementById("ide-pop").hidden = true;
+        return;
+      }
       const f = document.createElement("iframe");
       f.src = "/ide/";
       f.title = "Code editor";

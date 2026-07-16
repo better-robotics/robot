@@ -1061,18 +1061,18 @@ void wifi_portal_start(void)
      *   + the 4 captive-portal probe paths below
      *   = 17 registered right after this function returns.
      * start_ws_mqtt_bridge then drops / (-1) and adds / (dashboard) + /fleet
-     * + /ide/?* (+3) — its ws_root/ws_mqtt live on a SEPARATE httpd (ws_srv),
-     * so they don't count here — = 19 peak. +1 headroom over that measured
-     * peak, not a round-number guess.
+     * (+2) — its ws_root/ws_mqtt live on a SEPARATE httpd (ws_srv), so they
+     * don't count here — = 18 peak. +1 headroom over that measured peak, not a
+     * round-number guess.
      * This is a COUNTED budget: adding a route without bumping it silently
      * costs the last one registered (/wifi/instructor took it from 18 to 19 on
-     * 2026-07-16, which would have left zero headroom at 19). */
-    cfg.max_uri_handlers = 20;
+     * 2026-07-16, which would have left zero headroom at 19; dropping the IDE's
+     * /ide/?* wildcard took it back to 18 the same day). */
+    cfg.max_uri_handlers = 19;
     cfg.lru_purge_enable = true;
-    /* Wildcard matcher for the bridge's /ide/?* route (ws_mqtt_bridge.c
-     * registers onto this shared handle); URIs without '*' — everything
-     * below — still match exactly as before. */
-    cfg.uri_match_fn = httpd_uri_match_wildcard;
+    /* No uri_match_fn: every route here is an exact path. The wildcard matcher
+     * was here only for the bridge's /ide/?* route, which left with the IDE
+     * bundle (2026-07-16). Query strings split off before matching either way. */
 
     if (httpd_start(&s_http, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "config panel httpd (:80) failed to start");
