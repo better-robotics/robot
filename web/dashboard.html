@@ -496,6 +496,29 @@
          away, in the panel head. A phone is a one-destination-at-a-time device;
          it already made that trade everywhere else. */
       .nav-meter { display: none; }
+      /* .nav-badge's margin-left:auto was written for the RAIL — a row, where
+         auto pushes the count to the far end. In a column tab it resolves to a
+         centred THIRD ROW under the label: every tab grew to 58px, the bar to
+         67px, and an amber count floated in dead space with 5px of clearance,
+         reading as though it had fallen out of the capsule. It hadn't; it was
+         setting the capsule's height.
+         Cornered, which is what a tab badge is everywhere on this platform
+         (Mail's unread count). It stays, unlike .nav-meter: amber is "act here"
+         and these boards need a name — the one signal in the bar that ASKS for
+         something. A rate asks for nothing, which is why that one went. */
+      .nav-badge {
+        position: absolute; top: 0.15rem; left: 50%; margin-left: 0.35rem;
+        min-width: 0; padding: 0 0.3rem; line-height: 1.35;
+        /* It is a label on the tab, not a control — the tab is the target. At
+           320px a three-digit count reaches ~3px past its own tab, and without
+           this that sliver would sit ON TOP of Code and answer taps meant for
+           it (the hazard .link-btn's ::after inset is bounded by). Falling
+           through is right in both directions: over Fleet the tap lands on
+           Fleet anyway, and over a neighbour it lands on the neighbour.
+           Three digits needs 100 unnamed boards and is not a room that exists;
+           this costs one declaration and stops it being a question. */
+        pointer-events: none;
+      }
       /* In the panel the tree is content, not a rail sub-list: it gives up the
          rail's indent guide and takes a bounded height so the log — the reason
          you opened this panel — is never pushed off the bottom of it. */
