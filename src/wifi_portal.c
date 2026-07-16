@@ -197,20 +197,20 @@ static const char PAGE_BODY[] =
 "</select>"
 "<button onclick=setrole() class=btn>Apply role &amp; restart</button>"
 "<div id=rmsg class=s></div>"
-/* Professor password: only a HUB board ever checks it (connect_cb), so it
+/* Instructor password: only a HUB board ever checks it (connect_cb), so it
  * lives in the role card. NVS, not a build flag — the compile-time literal is
  * plaintext in the image and firmware.yml publishes .bins from a public repo,
  * so baking a real classroom's password in would ship it to every downloader.
  * Blank = keep whatever is stored (so the field can render without leaking it);
  * "-" clears back to the compile-time default. */
 "<div id=profwrap hidden>"
-"<h2 style=\"margin-top:20px\">Professor password</h2>"
+"<h2 style=\"margin-top:20px\">Instructor password</h2>"
 /* Shown only while NVS is unset. Without it the placeholder is silent: the one
  * gated action in the whole classroom sits behind a string anyone can read out
  * of a published .bin, and nothing anywhere says so. */
 "<p class=\"s warn\" id=profwarn hidden>&#9888; Still the built-in password &#8212; it ships in every firmware download, so anyone on this Wi-Fi can stop the whole class. Set a real one below.</p>"
 "<p class=s id=profnote>Gates the fleet-wide emergency stop. Leave blank to keep the current one; &quot;-&quot; resets it to the built-in default.</p>"
-"<input id=profpass type=password placeholder=\"new professor password\" autocapitalize=off autocorrect=off>"
+"<input id=profpass type=password placeholder=\"new instructor password\" autocapitalize=off autocorrect=off>"
 "<button onclick=setprof() class=btn>Save password</button>"
 "<div id=pmsg class=s></div>"
 "</div>"
@@ -303,9 +303,9 @@ static const char PAGE_BODY[] =
 "if(!v){m.textContent='Enter a password, or \\u2212 to reset to the built-in default.';return}"
 "m.textContent='saving\\u2026';"
 "let f=new URLSearchParams();f.append('pass',v);"
-"try{let r=await(await fetch('/wifi/professor',{method:'POST',body:f})).json();"
+"try{let r=await(await fetch('/wifi/instructor',{method:'POST',body:f})).json();"
 "m.textContent=r.ok?(v=='-'?'Reset to the built-in default. New connections use it immediately.':"
-"'Saved. New professor connections use it immediately \\u2014 no restart needed.'):"
+"'Saved. New instructor connections use it immediately \\u2014 no restart needed.'):"
 "('Couldn\\u2019t save: '+(r.error||'try again.'));"
 /* The warning tracks what was actually stored: clearing puts the public
  * default back, so the amber returns rather than staying dismissed. */
@@ -579,7 +579,7 @@ static esp_err_t connect_post(httpd_req_t *req)
 
 /* ── Board role (#2 tier-2 designate) ─────────────────────────────────────────
  * role_pref selects the boot dispatch (main.c): auto/rover → board_run, hub →
- * hub_role_run. Exposing it here is what lets a professor turn any board into the
+ * hub_role_run. Exposing it here is what lets a instructor turn any board into the
  * classroom hub — and back — without reflashing. The hub ALSO serves this panel
  * (hub_role_run calls wifi_portal_start), so designating HUB isn't a one-way trip. */
 static const char *role_str(rover_role_pref_t r)
@@ -590,14 +590,14 @@ static const char *role_str(rover_role_pref_t r)
 static esp_err_t role_get(httpd_req_t *req)
 {
     /* prof_default mirrors connect_cb's own test (`nvs_pass[0] ? nvs : baked`):
-     * unset NVS means this hub still admits the compile-time PROFESSOR_PASS,
+     * unset NVS means this hub still admits the compile-time INSTRUCTOR_PASS,
      * which ships in every published .bin — i.e. Stop-all is gated by a public
      * string. Discloses nothing: anyone on the open AP can establish the same
      * fact with one CONNECT. Told here, not polled from /wifi/status — it
      * changes on a save, never on its own, and this is the fetch that already
      * decides whether the password field exists at all. */
     char nvs_pass[65];
-    rover_config_load_professor_pass(nvs_pass);
+    rover_config_load_instructor_pass(nvs_pass);
     char j[64];
     snprintf(j, sizeof j, "{\"role\":\"%s\",\"prof_default\":%s}",
              role_str(rover_config_load_role_pref()),
@@ -632,19 +632,19 @@ static esp_err_t role_post(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* POST /wifi/professor — body `pass=<value>`. Sets the hub role's professor
- * password in NVS (rover_config_set_professor_pass), which connect_cb reads
+/* POST /wifi/instructor — body `pass=<value>`. Sets the hub role's instructor
+ * password in NVS (rover_config_set_instructor_pass), which connect_cb reads
  * per-connection, so a rotation takes effect on the next connect with no
- * reboot. "-" clears back to the compile-time PROFESSOR_PASS.
+ * reboot. "-" clears back to the compile-time INSTRUCTOR_PASS.
  *
- * NVS and not a build flag: PROFESSOR_PASS is a plaintext literal in the
+ * NVS and not a build flag: INSTRUCTOR_PASS is a plaintext literal in the
  * image, `robot` is a public repo, and firmware.yml uploads flashable .bins —
  * a baked-in secret ships to everyone who downloads one, and `strings
  * firmware.bin` reads it out. This keeps a real classroom's password off the
  * shared image and per-board.
  *
  * Never echoes the stored value back: the page can set it, not read it. */
-static esp_err_t professor_post(httpd_req_t *req)
+static esp_err_t instructor_post(httpd_req_t *req)
 {
     char body[128];
     read_form_body(req, body, sizeof body);
@@ -655,18 +655,18 @@ static esp_err_t professor_post(httpd_req_t *req)
         return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"missing password\"}");
     }
     /* "-" is the clear sentinel, mirroring cmd/config's hub-pin convention.
-       An empty stored secret would admit EVERY client as professor, so
-       rover_config_set_professor_pass("") erases instead of storing. */
+       An empty stored secret would admit EVERY client as instructor, so
+       rover_config_set_instructor_pass("") erases instead of storing. */
     const bool clearing = strcmp(pass, "-") == 0;
-    esp_err_t e = rover_config_set_professor_pass(clearing ? "" : pass);
+    esp_err_t e = rover_config_set_instructor_pass(clearing ? "" : pass);
     if (e != ESP_OK) {
-        ESP_LOGE(TAG, "set professor pass failed: %s", esp_err_to_name(e));
+        ESP_LOGE(TAG, "set instructor pass failed: %s", esp_err_to_name(e));
         return httpd_resp_sendstr(req,
             e == ESP_ERR_INVALID_ARG ? "{\"ok\":false,\"error\":\"too long (max 64)\"}"
                                      : "{\"ok\":false,\"error\":\"could not save\"}");
     }
     /* Never log the value. */
-    ESP_LOGW(TAG, "professor password %s", clearing ? "reset to the built-in default" : "changed");
+    ESP_LOGW(TAG, "instructor password %s", clearing ? "reset to the built-in default" : "changed");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
 
@@ -793,6 +793,13 @@ static const char WELCOME_BODY[] =
 "<main>"
 "<div class=card id=before><h2>Welcome</h2>"
 "<p class=s id=lede>Checking this board&rsquo;s internet&#8230;</p>"
+/* Two controls, not one multiplexed link: which of these two is the primary
+ * tile is the whole point of this card, and a single button rewritten per
+ * state can only ever offer one of them (2026-07-16 — an offline board sent
+ * every student to the dashboard, with the Wi-Fi picker they actually needed
+ * demoted to a clause in the lede). Tiers are set per state in refresh();
+ * wifi-go sits first so the offline order reads primary-then-alternative. */
+"<a class=btn id=wifi-go target=_blank rel=noopener hidden>Set up this rover&rsquo;s Wi-Fi</a>"
 "<a class=\"btn btn-primary\" id=dashlink0 href=/ target=_blank rel=noopener>Open the dashboard</a>"
 /* Venue-gate path (uplink=='portal'): the network the BOARD joined has its
  * own captive sign-in; behind the NAT every client shares the board's
@@ -811,8 +818,11 @@ static const char WELCOME_BODY[] =
 /* welcome_get() sends "const AP_BASE='http://a.b.c.d';" here, then this. */
 static const char WELCOME_POST[] =
 "let lede=document.getElementById('lede'),go=document.getElementById('go'),"
-"d0=document.getElementById('dashlink0');"
+"d0=document.getElementById('dashlink0'),w=document.getElementById('wifi-go');"
 "let tries=0;"
+/* The base .btn IS the neutral tile, so a tier is one class — which is what
+ * lets priority swap per state without touching labels or hrefs. */
+"function tier(el,primary){el.classList.toggle('btn-primary',primary)}"
 /* AP_BASE is this board's own literal IP — always safe to hand a real
  * browser tab regardless of what hostname the captive sheet itself loaded
  * this page as. A dash already starting with 'http' (the remote/hub-joined
@@ -837,23 +847,27 @@ static const char WELCOME_POST[] =
  * never happen. dashlink0 stays live the whole time regardless. */
 "function refresh(){"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
-/* The primary action must name what it actually opens. dash is "" whenever
- * this board hosts no dashboard (SEARCHING, and ROVER-pinned with no hub in
- * range — hub_role.c never self-brokers there), and abs("") resolves to the
- * board's own "/", which in that state is the LANDING router, not a
- * dashboard. So the button said "Open the dashboard" and opened a page that
- * wasn't one, with Wi-Fi setup a further tap down in landing's footer.
- * Removing this page's own picker (2026-07-15) was argued as "the dashboard's
- * Set-up-Wi-Fi panel already does this" — which quietly assumed a dashboard
- * exists. With no dashboard, send them where the work actually is: /wifi,
- * which carries the same picker as the dashboard since the 2026-07-16
- * consolidation. */
-"if(j.dash){d0.href=abs(j.dash);d0.textContent='Open the dashboard'}"
-"else{d0.href=AP_BASE+'/wifi';d0.textContent='Set up this rover\\u2019s Wi-Fi'}"
+/* dash is "" whenever this board hosts no dashboard (SEARCHING, and
+ * ROVER-pinned with no hub in range — hub_role.c never self-brokers there),
+ * and abs("") resolves to the board's own "/", which in that state is the
+ * LANDING router, not a dashboard. So the dashboard tile only exists when
+ * there is one to open; /wifi is always real (same picker as the dashboard's
+ * panel since the 2026-07-16 consolidation), and always absolute so a
+ * target=_blank tap escapes the CNA sandbox — see the AP_BASE comment above. */
+"d0.hidden=!j.dash;if(j.dash)d0.href=abs(j.dash);"
+"w.href=AP_BASE+'/wifi';"
+/* Default: the picker stays out of the way while the board is online or still
+ * settling, unless there's no dashboard to offer instead. The offline branch
+ * below un-hides it; tiers are decided after the chain, from the state it
+ * lands in. */
+"w.hidden=!!j.dash;"
 "let v=document.getElementById('venue-go');v.hidden=true;"
 "if(j.uplink=='full'){tries=0;"
 "go.hidden=false;"
-"lede.textContent='This board is online'+(j.ssid?' via '+j.ssid:'')+'. Tap Continue to finish, or open the dashboard now.'"
+/* Only name the dashboard when there is one — d0 is hidden otherwise, and the
+ * sentence would be pointing at a button that isn't on the page. */
+"lede.textContent='This board is online'+(j.ssid?' via '+j.ssid:'')+'. Tap Continue to finish'"
+"+(j.dash?', or open the dashboard now.':'.')"
 "}else if(j.uplink=='portal'){"
 /* The venue's own captive gate answers for the internet until THIS board's
  * MAC signs in — and one sign-in from here covers it (NAT: every client
@@ -872,9 +886,23 @@ static const char WELCOME_POST[] =
 "go.hidden=true;"
 "lede.textContent='Reconnecting to '+j.ssid+'\\u2026'"
 "}else{"
-"go.hidden=true;"
-"lede.textContent='This board isn\\u2019t online yet \\u2014 open the dashboard to drive it offline, or set up its Wi-Fi there.'"
+/* Not online and not trying: picking a network is the whole job of this
+ * state, so it is the primary tile here and the dashboard is the alternative
+ * (driving offline is a real answer, just not the one they came for). */
+"go.hidden=true;w.hidden=false;"
+"lede.textContent='This board isn\\u2019t online yet \\u2014 set up its Wi-Fi below'"
+"+(j.dash?', or open the dashboard to drive it offline.':'.')"
 "}"
+/* ONE primary per state: whichever tile is the answer right now. Continue
+ * owns it once the board is really online, the venue gate owns it behind a
+ * sign-in, and the picker owns it whenever it's showing and neither of those
+ * can fire; the dashboard is the primary only when it's the sole thing left to
+ * do (settling, reconnecting). Both Continue and the dashboard used to render
+ * primary-blue side by side in the online state — two blue tiles is no
+ * hierarchy at all, which is only visible when you enumerate the states. */
+"let owned=j.uplink=='full'||j.uplink=='portal';"
+"tier(w,!w.hidden&&!owned);"
+"tier(d0,w.hidden&&!owned);"
 "setTimeout(refresh,3000)"
 "}).catch(()=>{"
 "lede.textContent='Checking this board\\u2019s status\\u2026';setTimeout(refresh,3000)});}"
@@ -1028,7 +1056,7 @@ void wifi_portal_start(void)
      * bundle is built to load within this (ide-v7 script concat). */
     cfg.max_open_sockets = 5;
     /* True peak on THIS shared handle:
-     *   /wifi{,/scan,/save,/connect,/forget,/role×2,/status,/professor}
+     *   /wifi{,/scan,/save,/connect,/forget,/role×2,/status,/instructor}
      *   + / + /welcome + /captive/ack + /captive-portal-api
      *   + the 4 captive-portal probe paths below
      *   = 17 registered right after this function returns.
@@ -1037,7 +1065,7 @@ void wifi_portal_start(void)
      * so they don't count here — = 19 peak. +1 headroom over that measured
      * peak, not a round-number guess.
      * This is a COUNTED budget: adding a route without bumping it silently
-     * costs the last one registered (/wifi/professor took it from 18 to 19 on
+     * costs the last one registered (/wifi/instructor took it from 18 to 19 on
      * 2026-07-16, which would have left zero headroom at 19). */
     cfg.max_uri_handlers = 20;
     cfg.lru_purge_enable = true;
@@ -1068,7 +1096,7 @@ void wifi_portal_start(void)
     httpd_uri_t u_rget  = { .uri = "/wifi/role",   .method = HTTP_GET,  .handler = role_get };
     httpd_uri_t u_rpost = { .uri = "/wifi/role",   .method = HTTP_POST, .handler = role_post };
     httpd_uri_t u_stat  = { .uri = "/wifi/status", .method = HTTP_GET,  .handler = status_get };
-    httpd_uri_t u_prof  = { .uri = "/wifi/professor", .method = HTTP_POST, .handler = professor_post };
+    httpd_uri_t u_prof  = { .uri = "/wifi/instructor", .method = HTTP_POST, .handler = instructor_post };
     httpd_uri_t u_root  = { .uri = "/",            .method = HTTP_GET,  .handler = landing_get };
     /* The captive-portal Accept flip — see probe_redirect's comment above. */
     httpd_uri_t u_welcome = { .uri = "/welcome",     .method = HTTP_GET,  .handler = welcome_get };

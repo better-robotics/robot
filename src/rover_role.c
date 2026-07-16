@@ -444,7 +444,7 @@ static void config_apply(const char *json, int len, esp_mqtt_client_handle_t cli
 }
 
 /* ── cmd/identify: blink the LED so a physical board can be matched to its id ──
- * The assign flow's missing physical link: the professor sees rover-c9d0 on
+ * The assign flow's missing physical link: the instructor sees rover-c9d0 on
  * screen and three identical boards on the desk. ~6 s of 2 Hz blinking, then the
  * LED returns to its liveness meaning (on = connected to the broker). */
 static volatile bool s_blinking = false;
@@ -550,7 +550,7 @@ static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
         break;
     default:
         /* No MQTT_EVENT_ERROR handling: a rover never claims to be
-         * "professor", so no hub ever refuses its connection — nothing to
+         * "instructor", so no hub ever refuses its connection — nothing to
          * count or fall back from. */
         break;
     }

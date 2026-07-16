@@ -15,7 +15,7 @@
  *       The only mode change is APSTA→STA on a hub join, which is safe live; the
  *       way BACK is a clean restart, never a live switch.
  *
- *   hub_role_run()             — tier 2: a dedicated professor hub. Raises a
+ *   hub_role_run()             — tier 2: a dedicated instructor hub. Raises a
  *       `hub-*` AP (the SSID a rover's scan joins → it gathers a fleet), runs the
  *       broker, and does NOT drive (broker/AP vs real-time motors on one radio,
  *       hub#2). Chosen deliberately via role_pref=HUB.
@@ -63,8 +63,8 @@
 #define AP_CHANNEL  1                  /* overridden to match STA channel in APSTA (single radio) */
 #define AP_MAX_CONN 8                  /* esp32_nat_router's documented ceiling */
 
-#ifndef PROFESSOR_PASS
-#define PROFESSOR_PASS "change-me"     /* the one gated identity — see connect_cb */
+#ifndef INSTRUCTOR_PASS
+#define INSTRUCTOR_PASS "change-me"     /* the one gated identity — see connect_cb */
 #endif
 
 /* ws_mqtt_bridge.c — lets browsers reach the broker over MQTT-over-WebSocket */
@@ -272,11 +272,11 @@ int board_status_json(char *buf, size_t len)
  * (no per-topic ACL — CONTRACT.md § Discovery & isolation). The classroom's
  * real boundary is the hub's own Wi-Fi perimeter, not a login: every board
  * and browser is admitted with no credential at all — a name is a topic
- * address, not a password. The one gated identity is "professor" — not
+ * address, not a password. The one gated identity is "instructor" — not
  * because this port can enforce a narrower ACL for it (it can't), but so the
  * dashboard's fleet-wide controls (Stop-all, drive-any-robot) need a real
  * password before they light up: deliberate friction on the one set of
- * actions that shouldn't be a stray tap. Get "professor" right → admitted;
+ * actions that shouldn't be a stray tap. Get "instructor" right → admitted;
  * anything else, admitted too. (Confirmed 2026-07-13 — the per-robot
  * robot1/robot2/pool credential table this replaced never enforced anything
  * a determined student couldn't already read off a card; it just made every
@@ -286,20 +286,20 @@ static int connect_cb(const char *client_id, const char *username,
 {
     (void)password_len;
     const char *cid = client_id ? client_id : "(none)";
-    if (username && strcmp(username, "professor") == 0) {
+    if (username && strcmp(username, "instructor") == 0) {
         /* NVS first, compile-time default second. The literal is plaintext in
          * the image and firmware.yml publishes .bins from a PUBLIC repo, so a
          * baked-in secret ships to whoever downloads one; NVS keeps a real
          * classroom's password off the shared image. Read per-connect, not
          * cached: rotating it must not need a reboot. */
         char nvs_pass[65];
-        rover_config_load_professor_pass(nvs_pass);
-        const char *want = nvs_pass[0] ? nvs_pass : PROFESSOR_PASS;
+        rover_config_load_instructor_pass(nvs_pass);
+        const char *want = nvs_pass[0] ? nvs_pass : INSTRUCTOR_PASS;
         if (password && strcmp(password, want) == 0) {
-            ESP_LOGI(TAG, "accept %s as professor", cid);
+            ESP_LOGI(TAG, "accept %s as instructor", cid);
             return 0;
         }
-        ESP_LOGW(TAG, "reject %s: wrong professor password", cid);
+        ESP_LOGW(TAG, "reject %s: wrong instructor password", cid);
         return 1;
     }
     ESP_LOGI(TAG, "accept %s%s%s", cid, username ? " as " : " (anonymous)", username ? username : "");
@@ -750,11 +750,11 @@ const char *board_wifi_try_join(const char *ssid, const char *pass)
 
 /* ── hub-watch: an island yields to a real hub.
  * A board islanded because it saw no hub — but one may appear just after (a Pi
- * boots ~30-60 s slower than an ESP; a professor's hub is switched on; or our own
+ * boots ~30-60 s slower than an ESP; a instructor's hub is switched on; or our own
  * boot scan simply missed it). For a bounded window, watch for any `hub-*` and
  * step down to it. This is SAFE against peer islands because an island raises
  * `rover-<id>`, NOT `hub-*` — so a `hub-*` beacon can only be a *real* designated
- * hub (a Pi `hub-pi-*` or a tier-2 professor hub), never another home board.
+ * hub (a Pi `hub-pi-*` or a tier-2 instructor hub), never another home board.
  * Yielding = a clean esp_restart (NOT a mode switch, no RTC flag): board_run
  * re-runs, discovers the now-present hub, and joins it as a rover.
  *
@@ -1005,7 +1005,7 @@ void board_run(bool self_broker_ok)
     }
 }
 
-/* ── hub_role_run: tier-2 dedicated professor hub ─────────────────────────────
+/* ── hub_role_run: tier-2 dedicated instructor hub ─────────────────────────────
  * role_pref=HUB. Raises a hub-* AP a rover's scan joins, runs the broker, does
  * NOT drive. Never returns (blocks in the broker). */
 void hub_role_run(void)
@@ -1022,7 +1022,7 @@ void hub_role_run(void)
                                                    * never drops its AP. */
 
     /* The config panel runs here too (hub.local/wifi): so designating a board as
-     * HUB isn't a one-way trip (flip role back to auto), and the professor sets the
+     * HUB isn't a one-way trip (flip role back to auto), and the instructor sets the
      * venue uplink below at runtime. Must start BEFORE start_ws_mqtt_bridge so the
      * dashboard registers onto this shared :80 instead of opening its own. */
     wifi_portal_start();

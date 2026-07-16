@@ -18,7 +18,7 @@
  * self-brokers). Defined in hub_role.c (which owns the Wi-Fi + broker services). */
 void board_run(bool self_broker_ok);
 
-/* Tier 2: a dedicated professor hub — hub-* AP + broker + NAT, no drive
+/* Tier 2: a dedicated instructor hub — hub-* AP + broker + NAT, no drive
  * (hub_role.c). Chosen via role_pref=HUB. */
 void hub_role_run(void);
 

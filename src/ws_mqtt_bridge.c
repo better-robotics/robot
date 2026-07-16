@@ -34,7 +34,7 @@
  * httpd, broker clients, DNS, and mDNS. The dashboard holds ONE session per
  * page (sign-in ends its anonymous fleet-view client) — before that fix a
  * single signed-in laptop held two, filled the old 2-slot table alone, and
- * professor sign-in stalled on "No answer from the hub" (bench 2026-07-13).
+ * instructor sign-in stalled on "No answer from the hub" (bench 2026-07-13).
  * Three slots = dashboard + IDE + one more phone; the Pi is the
  * classroom-scale hub. The cap itself stays hard: the same bench day showed
  * an oversized budget lets page loads starve mosquitto's accept loop. */
@@ -291,7 +291,7 @@ static esp_err_t ide_handler(httpd_req_t *req)
 /* The dashboard polls /fleet for the uplink pill + rover-setup locator. On the
  * Pi that's hubd; here the same httpd answers it so the real page works
  * unmodified. Uplink is honest, not hardcoded: an ESP hub/island with no STA
- * lease has no internet, and the dashboard's "none" pill tells the professor
+ * lease has no internet, and the dashboard's "none" pill tells the instructor
  * exactly that (robots unaffected) instead of leaving them to debug the venue.
  * Portal detection needs an HTTP probe the Pi does — "full" here means only
  * "an uplink exists". */

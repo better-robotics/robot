@@ -29,7 +29,7 @@ this repo vendors `web/dashboard.html` (drift-checked, `tools/sync-dashboard.sh`
 zenoh-pico has no usrpwd, and esp-mqtt authenticates with username/password
 natively. That capability turned out to gate only one identity in the end:
 the classroom's real boundary is its own Wi-Fi, not a login (confirmed
-2026-07-13) — every robot and browser gets open read+write, and `professor`
+2026-07-13) — every robot and browser gets open read+write, and `instructor`
 is the sole credential, scoped to `fleet/estop` alone (CONTRACT.md § Discovery
 & isolation). See git history for the zenoh-era firmware.
 
@@ -229,7 +229,7 @@ Two ids, split by job (CONTRACT.md § Discovery & isolation):
   That capability turned out to matter for exactly one identity: the classroom
   redesign (2026-07-13) dropped per-robot credentials entirely — a robot's
   name is a topic address, not something MQTT auth gates — and kept
-  username/password for `professor` alone, gating only `fleet/estop`. The
+  username/password for `instructor` alone, gating only `fleet/estop`. The
   rover itself now connects with no MQTT auth at all (`rover_role.c`).
 - **WPA2 join fails against the Pi's brcmfmac AP** — 4-way handshake timeout
   (`run → init (0xf00)` loop) despite correct PSK; open AP joins in ~6 s. C3 client
