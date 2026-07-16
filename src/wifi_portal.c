@@ -1062,13 +1062,13 @@ void wifi_portal_start(void)
      *   = 17 registered right after this function returns.
      * start_ws_mqtt_bridge then drops / (-1) and adds / (dashboard) + /fleet
      * (+2) — its ws_root/ws_mqtt live on a SEPARATE httpd (ws_srv), so they
-     * don't count here — = 18 peak. +1 headroom over that measured peak, not a
-     * round-number guess.
+     * don't count here — and ota_update_start adds POST /ota (+1)
+     * = 19 peak. +1 headroom over that measured peak, not a round-number guess.
      * This is a COUNTED budget: adding a route without bumping it silently
      * costs the last one registered (/wifi/instructor took it from 18 to 19 on
      * 2026-07-16, which would have left zero headroom at 19; dropping the IDE's
-     * /ide/?* wildcard took it back to 18 the same day). */
-    cfg.max_uri_handlers = 19;
+     * /ide/?* wildcard took it back to 18, and /ota returned it to 19). */
+    cfg.max_uri_handlers = 20;
     cfg.lru_purge_enable = true;
     /* No uri_match_fn: every route here is an exact path. The wildcard matcher
      * was here only for the bridge's /ide/?* route, which left with the IDE

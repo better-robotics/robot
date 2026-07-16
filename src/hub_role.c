@@ -47,6 +47,7 @@
 #include "roles.h"
 #include "rover_config.h"        /* rover_config_load — the stored STA uplink */
 #include "provisioning_util.h"   /* rover_format_robot_id — the board's AP SSID = its rover-id */
+#include "ota_update.h"
 #include "wifi_portal.h"         /* the always-on :80 Wi-Fi config panel (rover.local/wifi) */
 #include "captive_nat.h"         /* packet-layer backstop for clients that bypass our DNS */
 
@@ -281,21 +282,30 @@ int board_status_json(char *buf, size_t len)
  * robot1/robot2/pool credential table this replaced never enforced anything
  * a determined student couldn't already read off a card; it just made every
  * fresh board a manual provisioning step.) */
+/* The instructor credential, in one place: NVS first, compile-time default
+ * second. The literal is plaintext in the image and firmware.yml publishes
+ * .bins from a PUBLIC repo, so a baked-in secret ships to whoever downloads
+ * one; NVS keeps a real classroom's password off the shared image. Read
+ * per-check, never cached: rotating it must not need a reboot.
+ *
+ * Shared with ota_update.c (POST /ota), which gates on the same identity over
+ * HTTP Basic — one secret for both, so there is nothing to rotate twice. */
+bool board_instructor_pass_ok(const char *given)
+{
+    if (!given) return false;
+    char nvs_pass[65];
+    rover_config_load_instructor_pass(nvs_pass);
+    const char *want = nvs_pass[0] ? nvs_pass : INSTRUCTOR_PASS;
+    return strcmp(given, want) == 0;
+}
+
 static int connect_cb(const char *client_id, const char *username,
                       const char *password, int password_len)
 {
     (void)password_len;
     const char *cid = client_id ? client_id : "(none)";
     if (username && strcmp(username, "instructor") == 0) {
-        /* NVS first, compile-time default second. The literal is plaintext in
-         * the image and firmware.yml publishes .bins from a PUBLIC repo, so a
-         * baked-in secret ships to whoever downloads one; NVS keeps a real
-         * classroom's password off the shared image. Read per-connect, not
-         * cached: rotating it must not need a reboot. */
-        char nvs_pass[65];
-        rover_config_load_instructor_pass(nvs_pass);
-        const char *want = nvs_pass[0] ? nvs_pass : INSTRUCTOR_PASS;
-        if (password && strcmp(password, want) == 0) {
+        if (board_instructor_pass_ok(password)) {
             ESP_LOGI(TAG, "accept %s as instructor", cid);
             return 0;
         }
@@ -906,6 +916,12 @@ void board_run(bool self_broker_ok)
      * drive dashboard onto this same :80 handle. */
     wifi_portal_start();
 
+    /* Firmware push (POST /ota) onto that same handle, and the self-test that
+     * confirms a pushed image — so a board reached over the hub's LAN at
+     * rover-<id>.local, or over its own AP when islanded, can be updated
+     * without a cable. Both roles call this; neither special-cases the other. */
+    ota_update_start();
+
     /* Camera (esp32cam only; a no-op elsewhere). After Wi-Fi so it fits in what
      * memory is left, and after the portal so :80 is already claimed — the camera
      * takes :81. Init failure is non-fatal; sys advertises the stream only if it's
@@ -1026,6 +1042,11 @@ void hub_role_run(void)
      * venue uplink below at runtime. Must start BEFORE start_ws_mqtt_bridge so the
      * dashboard registers onto this shared :80 instead of opening its own. */
     wifi_portal_start();
+
+    /* Firmware push (POST /ota) + the pushed-image self-test, on that same
+     * handle — see board_run's call. A dedicated hub is the board least likely
+     * to be within reach of a cable, so it needs this most. */
+    ota_update_start();
 
     /* Venue uplink: a stored network (set from the panel) wins; else the gitignored
      * compile-time creds. Fire-and-forget — the broker must come up NOW (the

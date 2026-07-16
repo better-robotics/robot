@@ -10,7 +10,8 @@
 # better-robotics/hub; resync via tools/sync-dashboard.sh).
 idf_component_register(SRCS "main.c" "rover_role.c" "hub_role.c" "ws_mqtt_bridge.c"
                              "wifi_portal.c" "dns_server.c" "camera.c" "dashboard_html.c"
-                             "provisioning_util.c" "rover_config.c" "captive_nat.c"
+                             "ota_update.c" "provisioning_util.c" "rover_config.c" "captive_nat.c"
                        INCLUDE_DIRS "."
                        REQUIRES nvs_flash esp_wifi esp_netif esp_event esp_timer
-                                driver mqtt json esp_http_server lwip)
+                                driver mqtt json esp_http_server lwip
+                                app_update mbedtls)

@@ -94,8 +94,41 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   into. `dashboard.html` already degrades for this: it probes `GET /ide/` and
   renders a "no editor on this hub" hint on 404 — a state it had for the Pi's
   empty-`HUB_IDE_DIR` case, which an ESP32 hub now always hits.
-- **Custom `partitions.csv`** — see the file itself for the live layout. The
-  image is ~1.3 MB per board since the IDE left and `-Os` landed.
+- **Custom `partitions.csv`** — see the file itself for the live layout and why
+  each offset is what it is. The image is ~1.3 MB per board since the IDE left
+  and `-Os` landed.
+- **Wi-Fi OTA (`src/ota_update.c`, `POST /ota`)** — the fleet updates over the
+  classroom Wi-Fi; USB is now only for a board's FIRST flash and for the one
+  repartition onto the A/B table. Registers onto the portal's shared `:80` the
+  way `ws_mqtt_bridge.c` does, called from BOTH boot roles, gated by HTTP Basic
+  on the `instructor` identity (`board_instructor_pass_ok`, `hub_role.c` — the
+  same secret as the broker's session auth, so there is nothing to rotate
+  twice). Push with `tools/ota-push.py --host rover-<id>.local <bin>`,
+  `INSTRUCTOR_PASS` in the env.
+  - **Rollback is the bootloader's, and it is why the table is `ota_0`+`ota_1`
+    with no factory.** `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` boots a pushed
+    slot as `PENDING_VERIFY`; `ota_update.c`'s task marks it valid only after
+    **30 s** of survival. That delay IS the design: marking immediately would
+    catch only an image that dies before serving, while the failure that
+    actually strands a board is the one that boots, comes up, then panics once
+    the drive loop or MQTT session starts — a reboot cycle marked valid on every
+    pass. The cost is that a power cut inside the window reads as a crash and
+    reverts to the previous image, which is the safe direction to be wrong in.
+  - **It cannot catch a bad image that boots fine.** Rollback tests "did it come
+    up", never "is it correct".
+  - `esp_ota_begin` gets the exact `content_len`, not `OTA_SIZE_UNKNOWN` — the
+    latter erases the whole 1.9 MB slot up front, seconds of dead air before the
+    first byte lands. `ota-push.py` preflights auth with a **zero-byte POST**
+    (the handler checks auth before it looks at the image, so 401 = bad
+    password, 400 = good): without it a wrong password rejects at byte 0 while
+    the client is still streaming 1.3 MB, and the client sees a broken pipe
+    instead of the board's own reason.
+  - PlatformIO wires the rest from `partitions.csv` alone — it flashes
+    `ota_data_initial.bin` at otadata's offset and puts the app at `ota_0`.
+    Verified by decoding the built `partitions.bin` and dumping
+    `FLASH_EXTRA_IMAGES`, **not** by reading `sdkconfig.defaults`, whose
+    `PARTITION_TABLE_SINGLE_APP_LARGE` is an inert idf.py fallback that does not
+    describe what is on the chip.
 - **`src/wifi_creds.h`** (gitignored) — the hub role's STA uplink credentials;
   copy `src/wifi_creds.example.h`. NEVER commit the real one.
 

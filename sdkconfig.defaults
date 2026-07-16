@@ -20,10 +20,20 @@ CONFIG_HTTPD_WS_SUPPORT=y
 # every listener until reboot; 24 keeps the full worst case under the ceiling.
 CONFIG_LWIP_MAX_SOCKETS=24
 
-# 4 MB flash. The app partition comes from the custom partitions.csv (3 MB
-# factory) via platformio.ini; SINGLE_APP_LARGE is the idf.py fallback.
+# 4 MB flash. The real table is partitions.csv (ota_0 + ota_1), passed by
+# platformio.ini's board_build.partitions — PlatformIO generates partitions.bin
+# from THAT and flashes it, so the symbol below is only idf.py's fallback and
+# does not describe what is on the chip. Verified by decoding the built
+# partitions.bin, not by reading this file.
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# A/B rollback. The bootloader boots a freshly-OTA'd app as PENDING_VERIFY; if
+# the app does not call esp_ota_mark_app_valid_cancel_rollback() before the next
+# reboot, the bootloader reverts to the other slot. A panic, a WDT reset or a
+# power cut during that first boot therefore self-heals with no USB trip — which
+# is the entire reason for the two-slot layout. ota_update.c owns the mark call.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 # The app built at -Og (ESP-IDF's default) while the bootloader beside it was
 # already size-optimized — nothing chose that asymmetry, it was just the default

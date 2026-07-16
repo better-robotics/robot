@@ -36,6 +36,13 @@ void rover_button_start(void);
  * only looks for a late-booting hub when idle, never mid-drive. */
 int64_t rover_ms_since_drive(void);
 
+/* The one gated identity, checked in one place (hub_role.c): NVS-stored password
+ * first, compile-time INSTRUCTOR_PASS second, false for NULL. Used by the
+ * broker's session auth and by POST /ota (ota_update.c) — the same secret gates
+ * "could take the room down over MQTT" and "could take the room down by
+ * reflashing it", so there is nothing to rotate twice. */
+bool board_instructor_pass_ok(const char *given);
+
 /* SSID classification shared by discovery and hub-watch (hub_role.c): any open
  * "hub-*" is a hub to join (peer islands advertise rover-<id>, never hub-*). */
 #define HUB_SSID_PREFIX     "hub-"

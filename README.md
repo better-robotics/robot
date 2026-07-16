@@ -55,6 +55,18 @@ or pio     hub, or      anyone on the hub's match id to   hub pin ·   until tol
 - **Flash from a browser** — [better-robotics.github.io](https://better-robotics.github.io/)
   (desktop Chrome/Edge over USB) — or `pio run -e <env> -t upload`
   (envs: `esp32dev` · `esp32c3-supermini` · `esp32cam` · `rover-l298n`).
+- **Update over Wi-Fi after that** — a board needs a cable once, then updates
+  in place:
+
+  ```
+  INSTRUCTOR_PASS=… tools/ota-push.py --host rover-a044.local firmware.bin
+  ```
+
+  Boards hold two firmware slots and boot a pushed one on trial: an update that
+  doesn't come up is reverted automatically, on its own, with no cable. A push
+  that fails leaves the board running exactly what it was running before.
+  Updating needs the instructor password, the same one the hub's fleet controls
+  use.
 - **Zero-touch join**: no stored network → scan, join the strongest open
   `hub-…`, dial its gateway at `mqtt://<gateway>:1883`. Publishing in seconds.
 - **Assignment is remote** (dashboard → `cmd/config` → NVS): no per-device

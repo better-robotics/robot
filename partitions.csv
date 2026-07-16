@@ -1,7 +1,36 @@
-# Custom partition table for rover — 4 MB flash.
-# BLE (NimBLE) + Wi-Fi + zenoh-pico together exceed the 1 MB single-app-large
-# default; 3 MB for the app comfortably fits both radio stacks.
-# Name,   Type, SubType, Offset,  Size,    Flags
-nvs,      data, nvs,     0x9000,  0x5000,
-phy_init, data, phy,     0xe000,  0x1000,
-factory,  app,  factory, 0x10000, 0x300000,
+# A/B partition table for the unified rover+hub image — 4 MB flash.
+#
+# ota_0 + ota_1, no factory: an OTA push writes the slot that is NOT running,
+# and a push that fails its self-test rolls back to the slot that is. Both slots
+# are updatable, so rollback returns to the PREVIOUS image rather than to
+# whatever was USB-flashed months ago. This is the standard ESP-IDF two-OTA
+# layout (nvs/otadata/phy_init at the same offsets its own templates use), with
+# the slots widened to fill the chip.
+#
+# Sizing, measured 2026-07-16 (largest board, esp32cam):
+#   image 1,373,648 -> slot 2,031,616 = 32% free.
+# It fits because the block IDE left the firmware (619,632 B) and the app is
+# built -Os (143,296 B on this board). Before those two, ONE copy was 1,993,312
+# and two could not coexist on a 4 MB part at all.
+#
+# The slot size is bounded by alignment, not by taste: app partitions must start
+# at a 64 KB-aligned offset, so from 0x10000 the largest equal pair is 0x1F0000
+# each, ending at 0x3F0000. The last 64 KB is unallocated — there is no aligned
+# way to hand it to either slot.
+#
+# nvs stays at 0x9000 so a repartitioned board keeps its stored Wi-Fi
+# credentials, instructor password and rover config; it narrows 20K -> 16K to
+# make room for otadata, which is ESP-IDF's own default and holds this
+# firmware's handful of small keys with room to spare.
+#
+# phy_init is vestigial here (ESP_PHY_INIT_DATA_IN_PARTITION=n — the PHY blob is
+# compiled into the app) and is kept only because it costs one sector and every
+# IDF template has it. Do not reuse the space; flipping that Kconfig on would
+# need it back.
+#
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x4000,
+otadata,    data, ota,     0xd000,   0x2000,
+phy_init,   data, phy,     0xf000,   0x1000,
+ota_0,      app,  ota_0,   0x10000,  0x1F0000,
+ota_1,      app,  ota_1,   0x200000, 0x1F0000,
