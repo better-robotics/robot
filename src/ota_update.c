@@ -166,22 +166,27 @@ static esp_err_t ota_post(httpd_req_t *req)
     ESP_LOGW(TAG, "push accepted: %d bytes -> %s", (int)req->content_len, dst->label);
 
     /* OTA_WITH_SEQUENTIAL_WRITES — erase as the bytes arrive, never up front.
+     * This is not a tidiness preference: the up-front erase CRASHED the board.
      *
-     * Both sized alternatives block here before the first recv: OTA_SIZE_UNKNOWN
-     * erases the whole 1.9 MB slot, and passing content_len still erases ~1.4 MB
-     * — the first cut here passed content_len under a comment congratulating
-     * itself for avoiding exactly this. That is seconds in which the handler
-     * reads nothing while the pusher streams, and this handler's socket is then
-     * the idlest on a server with max_open_sockets = 5 and lru_purge_enable on.
+     * Both sized alternatives erase before the first recv — OTA_SIZE_UNKNOWN the
+     * whole 1.9 MB slot, content_len about 1.4 MB. The first cut here passed
+     * content_len, under a comment congratulating itself for avoiding exactly
+     * this. On the esp32cam, which has the largest image and so the longest
+     * erase, that reliably tripped the INTERRUPT WATCHDOG: the board reset
+     * mid-transfer and the pusher saw a broken pipe, which reads like a refusal
+     * and is actually a panic.
      *
-     * Whether that idle window is long enough for a new connection to get this
-     * socket purged is NOT established — a push did die mid-transfer on the
-     * bench (2026-07-16, esp32cam), but the laptop pushing it turned out to have
-     * dropped off the AP, which explains the failure without any of this. The
-     * up-front erase is worth removing on its own terms: it is dead air, it puts
-     * a multi-second flash erase in front of a socket nobody is reading, and
-     * sequential writes cost nothing to get instead. Treat the purge as a
-     * plausible mechanism this closes off, not a diagnosed one. */
+     * Diagnosed 2026-07-16 by the board's own /log, over Wi-Fi, on a board whose
+     * serial adapter was unplugged — the ring survived the reset that erased
+     * everything else and named it:
+     *
+     *   W (29457) ota: push accepted: 1397488 bytes -> ota_1
+     *   W  (1687) boot: ──── boot #3 ── reset: interrupt watchdog ────
+     *
+     * An earlier guess blamed httpd's LRU purge closing an idle socket. It was
+     * wrong, and only the reset reason settled it. Sequential writes keep each
+     * erase to the sector in front of the data, so nothing blocks long enough to
+     * arm the watchdog. */
     esp_ota_handle_t h = 0;
     esp_err_t e = esp_ota_begin(dst, OTA_WITH_SEQUENTIAL_WRITES, &h);
     if (e != ESP_OK) {
