@@ -4476,9 +4476,9 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       wrap.className = "assign-sheet stack";
       const note = document.createElement("p");
       note.className = "hint";
-      note.textContent = `Pushes a firmware image to ${name} at ${host}, then reboots it. `
-        + "The board boots a pushed image on trial and reverts on its own if it doesn't come up, "
-        + "so a bad push isn't a trip to the bench.";
+      note.textContent = `Sends a firmware image to ${name} at ${host} and restarts it. `
+        + "The board tries the new firmware once and puts the old one back by itself if it doesn't "
+        + "start up, so this can't leave you with a robot that needs plugging in.";
       const file = document.createElement("input");
       file.type = "file";
       file.accept = ".bin,application/octet-stream";
@@ -4519,12 +4519,16 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
           status.textContent = "Pushing… this takes about a minute over Wi-Fi.";
           const r = await post(blob, 180000);
           const j = await r.json().catch(() => ({}));
-          status.textContent = j.ok
-            ? `Pushed. ${name} is rebooting into ${j.slot || "the new image"} — it'll be back in a few seconds.`
-            : `Failed: ${j.error || r.status}. ${name} is still running its old firmware.`;
+          // Not j.slot. The board answers "ota_1", which is the name of a flash
+        // partition and means nothing to whoever is standing in a classroom
+        // holding a robot. It went straight through to the screen because the
+        // JSON had it — that is the whole failure mode.
+        status.textContent = j.ok
+            ? `Sent. ${name} is restarting — it should be back in a few seconds.`
+            : `Didn't work: ${j.error || r.status}. ${name} is still running its old firmware.`;
         } catch (e) {
           status.textContent = `Couldn't reach ${name} (${e.name === "TimeoutError" ? "timed out" : "network error"}). `
-            + "It's still running its old firmware — a failed push doesn't brick a board.";
+            + "It's still running its old firmware — nothing was changed on it.";
         }
         if (!go.disabled) file.disabled = false;
       });
