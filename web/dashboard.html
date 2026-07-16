@@ -1941,6 +1941,33 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // standalone copy, which has no hubd to ask) — Settings falls back to the
     // contract default there.
     let brokerLocator = "";
+    // Where the HUB says each board lives — /fleet's `boards`, keyed by rover id.
+    //
+    // This exists because sys.ip does not survive the question "who told us
+    // that?". The beacon is published over an ACL that admits every client with
+    // no credential, on an open AP, so any device in the room can announce a
+    // rover at any address. That is fine for painting a card and disqualifying
+    // for anything this page sends a secret to.
+    //
+    // The hub's answer comes from its own DHCP: the Pi reads the lease file its
+    // dnsmasq wrote, the ESP32 hub reads the stations associated to its AP. Both
+    // key on the MAC that holds the address, and a board's id IS that MAC's last
+    // two bytes (robot's rover_format_robot_id). A beacon can claim an ip; it
+    // cannot make the hub's DHCP server agree.
+    let vouchedIps = {};
+
+    // The only addresses this page will send the instructor password to.
+    //   1. the origin that served this page — trusting it is not a leap, the
+    //      page came from there;
+    //   2. an address the hub vouches for, above.
+    // Anything else — including a perfectly ordinary-looking sys.ip — returns
+    // null, and the caller must not fall back to the beacon. Returning null is
+    // the point: no Update button beats a phishable one.
+    function trustedHost(board, ip) {
+      if (ip && boardHost(ip) === location.hostname) return location.hostname;
+      const v = board && vouchedIps[board];
+      return v ? v : null;
+    }
     function setHostChip(ssid, host) {
       const cls = host === "pi" ? "Pi" : host === "esp32" ? "ESP32" : "";
       hostLabel =
@@ -1964,6 +1991,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         banner.style.display = "none";
         announce("");   // clears "Hub unreachable"; recovery is news too
         fleetFails = 0; fleetSeen = true;
+        vouchedIps = (data && typeof data.boards === "object" && data.boards) || {};
         // /fleet answering means THIS origin is a hub — an override saved while
         // the copy was hosted elsewhere would point mqtt at the wrong broker.
         if (localStorage.getItem("hubHostOverride")) {
@@ -3390,14 +3418,16 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         ["Auth", "none"],
       ]));
 
-      // Live: rebuilt on the 2 s tick, so signing in flips this row AND the
-      // fleet/estop grant below it in place — which is the whole reason the
-      // instructor delta needs no prose.
-      wrap.append(panelHead("You"), list([
-        ["Identity", door(document.getElementById(prof ? "id-chip" : "signin-chip"),
-                          prof ? (document.getElementById("id-chip-name").textContent || "instructor") : "anyone")],
-      ]));
+      // No "You" section: it was one row, holding a door to the identity chip
+      // that is already in the topbar and already says who you are. A settings
+      // panel that restates a control the shell keeps in permanent view is a
+      // second place to read the same fact and a second place to keep it true.
+      // The Permissions table below is the part that actually answers "what does
+      // being signed in get me", and it flips on the same tick.
 
+      // Live: rebuilt on the 2 s tick, so signing in flips the fleet/estop grant
+      // below in place — which is the whole reason the instructor delta needs no
+      // prose.
       // src: pi/mosquitto-acl.example.conf + CONTRACT.md § Discovery &
       // isolation (the identity/scope table). YOUR grants, not a matrix of
       // every identity: the page knows who you are.
@@ -4319,6 +4349,21 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         b.textContent = "Wi-Fi & role settings…";
         b.addEventListener("click", () => openConfig(robot, sys.ip, board));
         cfgRow.append(b);
+
+        // Update firmware — the only control on this page that sends the
+        // instructor password anywhere, so it is the only one that refuses to
+        // use sys.ip. trustedHost returns the hub's own answer or nothing; on
+        // nothing the button does not exist. A fake rover beacon pointing at a
+        // laptop would otherwise collect the fleet credential from whoever
+        // pressed Update next, and this password is the one thing in the system
+        // that is actually enforced (fleet/estop is friction — the broker has no
+        // per-topic ACL and cannot refuse an anonymous publish).
+        const host = trustedHost(board, sys.ip);
+        if (!host || !myCred) return;
+        const up = document.createElement("button");
+        up.textContent = "Update firmware…";
+        up.addEventListener("click", () => openOta(board || robot, host));
+        cfgRow.append(up);
       };
       // Same gate, same reason, one tick apart: the log is raw firmware output
       // naming networks and internals. Collapse on the way out — a sign-out
@@ -4377,7 +4422,13 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         // refresh yanks them off the line they were reading.
         const atEnd = logPre.scrollTop + logPre.clientHeight >= logPre.scrollHeight - 8;
         try {
-          const r = await fetch(`http://${boardHost(sys.ip)}/log`, { cache: "no-store" });
+          // Vouched address when the hub has one, sys.ip otherwise. Unlike the
+          // push, this sends no credential and only ever renders text, so the
+          // worst a forged beacon buys is showing you its own made-up log on
+          // its own made-up card. The fallback matters: an island board serving
+          // its own dashboard has no hub to vouch for it.
+          const lh = trustedHost(board, sys.ip) || boardHost(sys.ip);
+          const r = await fetch(`http://${lh}/log`, { cache: "no-store" });
           if (!r.ok) throw new Error(r.status);
           // textContent, NEVER innerHTML: sys.ip is published over an ACL that
           // admits anyone (hub_role.c connect_cb), so the host this text came
@@ -4412,6 +4463,73 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // Poll dies with the sheet. Without this the interval outlives every close
       // and keeps pulling 6 KB off the board forever, once per sheet ever opened.
       modalRestore = () => { telemetrySync = null; clearInterval(logTimer); logTimer = null; };
+    }
+
+    // Firmware push. The board checks the instructor password BEFORE it looks at
+    // the image, so a zero-byte POST is a free auth+reachability probe: 401 means
+    // the password is wrong, 400 ("image missing") means it passed. Without it a
+    // wrong password rejects at the first byte while the browser is still
+    // streaming 1.3 MB, and the fetch surfaces a broken pipe instead of the
+    // board's own reason — the same preflight tools/ota-push.py does.
+    function openOta(name, host) {
+      const wrap = document.createElement("div");
+      wrap.className = "assign-sheet stack";
+      const note = document.createElement("p");
+      note.className = "hint";
+      note.textContent = `Pushes a firmware image to ${name} at ${host}, then reboots it. `
+        + "The board boots a pushed image on trial and reverts on its own if it doesn't come up, "
+        + "so a bad push isn't a trip to the bench.";
+      const file = document.createElement("input");
+      file.type = "file";
+      file.accept = ".bin,application/octet-stream";
+      const go = document.createElement("button");
+      go.className = "btn-primary";
+      go.textContent = "Push firmware";
+      go.disabled = true;
+      const status = document.createElement("p");
+      status.className = "hint";
+      status.setAttribute("role", "status");   // rendered, empty at rest — announce() rules
+      let blob = null;
+      file.addEventListener("change", async () => {
+        blob = null; go.disabled = true; status.textContent = "";
+        const f = file.files?.[0];
+        if (!f) return;
+        const buf = new Uint8Array(await f.arrayBuffer());
+        // 0xE9 is the ESP32 image magic. esp_ota_end would reject a wrong file
+        // anyway — but only after pushing it over the AP radio the whole class
+        // shares. One byte here is free.
+        if (buf[0] !== 0xe9) { status.textContent = `${f.name} isn't an ESP32 firmware image.`; return; }
+        blob = buf; go.disabled = false;
+        status.textContent = `${f.name} — ${Math.round(buf.length / 1024)} KB, ready.`;
+      });
+      go.addEventListener("click", async () => {
+        if (!blob) return;
+        go.disabled = true; file.disabled = true;
+        const auth = "Basic " + btoa(`instructor:${myCred.pass}`);
+        const post = (body, ms) => fetch(`http://${host}/ota`, {
+          method: "POST", body,
+          headers: { "Authorization": auth, "Content-Type": "application/octet-stream" },
+          signal: AbortSignal.timeout(ms),
+        });
+        try {
+          status.textContent = "Checking…";
+          const pre = await post(new Uint8Array(0), 30000);   // 30 s: a healthy
+          // esp32cam answered its first cold request in 5.7 s on the bench.
+          if (pre.status === 401) { status.textContent = "This board rejected the instructor password."; go.disabled = false; file.disabled = false; return; }
+          status.textContent = "Pushing… this takes about a minute over Wi-Fi.";
+          const r = await post(blob, 180000);
+          const j = await r.json().catch(() => ({}));
+          status.textContent = j.ok
+            ? `Pushed. ${name} is rebooting into ${j.slot || "the new image"} — it'll be back in a few seconds.`
+            : `Failed: ${j.error || r.status}. ${name} is still running its old firmware.`;
+        } catch (e) {
+          status.textContent = `Couldn't reach ${name} (${e.name === "TimeoutError" ? "timed out" : "network error"}). `
+            + "It's still running its old firmware — a failed push doesn't brick a board.";
+        }
+        if (!go.disabled) file.disabled = false;
+      });
+      wrap.append(note, file, go, status);
+      openModal(`${name} — update firmware`, wrap);
     }
 
     // Drive opens the same per-board modal as Camera/Telemetry, parented with

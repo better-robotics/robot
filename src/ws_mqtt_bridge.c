@@ -294,10 +294,44 @@ static esp_err_t fleet_handler(httpd_req_t *req)
     esp_netif_ip_info_t apip;
     if (ap && esp_netif_get_ip_info(ap, &apip) == ESP_OK && apip.ip.addr)
         snprintf(locator, sizeof locator, "mqtt://" IPSTR ":1883", IP2STR(&apip.ip));
-    char body[192];
+
+    /* `boards` — where THIS HUB saw each rover, as opposed to where the rover's
+     * beacon says it lives. The sys beacon's `ip` is chosen by whoever published
+     * it (the broker admits every client with no credential, on an open AP), so
+     * it is fine for showing a fact and disqualifying for anything the dashboard
+     * sends a secret to: a fake rover pointing at a laptop would collect the
+     * instructor password from the next person who pressed Update.
+     *
+     * These two facts are ours, not the beacon's: the station is associated to
+     * our AP, and our own DHCP server chose its address. The id derives from the
+     * same MAC — rover_format_robot_id is "rover-%02x%02x" of the STA MAC's last
+     * two bytes, and the STA MAC is what associates here.
+     *
+     * Not proof of identity (MAC spoofing exists), but it costs an attacker a
+     * collision with the real board on our own L2 segment instead of one MQTT
+     * publish. The Pi hub answers the same key from its DHCP leases. */
+    char boards[320] = "";
+    size_t bl = 0;
+    wifi_sta_list_t stations = { 0 };   /* not `sta` — that is the STA netif above */
+    if (ap && esp_wifi_ap_get_sta_list(&stations) == ESP_OK && stations.num > 0) {
+        esp_netif_pair_mac_ip_t pairs[ESP_WIFI_MAX_CONN_NUM] = { 0 };
+        int n = stations.num > ESP_WIFI_MAX_CONN_NUM ? ESP_WIFI_MAX_CONN_NUM : stations.num;
+        for (int i = 0; i < n; i++) memcpy(pairs[i].mac, stations.sta[i].mac, 6);
+        if (esp_netif_dhcps_get_clients_by_mac(ap, n, pairs) == ESP_OK) {
+            for (int i = 0; i < n && bl < sizeof boards - 48; i++) {
+                if (!pairs[i].ip.addr) continue;   /* associated, no lease yet */
+                bl += snprintf(boards + bl, sizeof boards - bl,
+                               "%s\"rover-%02x%02x\":\"" IPSTR "\"", bl ? "," : "",
+                               pairs[i].mac[4], pairs[i].mac[5], IP2STR(&pairs[i].ip));
+            }
+        }
+    }
+
+    char body[560];
     snprintf(body, sizeof body,
              "{\"uplink\":\"%s\",\"locator\":\"%s\","
-             "\"ssid\":\"%s\",\"host\":\"esp32\"}", uplink, locator, ssid);
+             "\"ssid\":\"%s\",\"host\":\"esp32\",\"boards\":{%s}}",
+             uplink, locator, ssid, boards);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_sendstr(req, body);
