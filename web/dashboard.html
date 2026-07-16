@@ -2503,14 +2503,73 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // classroom.example.json5.
     let driveClient = null, myScope = null, target = null, targetBoard = null, dragging = false, lastSend = 0;
     const MAX_LOG = 60;
-    // Messages seen since the last sample. Counted at ingest (before the
-    // beacon/rover filters) so the rate is the BUS's, not the view's — hiding
-    // sys must not make the fleet look idle.
-    let wireMsgs = 0;
+    // The bus's pulse, over a SLIDING window. Ingest TIMESTAMPS, not a count:
+    // pushed before the beacon/rover filters so the rate is the BUS's, not the
+    // view's — hiding sys must not make the fleet look idle.
+    //
+    // This was a tumbling 1 s counter — count, print, reset — which at
+    // classroom rest is a coin flip: one rover beacons sys every 2 s, so the
+    // true rate is 0.5 msg/s and a 1 s integer bucket can only ever print 1 or
+    // 0. It printed both, blanked on the 0, and the readout blinked at 0.5 Hz.
+    // The unit was sized for the 200 msg/s ceiling (see the burst note in
+    // logLine) and had no resolution left two orders of magnitude below it,
+    // which is the whole range this bar sits at while nobody is driving.
+    const RATE_WIN_MS = 5000;
+    // Smoothing, because a sliding window only MOVES the quantization it was
+    // brought in to fix: rovers beacon in a burst (all of them, every 2 s), so
+    // a 5 s window catches 2 or 3 bursts depending on where its edge lands and
+    // the raw number alternates ±20% forever — measured on the bench at 0.8 ↔
+    // 1.2 for a wire whose true rate is a flat 1.0. A wider window doesn't
+    // help (10 s catches 10 or 12); deriving the rate from the buffer's time
+    // span is worse, since a burst's messages are ~0 ms apart. An EWMA over
+    // the windowed rate is what actually holds still. Symmetric on purpose:
+    // fast-attack/slow-decay is the level-meter instinct here and it biases
+    // UP on exactly this alternating input, which is the twitch again.
+    const RATE_ALPHA = 0.25;   // ~8 s to settle after a step
+    const wireAt = [];
+    let wireSince = 0;   // first ingest ever — see the blank rule below
+    let wireRate = null;   // EWMA state; null = no sample yet, seed don't blend
+    let wireShown = null;   // what's on screen — see the hysteresis below
     setInterval(() => {
       const el = document.getElementById("wire-rate");
-      if (el) el.textContent = wireMsgs ? `${wireMsgs} msg/s` : "";
-      wireMsgs = 0;
+      if (!el) return;
+      // Blank ONLY before the wire has ever spoken. Not gated on myScope the
+      // way #details-age is: the anonymous client logs robots/+/sys too (see
+      // its logLine call), so a student who never signs in has a live wire and
+      // no scope, and a session gate would blank the rate for exactly them.
+      // Once a message has landed the readout is permanent — `0.0 msg/s` is a
+      // fact (the fleet went silent, which is worth seeing next to "last
+      // message 45s ago"), "" is the absence of one, and collapsing the two is
+      // what made the node vanish mid-class: a layout shift, not just a fade.
+      if (!wireSince) { el.textContent = ""; return; }
+      const now = Date.now();
+      let i = 0;
+      while (i < wireAt.length && wireAt[i] < now - RATE_WIN_MS) i++;
+      if (i) wireAt.splice(0, i);   // one splice, not a shift per expiry
+      // Divide by the window actually watched, not the nominal one: for the
+      // first 5 s the window isn't full, and a fixed divisor would ramp the
+      // number up from a lie it then corrects on its own.
+      const span = Math.min(RATE_WIN_MS, now - wireSince) || RATE_WIN_MS;
+      const raw = wireAt.length / (span / 1000);
+      wireRate = wireRate === null ? raw : wireRate + RATE_ALPHA * (raw - wireRate);
+      // Hysteresis on the DISPLAY, not the value: smoothing alone still left a
+      // ±0.05 ripple straddling a rounding boundary, so the last digit toggled
+      // 1.2/1.3 once a second forever — a quieter version of the blink this
+      // whole change is about, and just as unreadable in peripheral vision.
+      // A step big enough to mean something always clears the band (a driving
+      // student moves it by ~2 msg/s on the first tick), so this costs no
+      // responsiveness; it only refuses to redraw for noise. Trailing cost is
+      // up to ~8% staleness on a slow drift, which for ambient glance-evidence
+      // beside "last message 3s ago" is not a number anyone reads that hard.
+      if (wireShown === null ||
+          Math.abs(wireRate - wireShown) >= Math.max(0.15, 0.08 * wireShown)) {
+        wireShown = wireRate;
+        // A decimal only where integers can't reach: at rest this reads a
+        // steady 0.5 msg/s, under twenty drivers it reads 200 msg/s as it
+        // always did. tabular-nums on #wire-rate keeps the width from
+        // twitching across either form.
+        el.textContent = `${wireShown < 10 ? wireShown.toFixed(1) : Math.round(wireShown)} msg/s`;
+      }
     }, 1000);
 
     let wirePaused = false;
@@ -2535,7 +2594,11 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // set of books that could disagree with the log.
     const topicSeen = new Map();   // topic -> { payload, at, n, dir }
     function logLine(dir, text) {
-      wireMsgs++;   // before the pause/filter returns — see wireMsgs
+      // Before the pause/filter returns — see wireAt. wireSince marks the
+      // first ingest ever, which is what un-blanks the readout.
+      const wireNow = Date.now();
+      if (!wireSince) wireSince = wireNow;
+      wireAt.push(wireNow);
       // Split ONCE on the first space: a topic never contains one, and the
       // payload always may (JSON). Hoisted above the pause return because the
       // tree reads it: Pause freezes the VIEW, not the wire.
