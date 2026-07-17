@@ -817,7 +817,12 @@ static bool captive_accepted(uint32_t ip)
     if (!ip) return false;
     for (int i = 0; i < ACCEPTED_MAX; i++) {
         if (s_accepted[i].ip != ip) continue;
-        if (esp_timer_get_time() - s_accepted[i].accepted_us > ACKED_IDLE_US) {
+        /* Measured from LAST SEEN, not accept time: the presence reaper refreshes
+         * last_seen_us every poll while the device is associated, so a student who
+         * stays connected is never re-greeted, however long they drive. This is
+         * only a backstop for when the reaper can't run (no AP station list) —
+         * the reaper itself forgets a departed device far sooner (90 s). */
+        if (esp_timer_get_time() - s_accepted[i].last_seen_us > ACKED_IDLE_US) {
             s_accepted[i].ip = 0;
             return false;
         }
