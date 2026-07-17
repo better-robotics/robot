@@ -4794,7 +4794,18 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       return drawStick(x, y);
     }
 
+    // Keep-alive re-send: the firmware watchdog (pwm.duration_ms = 200) stops the
+    // motors if commands lapse, and a held-steady stick fires no pointermove — so
+    // without this, holding the stick at full-forward coasts to a halt in 200 ms.
+    // Mirrors the D-pad's interval. It re-sends the LATEST value, which also
+    // covers the trailing pointermove the 100 ms throttle would otherwise drop.
+    let stickTimer = null, stickLast = null;
+    function stickAlive(motors) {
+      stickLast = motors;
+      if (!stickTimer) stickTimer = setInterval(() => { if (stickLast) sendPwm(stickLast); }, 120);
+    }
     function maybeSend(motors) {
+      stickLast = motors;               // keep-alive always re-sends the newest
       const now = performance.now();
       if (now - lastSend < 100) return; // rate-limit drag events, not the network
       lastSend = now;
@@ -4802,6 +4813,8 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     }
 
     function stopStick() {
+      if (stickTimer) { clearInterval(stickTimer); stickTimer = null; }
+      stickLast = null;
       sendPwm(drawStick(0, 0));
     }
 
@@ -4809,7 +4822,8 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       pad.setPointerCapture(e.pointerId);
       dragging = true;
       padRect = pad.getBoundingClientRect();   // once per drag, not per move
-      sendPwm(stickFromPointer(e.clientX, e.clientY));
+      const m = stickFromPointer(e.clientX, e.clientY);
+      sendPwm(m); stickAlive(m);
     });
     pad.addEventListener("pointermove", (e) => {
       if (!dragging) return;
@@ -4833,7 +4847,8 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       const [dx, dy] = KEY_MOVES[e.key];
       kx = Math.max(-1, Math.min(1, kx + dx * KEY_STEP));
       ky = Math.max(-1, Math.min(1, ky + dy * KEY_STEP));
-      sendPwm(drawStick(kx, ky));
+      const m = drawStick(kx, ky);
+      sendPwm(m); stickAlive(m);   // keep-alive: OS key-repeat lags the 200ms watchdog
     });
     pad.addEventListener("keyup", (e) => {
       if (e.key in KEY_MOVES) { kx = 0; ky = 0; stopStick(); }

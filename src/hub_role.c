@@ -475,6 +475,13 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, const char
      * beacon-interval latency spikes on the joystick path (and delays AP-side
      * service). The ~50 mA it saves is noise next to the motors. */
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    /* Pin the AP to HT20 rather than the driver's HT20/40 auto: in a classroom
+     * packed with other 2.4 GHz APs a clean 40 MHz secondary channel rarely
+     * exists, so HT40 there only adds interference and negotiation for throughput
+     * this workload never uses (tiny control/telemetry plus a rate-capped camera
+     * fit HT20 with airtime to spare) — and HT20 is the more robust link. The
+     * STA/uplink leg is left at auto so an ESP-hub's internet isn't capped. */
+    ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20));
     ESP_LOGI(TAG, "APSTA up: AP '%s' (join this). AP channel follows the uplink's (single radio).",
              ap_ssid);
 

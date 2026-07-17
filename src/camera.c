@@ -43,6 +43,12 @@ static bool s_running = false;
 #define HREF_GPIO   23
 #define PCLK_GPIO   22
 
+/* ~15 fps ceiling (see stream_handler): an uncapped QVGA feed runs at the
+ * sensor's ~25 fps and its frames share the 2.4 GHz radio with the rover's drive
+ * commands — that airtime contention is felt directly as drive lag. 15 fps is
+ * smooth for line-of-sight driving and leaves the radio for control traffic. */
+#define STREAM_FRAME_GAP_MS 50
+
 #define PART_BOUNDARY "frameboundary"
 static const char *STREAM_CT  = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char *STREAM_SEP = "\r\n--" PART_BOUNDARY "\r\n";
@@ -65,6 +71,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
             res = httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len);
         esp_camera_fb_return(fb);
         if (res != ESP_OK) break;   /* client closed the stream */
+        vTaskDelay(pdMS_TO_TICKS(STREAM_FRAME_GAP_MS));   /* pace to ~15 fps — frees drive airtime */
     }
     return res;
 }
