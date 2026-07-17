@@ -29,6 +29,8 @@
 #include "esp_system.h"
 #include "esp_timer.h"       /* esp_timer_get_time — the captive-ack idle window */
 #include "esp_netif.h"       /* the AP's own IP, for the RFC 8908 captive-portal-api body */
+#include "esp_wifi.h"        /* esp_wifi_ap_get_sta_list — the presence reaper's station list */
+#include "esp_wifi_ap_get_sta_list.h"   /* ...with_ip: MAC+IP per station, keyed as s_accepted is */
 #include "cJSON.h"          /* /wifi/connect speaks hubd's JSON dialect */
 #include "roles.h"          /* board_ap_t, board_wifi_scan */
 #include "rover_config.h"   /* rover_config_set_wifi, rover_config_load */
@@ -797,7 +799,7 @@ static esp_err_t instructor_post(httpd_req_t *req)
  * plainly instead of promising a Continue that can't deliver. */
 #define ACKED_IDLE_US (15LL * 60 * 1000 * 1000)
 #define ACCEPTED_MAX 8   /* == AP_MAX_CONN, hub_role.c */
-static struct { uint32_t ip; int64_t accepted_us; } s_accepted[ACCEPTED_MAX];
+static struct { uint32_t ip; int64_t accepted_us; int64_t last_seen_us; } s_accepted[ACCEPTED_MAX];
 
 /* The caller's IPv4, network byte order, or 0 on failure — see the comment
  * above: must be lwip_getpeername + sockaddr_in6, not plain getpeername. */
@@ -837,11 +839,49 @@ static esp_err_t captive_ack_post(httpd_req_t *req)
         if (slot < 0) slot = oldest_i;   /* table full — evict the oldest accept */
         s_accepted[slot].ip = ip;
         s_accepted[slot].accepted_us = esp_timer_get_time();
+        s_accepted[slot].last_seen_us = s_accepted[slot].accepted_us;
     }
     esp_ip4_addr_t logip = { .addr = ip };
     ESP_LOGI(TAG, "captive/ack from " IPSTR " — probes now answer genuine success", IP2STR(&logip));
     httpd_resp_set_type(req, "text/plain");
     return httpd_resp_sendstr(req, "ok");
+}
+
+/* Presence reaper — the ESP counterpart to hub/pi/src/bin/hubd.rs's reap_acks,
+ * so an Accept means "this visit", not "this device for the next 15 minutes". A
+ * device gone from the AP longer than the grace window loses its ack, so its
+ * NEXT join is greeted with /welcome again instead of being waved straight
+ * through — the behaviour a passed-around classroom board wants, and the reason
+ * the Pi's captive greets every fresh connection. Keyed on association presence
+ * via esp_netif_get_sta_list, which returns the IP per station — exactly what
+ * s_accepted keys on, so no MAC round-trip. Driven by the uplink-probe loop
+ * (hub_role.c). GRACE is long enough that a transient re-association blip can't
+ * re-summon the sheet mid-drive, short enough that the next student is greeted
+ * (matches the Pi's 90 s). If the AP station list can't be read at all — no AP
+ * up, e.g. a hub-joined board — it forgets NO ONE: "don't know" is not "nobody
+ * is here", the same guarantee the Pi makes on a station-list read failure. */
+#define CAPTIVE_ABSENT_GRACE_US (90LL * 1000 * 1000)
+void captive_reap_absent(void)
+{
+    wifi_sta_list_t wsl;
+    wifi_sta_mac_ip_list_t nsl;
+    if (esp_wifi_ap_get_sta_list(&wsl) != ESP_OK) return;     /* no AP up → forget no one */
+    if (esp_wifi_ap_get_sta_list_with_ip(&wsl, &nsl) != ESP_OK) return;
+    int64_t now = esp_timer_get_time();
+    for (int i = 0; i < ACCEPTED_MAX; i++) {
+        if (!s_accepted[i].ip) continue;
+        bool present = false;
+        for (int j = 0; j < nsl.num; j++) {
+            if (nsl.sta[j].ip.addr == s_accepted[i].ip) { present = true; break; }
+        }
+        if (present) {
+            s_accepted[i].last_seen_us = now;
+        } else if (now - s_accepted[i].last_seen_us > CAPTIVE_ABSENT_GRACE_US) {
+            esp_ip4_addr_t g = { .addr = s_accepted[i].ip };
+            ESP_LOGI(TAG, "captive: forgetting departed device " IPSTR " — its next join is greeted", IP2STR(&g));
+            s_accepted[i].ip = 0;
+        }
+    }
 }
 
 /* /welcome — the ONLY page an unacked captive-portal probe ever redirects to.

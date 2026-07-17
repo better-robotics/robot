@@ -35,4 +35,10 @@ void wifi_portal_start(void);
  * NULL means "no portal, start your own :80" (a defensive fallback). */
 httpd_handle_t wifi_portal_httpd(void);
 
+/* Forget the captive Accept of any device that has left the AP past the grace
+ * window, so its next join is greeted with /welcome again (the Pi's per-visit
+ * behaviour). Safe to call on any board — a no-op when no AP is up. Driven by
+ * the uplink-probe loop; see wifi_portal.c for the presence-reaper rationale. */
+void captive_reap_absent(void);
+
 #endif

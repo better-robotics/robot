@@ -235,6 +235,9 @@ static void uplink_probe_task(void *arg)
             }
             s_uplink_verdict = v;
         }
+        /* Same cadence drives the captive presence reaper: forget the Accept of
+         * any device that has left the AP, so its next join is greeted again. */
+        captive_reap_absent();
         /* Faster while not-full: someone is likely mid-onboarding on /welcome. */
         vTaskDelay(pdMS_TO_TICKS(s_uplink_verdict == BOARD_UPLINK_FULL ? 15000 : 5000));
     }
