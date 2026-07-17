@@ -317,17 +317,11 @@ static const char PAGE_BODY[] =
 "document.getElementById('bst').textContent=t;"
 "let g=document.getElementById('bgo');g.textContent='';"
 "if(j.dash&&document.documentElement.className!='embed'){"
-/* Same tab, no _blank. This panel is usually a real browser, where a new tab
- * would be a nicety — but /welcome now sends the captive sheet HERE in-sheet
- * (it is the one control that page can offer), so this button renders inside
- * the CNA too, and _blank there is inert: it would be the same dead button,
- * one page further in. A same-tab link is the only form that works in both.
- * The cost is real and accepted: tapped from inside the sheet this loads the
- * dashboard in a sandbox whose localStorage never reaches Safari, so an
- * instructor sign-in made there won't survive the sheet closing. Driving does
- * not need it, /welcome says so in the same breath as the address, and a
- * button that works beats a button that doesn't. */
-"let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;"
+/* Opens in a new tab (target=_blank) — the dashboard is where you drive, and a
+ * real browser tab is where an instructor sign-in sticks. Suppressed in embed
+ * mode by the guard above (it would navigate the modal iframe into a nested
+ * dashboard). */
+"let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target='_blank';a.rel='noopener';"
 "a.textContent=j.dash=='/'?'Open the dashboard':'Open the class dashboard';g.appendChild(a)}"
 "}catch(e){}setTimeout(stat,5000)}"
 "stat();"
@@ -388,9 +382,9 @@ static const char LANDING_BODY[] =
 "if(j.dash){"
 "st.textContent='Part of the classroom network'+(j.ssid?' '+j.ssid:'')+' \\u2014 drive it from the class dashboard.';"
 /* DOM, not innerHTML: dash derives from a stored locator (user-supplied NVS).
- * Same tab, no _blank — same reasoning as the panel's button above: this
- * landing is reachable inside the captive sheet, where _blank does nothing. */
-"if(!act.firstChild){let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;"
+ * Opens in a new tab (target=_blank) — a real browser tab is where a sign-in
+ * sticks. */
+"if(!act.firstChild){let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target='_blank';a.rel='noopener';"
 "a.textContent='Open the class dashboard';act.appendChild(a)}"
 "setTimeout(go,5000);return}"
 "act.innerHTML='';"
@@ -837,21 +831,18 @@ static esp_err_t captive_ack_post(httpd_req_t *req)
 }
 
 /* /welcome — the ONLY page an unacked captive-portal probe ever redirects to.
- * Deliberately dashboard-free itself: the dashboard never LOADS inside this
- * sheet (Apple's CNA sandboxes localStorage away from Safari, so a sign-in
- * made in here would silently vanish the moment the sheet closes) — but
- * reaching it is this page's one job, and that doesn't need to wait on
- * anything. This page is only ever reached from the board's own AP, which by
- * construction means the board is islanding and its dashboard is up (a
- * hub-joined board has no AP to serve it — hub_role.c board_ap_down), and the
- * AP does not drop on an uplink change either — so the dashboard is already
- * reachable the instant a phone joins; "Open the
- * dashboard" is the first, unconditional thing offered here (2026-07-15 —
- * this used to be the LAST thing offered, behind a full scan/connect wizard
- * that duplicated what the dashboard's own Set-up-Wi-Fi panel already does
- * against these same /wifi/scan + /wifi/connect endpoints). Configuring
- * Wi-Fi, if the student wants internet, happens there now — opened in the
- * phone's real browser, never in this sandbox.
+ * Deliberately dashboard-free itself: reaching the dashboard is this page's one
+ * job, and it opens in the phone's real browser (the "Open the dashboard" link
+ * is target=_blank) rather than loading inside this page. This page is only
+ * ever reached from the board's own AP, which by construction means the board
+ * is islanding and its dashboard is up (a hub-joined board has no AP to serve
+ * it — hub_role.c board_ap_down), and the AP does not drop on an uplink change
+ * either — so the dashboard is already reachable the instant a phone joins;
+ * "Open the dashboard" is the first, unconditional thing offered here
+ * (2026-07-15 — this used to be the LAST thing offered, behind a full
+ * scan/connect wizard that duplicated what the dashboard's own Set-up-Wi-Fi
+ * panel already does against these same /wifi/scan + /wifi/connect endpoints).
+ * Configuring Wi-Fi, if the student wants internet, happens there now.
  *
  * Continue is a separate, narrower job: it's what calls /captive/ack, which
  * is what lets the OS's OWN captive sheet auto-dismiss (genuine-success
@@ -883,31 +874,19 @@ static const char WELCOME_BODY[] =
 "<main>"
 "<div class=card id=before><h2>Welcome</h2>"
 "<p class=s id=lede>Checking this board&rsquo;s internet&#8230;</p>"
-/* NOTHING on this page opens a new tab. This page only ever renders inside the
- * OS captive sheet (Apple's CNA), which has no tab model and no window.open — a
- * target=_blank tap there does not fail, it does NOTHING: no navigation, no
- * error, no request reaching this board. Reported live twice (2026-07-15, and
- * again 2026-07-17 with a serial log showing zero requests after /welcome), and
- * the 2026-07-15 fix aimed at the wrong half: it made the href absolute, on the
- * theory that the CNA declines to hand off a relative path. AP_BASE was correct
- * and the buttons stayed dead, because the href was never the problem — _blank
- * was. Do not re-add it here; see § "known limitations, don't re-fix".
- *
- * So each control is now whichever of the two things it can actually be:
- *   - Wi-Fi picker → an in-sheet navigation. /wifi needs no localStorage, and
- *     a walled-garden client browsing the gate's own pages is the entire point
- *     of a captive sheet. Same reasoning venue-go already had.
- *   - Dashboard → NOT a control at all, an address to read. It genuinely needs
- *     the real browser (the CNA sandboxes localStorage away from Safari, so a
- *     sign-in made in here vanishes when the sheet closes), and on iOS there is
- *     no way to reach the real browser from this sheet. A button that cannot
- *     work is worse than a sentence that tells the truth: it reads as broken
- *     hardware to a student, which is exactly what it cost us.
+/* The dashboard opens in a new browser tab (target=_blank) — that is where you
+ * drive, and a real browser tab is where a sign-in sticks. The Wi-Fi picker and
+ * venue sign-in are in-sheet navigations (/wifi and the venue gate): a
+ * walled-garden client browsing the gate's own pages is the whole point of a
+ * captive sheet, and neither needs anything a real browser has. AP_BASE is this
+ * board's literal IP, always safe to hand a new tab regardless of what hostname
+ * the sheet loaded this page as.
  *
  * Tiers are set per state in refresh(); wifi-go sits first so the offline order
  * reads primary-then-alternative (2026-07-16 — an offline board sent every
  * student to the dashboard, with the Wi-Fi picker they actually needed demoted
- * to a clause in the lede). */
+ * to a clause in the lede). The dashboard link stays a neutral tile, never a
+ * per-state primary — always an alternative to Continue / the picker. */
 "<a class=btn id=wifi-go hidden>Set up this rover&rsquo;s Wi-Fi</a>"
 /* Venue-gate path (uplink=='portal'): the network the BOARD joined has its
  * own captive sign-in; behind the NAT every client shares the board's
@@ -916,19 +895,19 @@ static const char WELCOME_BODY[] =
  * it has to happen from inside this specific captive session. */
 "<a class=\"btn btn-primary\" id=venue-go hidden>Sign in</a>"
 "<button class=\"btn btn-primary\" id=go hidden>Continue</button>"
-"<p class=s id=dashnote hidden>To drive it, open <b class=addr id=dashaddr></b> in your "
-"regular browser &#8212; this pop-up can&rsquo;t open one, and it forgets sign-ins when it closes.</p>"
+"<a class=btn id=dashgo target=_blank rel=noopener hidden>Open the dashboard</a>"
+"<p class=s id=dashnote hidden>Opens <b class=addr id=dashaddr></b> in your browser.</p>"
 "</div>"
 "<div class=card id=after hidden><h2>You're set</h2>"
-"<p class=s>Now open <b class=addr id=dashaddr2></b> in your regular browser, not this "
-"pop-up &#8212; this pop-up forgets sign-ins when it closes.</p></div>"
+"<a class=\"btn btn-primary\" id=dashgo2 target=_blank rel=noopener hidden>Open the dashboard</a>"
+"<p class=s id=dashnote2 hidden>Opens <b class=addr id=dashaddr2></b> in your browser.</p></div>"
 "</main>"
 "<script>";
 /* welcome_get() sends "const AP_BASE='http://a.b.c.d';" here, then this. */
 static const char WELCOME_POST[] =
 "let lede=document.getElementById('lede'),go=document.getElementById('go'),"
 "dn=document.getElementById('dashnote'),da=document.getElementById('dashaddr'),"
-"w=document.getElementById('wifi-go');"
+"dg=document.getElementById('dashgo'),w=document.getElementById('wifi-go');"
 "let tries=0;"
 /* The base .btn IS the neutral tile, so a tier is one class — which is what
  * lets priority swap per state without touching labels or hrefs. */
@@ -947,7 +926,9 @@ static const char WELCOME_POST[] =
 "document.getElementById('before').hidden=true;"
 "document.getElementById('after').hidden=false;"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
-"document.getElementById('dashaddr2').textContent=abs(j.dash)}).catch(()=>{})"
+"let a=abs(j.dash),h=!j.dash,g=document.getElementById('dashgo2');"
+"document.getElementById('dashaddr2').textContent=a;g.href=a;g.hidden=h;"
+"document.getElementById('dashnote2').hidden=h}).catch(()=>{})"
 "}else{refresh()}"
 /* Poll, don't check once: right after a connect-reboot the phone rejoins and
  * this sheet reopens while the STA is still mid-join — a single check showed
@@ -964,7 +945,7 @@ static const char WELCOME_POST[] =
  * one to open. AP_BASE keeps it this board's literal IP, which is what a
  * student has to be able to type into Safari — a .local name is exactly what a
  * phone still on this AP may not resolve. */
-"dn.hidden=!j.dash;if(j.dash)da.textContent=abs(j.dash);"
+"let dh=abs(j.dash);dn.hidden=!j.dash;dg.hidden=!j.dash;if(j.dash){da.textContent=dh;dg.href=dh}"
 "w.href=AP_BASE+'/wifi';"
 /* The picker is an in-sheet navigation, never a new tab (see WELCOME_BODY). It
  * stays out of the way while the board is online or still settling; the offline
@@ -999,7 +980,7 @@ static const char WELCOME_POST[] =
  * the address below, not a tile, because this sheet cannot open one. */
 "go.hidden=true;w.hidden=false;"
 "lede.textContent='This board isn\\u2019t online yet \\u2014 set up its Wi-Fi below'"
-"+(j.dash?', or drive it offline at the address underneath.':'.')"
+"+(j.dash?', or drive it offline with the button underneath.':'.')"
 "}"
 /* ONE primary per state: whichever tile is the answer right now. Continue owns
  * it once the board is really online, the venue gate owns it behind a sign-in,
