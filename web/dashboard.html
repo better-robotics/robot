@@ -1089,6 +1089,18 @@
     /* Inline claim: the name field lives in the rover's own row. */
     .pool-actions .claim-name { flex: 1 1 8rem; min-width: 0; padding: 0.4rem 0.7rem; min-height: 2.2rem; }
     .claim-err { color: var(--danger-text); font-size: 0.85rem; flex-basis: 100%; }
+    /* The address the name maps to, forming live as the student types — the
+       claim's whole lesson: the name IS the <id> in robots/<id>/…, an address,
+       not a credential. Mono <code> so it reads as the wire address it is; the
+       id segment carries the one warn hue while it's the shared `unassigned`
+       pool, dropping to settled ink once a real name owns it. Wired via
+       aria-describedby (read on focus), never a live region — a per-keystroke
+       announcement would spam AT (the .nav-meter reasoning). */
+    .claim-addr { flex-basis: 100%; margin: 0.2rem 0 0; font-size: var(--fs-micro);
+      color: var(--ink-muted); overflow-wrap: anywhere; }
+    .claim-addr code { font-family: var(--mono); color: var(--ink); }
+    .claim-addr b { font-weight: 600; }
+    .claim-addr.pool b { color: var(--warn-ink); }
     .warn-note { color: var(--warn-ink); font-size: 0.85rem; margin-top: 0.45rem; }
 
     /* Per-card action row: Camera / Wi-Fi & role / Drive as tinted tiles. */
@@ -2503,11 +2515,16 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // CTA per card); this row only shows the inline name field once tapped.
       // The .pool-row class stays — the claim Enter handler anchors on it.
       const claimRow = claimable && claimingBoard === board
-        ? `<div class="pool-actions pool-row">
-            <input class="claim-name" placeholder="robot name" aria-label="Robot name" value="${esc(claimDraft)}"
+        ? (() => {
+            const a = claimAddr(claimDraft); // live address preview — the lesson
+            return `<div class="pool-actions pool-row">
+            <input class="claim-name" placeholder="robot name" aria-label="Robot name"
+              aria-describedby="claim-addr" value="${esc(claimDraft)}"
               autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off">
             <button class="btn-tile" data-claimsend="${esc(board)}">Claim</button>
-            ${claimErr ? `<span class="claim-err">${esc(claimErr)}</span>` : ""}</div>`
+            <p class="claim-addr${a.pool ? " pool" : ""}" id="claim-addr">${a.html}</p>
+            ${claimErr ? `<span class="claim-err">${esc(claimErr)}</span>` : ""}</div>`;
+          })()
         : "";
       const shared = !isPool && robotCounts.get(robot) > 1;
       return `<div class="robot${offline ? " offline" : ""}">
@@ -4219,6 +4236,17 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     let claimingBoard = null; // row currently showing the inline name field
     let claimDraft = "";      // its input value, preserved across repaints
     let claimErr = "";        // inline error, rendered under the field
+    // The claim's lesson, as a live preview: a name is the <id> segment of
+    // robots/<id>/…, an address the board moves to — not a login. Mirrors what
+    // sendClaim actually publishes (trim + lowercase), so the address shown is
+    // the address that lands. Empty = still in the shared `unassigned` pool,
+    // which is exactly why an untargeted drive moves every fresh board at once.
+    function claimAddr(raw) {
+      const name = raw.trim().toLowerCase();
+      return name
+        ? { pool: false, html: `<code>robots/<b>${esc(name)}</b>/…</code> — this rover's own address` }
+        : { pool: true,  html: `<code>robots/<b>unassigned</b>/…</code> — the shared pool every new board joins` };
+    }
     async function sendClaim(board) {
       // Lowercase silently: names are topic segments (lowercase-only), and
       // phone keyboards capitalize despite autocapitalize="none" (bench
@@ -4248,7 +4276,17 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       renderRobots();
     }
     document.getElementById("robots").addEventListener("input", (e) => {
-      if (e.target.classList.contains("claim-name")) claimDraft = e.target.value;
+      if (!e.target.classList.contains("claim-name")) return;
+      claimDraft = e.target.value;
+      // Patch the preview node directly: renderRobots() bails while this input
+      // is focused (it would wipe the field mid-typing), so the repaint can't
+      // carry the update — the address forms under the student's fingers here.
+      const addr = document.getElementById("claim-addr");
+      if (addr) {
+        const a = claimAddr(claimDraft);
+        addr.innerHTML = a.html;
+        addr.classList.toggle("pool", a.pool);
+      }
     });
     document.getElementById("robots").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && e.target.classList.contains("claim-name")) {
