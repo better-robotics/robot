@@ -2186,7 +2186,23 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         parkJoin();
         note("Scanning…");
         let nets;
-        try { nets = await (await fetch("/wifi/scan")).json(); }
+        // 503 = the host's radio was busy scanning for something else, NOT an
+        // empty room — retry rather than report. The ESP32 hub answers this way
+        // because only one scan runs on its single radio and its hub-watch takes
+        // one every 20 s (robot's roles.h board_wifi_scan); the Pi has no such
+        // collision and never sends it, so the retry simply never fires there.
+        // Ignoring the status is what this did, and an error body has no
+        // .length — so `!nets.length` was true and a student standing in a full
+        // building was told "No networks found." Status first, then the body.
+        try {
+          for (let i = 0; ; i++) {
+            const r = await fetch("/wifi/scan");
+            if (r.status === 503 && i < 3) { await new Promise(z => setTimeout(z, 2000)); continue; }
+            if (!r.ok) throw new Error(r.status);
+            nets = await r.json();
+            break;
+          }
+        }
         catch { note("Scan failed — tap Rescan to try again."); scanning = false; return; }
         finally { scanning = false; }
         if (!nets.length) { note("No networks found."); return; }

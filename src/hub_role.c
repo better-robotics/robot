@@ -629,9 +629,27 @@ int board_wifi_scan(board_ap_t *out, int max)
 {
     bool prev = s_want_connect;
     s_want_connect = false;                       /* don't let a reconnect fire mid-scan */
-    esp_err_t e = esp_wifi_scan_start(NULL, true);
+    /* Wait out a colliding scan instead of reporting an empty room. Only one
+     * scan can run on the radio, and hub_watch_task starts one every
+     * HUB_WATCH_SCAN_MS — so a student's tap lands inside a ~2 s scan roughly
+     * one time in ten. That refusal used to `return 0`, which is the SAME value
+     * as "scanned fine, saw nothing": the picker rendered "No networks found."
+     * at someone standing in an apartment block. Found on the wire 2026-07-17
+     * — first tap [], second tap the real list.
+     *
+     * Three tries at 1.2 s covers the longest in-flight scan; a caller that
+     * still can't have the radio gets -1 (busy), never 0, so "we couldn't look"
+     * and "there is nothing there" stay different facts all the way up to the
+     * page. Blocking here is not new — esp_wifi_scan_start(NULL, true) already
+     * blocks this httpd task for the scan's duration. */
+    esp_err_t e = ESP_FAIL;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        e = esp_wifi_scan_start(NULL, true);
+        if (e == ESP_OK) break;
+        vTaskDelay(pdMS_TO_TICKS(1200));
+    }
     s_want_connect = prev;                        /* restore: the STA may still be driving */
-    if (e != ESP_OK) return 0;                    /* e.g. a discovery/hub-watch scan in flight */
+    if (e != ESP_OK) return -1;                   /* radio busy — NOT "no networks" */
 
     uint16_t n = 0;
     esp_wifi_scan_get_ap_num(&n);

@@ -21,6 +21,7 @@
  */
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>         /* json_append — bounded vsnprintf into a budget */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_http_server.h"
@@ -88,6 +89,13 @@ static const char HEAD[] =
 "padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.6)}"
 ".card h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px}"
 ".s{color:var(--ink-muted);font-size:13px}"
+/* An address a student has to READ OFF THE SCREEN and retype into Safari —
+ * /welcome can offer no link for it (see WELCOME_BODY). So it gets the ink the
+ * surrounding .s does not, a tabular face so 1/l and 0/O can't be confused, and
+ * user-select so a long-press can copy it instead. Inline-block keeps the
+ * long-press target from collapsing between wrapped lines. */
+".addr{display:inline-block;color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"
+"font-variant-numeric:tabular-nums;-webkit-user-select:all;user-select:all;word-break:break-all}"
 /* Control vocabulary — the base is the neutral tile, tiers layer on. A bare
  * <button> used to be primary blue here (button{background:var(--accent)}),
  * which is why "Scan for networks" shouted louder than anything it sat beside. */
@@ -226,8 +234,19 @@ static const char PAGE_BODY[] =
 "p.textContent=t;nets.appendChild(p)};"
 /* join is MOVED into the list; park it before any rebuild or it's deleted. */
 "function park(){join.hidden=true;document.getElementById('msg').before(join)}"
+/* 503 = the radio was busy, not an empty room (roles.h board_wifi_scan). Retry
+ * here rather than surface it: hub_watch scans every 20 s and the firmware
+ * already waited one out, so the honest move is to keep saying "Scanning…"
+ * until we actually looked. This existed as `first tap [], second tap the real
+ * list` — the student was the retry loop. */
 "async function scan(){if(scanning)return;scanning=true;park();note('Scanning\\u2026');"
-"let a;try{a=await(await fetch('/wifi/scan')).json()}"
+"let a;"
+"try{"
+"for(let i=0;;i++){let r=await fetch('/wifi/scan');"
+"if(r.status==503&&i<3){await new Promise(z=>setTimeout(z,2000));continue}"
+"if(!r.ok)throw new Error(r.status);"
+"a=await r.json();break}"
+"}"
 "catch(e){note('Scan failed \\u2014 tap Rescan to try again.');scanning=false;return}"
 "finally{scanning=false}"
 "if(!a.length){note('No networks found.');return}"
@@ -298,7 +317,17 @@ static const char PAGE_BODY[] =
 "document.getElementById('bst').textContent=t;"
 "let g=document.getElementById('bgo');g.textContent='';"
 "if(j.dash&&document.documentElement.className!='embed'){"
-"let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target='_blank';a.rel='noopener';"
+/* Same tab, no _blank. This panel is usually a real browser, where a new tab
+ * would be a nicety — but /welcome now sends the captive sheet HERE in-sheet
+ * (it is the one control that page can offer), so this button renders inside
+ * the CNA too, and _blank there is inert: it would be the same dead button,
+ * one page further in. A same-tab link is the only form that works in both.
+ * The cost is real and accepted: tapped from inside the sheet this loads the
+ * dashboard in a sandbox whose localStorage never reaches Safari, so an
+ * instructor sign-in made there won't survive the sheet closing. Driving does
+ * not need it, /welcome says so in the same breath as the address, and a
+ * button that works beats a button that doesn't. */
+"let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;"
 "a.textContent=j.dash=='/'?'Open the dashboard':'Open the class dashboard';g.appendChild(a)}"
 "}catch(e){}setTimeout(stat,5000)}"
 "stat();"
@@ -358,8 +387,10 @@ static const char LANDING_BODY[] =
 "if(j.dash=='/'){location.reload();return}"
 "if(j.dash){"
 "st.textContent='Part of the classroom network'+(j.ssid?' '+j.ssid:'')+' \\u2014 drive it from the class dashboard.';"
-/* DOM, not innerHTML: dash derives from a stored locator (user-supplied NVS). */
-"if(!act.firstChild){let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target='_blank';a.rel='noopener';"
+/* DOM, not innerHTML: dash derives from a stored locator (user-supplied NVS).
+ * Same tab, no _blank — same reasoning as the panel's button above: this
+ * landing is reachable inside the captive sheet, where _blank does nothing. */
+"if(!act.firstChild){let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;"
 "a.textContent='Open the class dashboard';act.appendChild(a)}"
 "setTimeout(go,5000);return}"
 "act.innerHTML='';"
@@ -386,22 +417,62 @@ static esp_err_t status_get(httpd_req_t *req)
     return httpd_resp_sendstr(req, j);
 }
 
+/* Append into a budget, advancing only by what was WRITTEN. `off += snprintf(...)`
+ * is the trap this exists to close: snprintf returns the length it WANTED, so a
+ * single row over budget pushes off past cap, and the next call's `cap - off`
+ * underflows (size_t) to ~SIZE_MAX — an unbounded write at json + off, off the
+ * end of the block. Refusing to advance keeps a too-small budget a truncation
+ * instead of a heap overflow. */
+static bool json_append(char *buf, size_t cap, size_t *off, const char *fmt, ...)
+{
+    if (*off >= cap) return false;
+    va_list ap;
+    va_start(ap, fmt);
+    int w = vsnprintf(buf + *off, cap - *off, fmt, ap);
+    va_end(ap);
+    if (w < 0 || (size_t)w >= cap - *off) return false;   /* would truncate — don't advance */
+    *off += (size_t)w;
+    return true;
+}
+
 static esp_err_t scan_get(httpd_req_t *req)
 {
     board_ap_t *aps = malloc(SCAN_MAX * sizeof *aps);
     if (!aps) { httpd_resp_send_500(req); return ESP_FAIL; }
     int n = board_wifi_scan(aps, SCAN_MAX);
+    /* Busy radio (-1) is NOT an empty room (0) — see roles.h. 503 + Retry-After
+     * so the picker can quietly try again instead of publishing "No networks
+     * found." as if it had looked. */
+    if (n < 0) {
+        free(aps);
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_set_hdr(req, "Retry-After", "2");
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_sendstr(req, "{\"error\":\"radio busy\"}");
+    }
 
     /* Each row ~ {"ssid":"<=32","signal":100,"security":"WPA2"}, — budget
      * generously. The shape is the Pi hubd's /wifi/scan dialect (wifi.rs
      * scan/map_auth) — the shared dashboard reads `signal` (0-100) and gates
      * the password box on `security === "NO"`; the old {rssi, open} keys
-     * rendered as "undefined%" and asked open networks for a password. */
-    size_t cap = 32 + (size_t)n * 96;
+     * rendered as "undefined%" and asked open networks for a password.
+     *
+     * 112/row is MEASURED against the worst case, not eyeballed — the previous
+     * 96 was under it, which is how this became remotely exploitable. esc[]
+     * below emits up to 64 bytes (a 32-char SSID of all '"' escapes 1:2), so
+     * the longest row is
+     *   ,{"ssid":"<64>","signal":100,"security":"WPA2"}
+     *   1 + 9 + 64 + 11 + 3 + 13 + 4 + 2 = 107
+     * and the budget went negative at n >= 3 — three quote-filled SSIDs from
+     * any neighbouring radio, against a /wifi/scan that takes no auth (:1107).
+     * The 32 covers "[", "]", the NUL, and the slack that keeps json_append's
+     * refusal path unreachable rather than merely survivable. Recount both
+     * numbers if a key is renamed or a value's width changes. */
+    size_t cap = 32 + (size_t)n * 112;
     char *json = malloc(cap);
     if (!json) { free(aps); httpd_resp_send_500(req); return ESP_FAIL; }
     size_t off = 0;
-    off += snprintf(json + off, cap - off, "[");
+    json_append(json, cap, &off, "[");
     for (int i = 0; i < n; i++) {
         /* ssid is from a scan (device-supplied, attacker-controllable). Escape " and
          * \\ and DROP control bytes (<0x20): raw control chars are invalid JSON (would
@@ -420,10 +491,10 @@ static esp_err_t scan_get(httpd_req_t *req)
         int pct = 2 * (aps[i].rssi + 100);
         if (pct > 100) pct = 100;
         if (pct < 0) pct = 0;
-        off += snprintf(json + off, cap - off, "%s{\"ssid\":\"%s\",\"signal\":%d,\"security\":\"%s\"}",
-                        i ? "," : "", esc, pct, aps[i].open ? "NO" : "WPA2");
+        if (!json_append(json, cap, &off, "%s{\"ssid\":\"%s\",\"signal\":%d,\"security\":\"%s\"}",
+                         i ? "," : "", esc, pct, aps[i].open ? "NO" : "WPA2")) break;
     }
-    snprintf(json + off, cap - off, "]");
+    json_append(json, cap, &off, "]");
 
     httpd_resp_set_type(req, "application/json");
     esp_err_t r = httpd_resp_sendstr(req, json);
@@ -791,28 +862,53 @@ static esp_err_t captive_ack_post(httpd_req_t *req)
  * that doesn't, which breaks the phone's own cellular fallback (hardware-
  * verified 2026-07-14, this same file). Continue only ever helps the sheet
  * close cleanly; it was never the only way to the dashboard. */
-/* Split so welcome_get() can splice a runtime AP_BASE between them (the AP's
- * own IP, computed once at wifi_portal_start() — see s_ap_base below). WELCOME
- * used to just do `d0.href=j.dash||'/'`, which is a bare relative path in the
- * common case (board_net_state_set(..., "/") — hub_role.c). A target=_blank
- * tap on that relative href only ever escapes the captive sandbox to a real
- * browser tab reliably when it resolves to an address the OS is willing to
- * hand off — exactly the "never redirect a walled-garden client to a
- * hostname" problem s_welcome_url already solves for the initial redirect
- * (2026-07-15, live-reported: the link visibly did nothing on iOS's CNA). */
+/* Split so welcome_get() can splice a runtime AP_BASE between them (the AP's own
+ * IP, computed once at wifi_portal_start() — see s_ap_base below). AP_BASE is
+ * still needed for a different reason than the one it was added for: the picker
+ * href and the printed dashboard address must both be this board's literal IP,
+ * because dash is a bare "/" in the common case (board_net_state_set(..., "/")
+ * — hub_role.c) and a relative path is useless to a student retyping it into
+ * Safari, while a .local name is exactly what a phone on this AP may not
+ * resolve. Same "never hand a walled-garden client a hostname" rule
+ * s_welcome_url follows for the initial redirect.
+ *
+ * It was added on 2026-07-15 to rescue a target=_blank dashboard link that
+ * "visibly did nothing on iOS's CNA" — on the theory that the CNA declines to
+ * hand off a relative href. That theory was wrong: AP_BASE landed, the href
+ * became absolute, and the link still did nothing, because _blank in a sheet
+ * with no tab model does nothing regardless of what it points at. The links are
+ * gone now (WELCOME_BODY); the constant survives on its own merits. */
 static const char WELCOME_BODY[] =
 "<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
 "<main>"
 "<div class=card id=before><h2>Welcome</h2>"
 "<p class=s id=lede>Checking this board&rsquo;s internet&#8230;</p>"
-/* Two controls, not one multiplexed link: which of these two is the primary
- * tile is the whole point of this card, and a single button rewritten per
- * state can only ever offer one of them (2026-07-16 — an offline board sent
- * every student to the dashboard, with the Wi-Fi picker they actually needed
- * demoted to a clause in the lede). Tiers are set per state in refresh();
- * wifi-go sits first so the offline order reads primary-then-alternative. */
-"<a class=btn id=wifi-go target=_blank rel=noopener hidden>Set up this rover&rsquo;s Wi-Fi</a>"
-"<a class=\"btn btn-primary\" id=dashlink0 href=/ target=_blank rel=noopener>Open the dashboard</a>"
+/* NOTHING on this page opens a new tab. This page only ever renders inside the
+ * OS captive sheet (Apple's CNA), which has no tab model and no window.open — a
+ * target=_blank tap there does not fail, it does NOTHING: no navigation, no
+ * error, no request reaching this board. Reported live twice (2026-07-15, and
+ * again 2026-07-17 with a serial log showing zero requests after /welcome), and
+ * the 2026-07-15 fix aimed at the wrong half: it made the href absolute, on the
+ * theory that the CNA declines to hand off a relative path. AP_BASE was correct
+ * and the buttons stayed dead, because the href was never the problem — _blank
+ * was. Do not re-add it here; see § "known limitations, don't re-fix".
+ *
+ * So each control is now whichever of the two things it can actually be:
+ *   - Wi-Fi picker → an in-sheet navigation. /wifi needs no localStorage, and
+ *     a walled-garden client browsing the gate's own pages is the entire point
+ *     of a captive sheet. Same reasoning venue-go already had.
+ *   - Dashboard → NOT a control at all, an address to read. It genuinely needs
+ *     the real browser (the CNA sandboxes localStorage away from Safari, so a
+ *     sign-in made in here vanishes when the sheet closes), and on iOS there is
+ *     no way to reach the real browser from this sheet. A button that cannot
+ *     work is worse than a sentence that tells the truth: it reads as broken
+ *     hardware to a student, which is exactly what it cost us.
+ *
+ * Tiers are set per state in refresh(); wifi-go sits first so the offline order
+ * reads primary-then-alternative (2026-07-16 — an offline board sent every
+ * student to the dashboard, with the Wi-Fi picker they actually needed demoted
+ * to a clause in the lede). */
+"<a class=btn id=wifi-go hidden>Set up this rover&rsquo;s Wi-Fi</a>"
 /* Venue-gate path (uplink=='portal'): the network the BOARD joined has its
  * own captive sign-in; behind the NAT every client shares the board's
  * venue-side MAC, so one sign-in from this phone clears it for the board.
@@ -820,17 +916,19 @@ static const char WELCOME_BODY[] =
  * it has to happen from inside this specific captive session. */
 "<a class=\"btn btn-primary\" id=venue-go hidden>Sign in</a>"
 "<button class=\"btn btn-primary\" id=go hidden>Continue</button>"
+"<p class=s id=dashnote hidden>To drive it, open <b class=addr id=dashaddr></b> in your "
+"regular browser &#8212; this pop-up can&rsquo;t open one, and it forgets sign-ins when it closes.</p>"
 "</div>"
 "<div class=card id=after hidden><h2>You're set</h2>"
-"<p class=s>Now open the dashboard in your regular browser, not this pop-up &#8212; "
-"this pop-up forgets sign-ins when it closes.</p>"
-"<a class=\"btn btn-primary\" id=dashlink href=/ target=_blank rel=noopener>Open the dashboard</a></div>"
+"<p class=s>Now open <b class=addr id=dashaddr2></b> in your regular browser, not this "
+"pop-up &#8212; this pop-up forgets sign-ins when it closes.</p></div>"
 "</main>"
 "<script>";
 /* welcome_get() sends "const AP_BASE='http://a.b.c.d';" here, then this. */
 static const char WELCOME_POST[] =
 "let lede=document.getElementById('lede'),go=document.getElementById('go'),"
-"d0=document.getElementById('dashlink0'),w=document.getElementById('wifi-go');"
+"dn=document.getElementById('dashnote'),da=document.getElementById('dashaddr'),"
+"w=document.getElementById('wifi-go');"
 "let tries=0;"
 /* The base .btn IS the neutral tile, so a tier is one class — which is what
  * lets priority swap per state without touching labels or hrefs. */
@@ -849,37 +947,35 @@ static const char WELCOME_POST[] =
 "document.getElementById('before').hidden=true;"
 "document.getElementById('after').hidden=false;"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
-"document.getElementById('dashlink').href=abs(j.dash)}).catch(()=>{})"
+"document.getElementById('dashaddr2').textContent=abs(j.dash)}).catch(()=>{})"
 "}else{refresh()}"
 /* Poll, don't check once: right after a connect-reboot the phone rejoins and
  * this sheet reopens while the STA is still mid-join — a single check showed
  * stale status ("didn't I just do this?"). Whether Continue can do anything
  * stays decided server-side (captive_accepted() gates on board_has_uplink())
  * — promising it before a real uplink would promise an auto-dismiss that can
- * never happen. dashlink0 stays live the whole time regardless. */
+ * never happen. The dashboard address is printed the whole time regardless. */
 "function refresh(){"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
 /* dash is "" whenever this board hosts no dashboard (SEARCHING, and
  * ROVER-pinned with no hub in range — hub_role.c never self-brokers there),
  * and abs("") resolves to the board's own "/", which in that state is the
- * LANDING router, not a dashboard. So the dashboard tile only exists when
- * there is one to open; /wifi is always real (same picker as the dashboard's
- * panel since the 2026-07-16 consolidation), and always absolute so a
- * target=_blank tap escapes the CNA sandbox — see the AP_BASE comment above. */
-"d0.hidden=!j.dash;if(j.dash)d0.href=abs(j.dash);"
+ * LANDING router, not a dashboard. So the address is only NAMED when there is
+ * one to open. AP_BASE keeps it this board's literal IP, which is what a
+ * student has to be able to type into Safari — a .local name is exactly what a
+ * phone still on this AP may not resolve. */
+"dn.hidden=!j.dash;if(j.dash)da.textContent=abs(j.dash);"
 "w.href=AP_BASE+'/wifi';"
-/* Default: the picker stays out of the way while the board is online or still
- * settling, unless there's no dashboard to offer instead. The offline branch
- * below un-hides it; tiers are decided after the chain, from the state it
- * lands in. */
+/* The picker is an in-sheet navigation, never a new tab (see WELCOME_BODY). It
+ * stays out of the way while the board is online or still settling; the offline
+ * branch below un-hides it. */
 "w.hidden=!!j.dash;"
 "let v=document.getElementById('venue-go');v.hidden=true;"
 "if(j.uplink=='full'){tries=0;"
 "go.hidden=false;"
-/* Only name the dashboard when there is one — d0 is hidden otherwise, and the
- * sentence would be pointing at a button that isn't on the page. */
-"lede.textContent='This board is online'+(j.ssid?' via '+j.ssid:'')+'. Tap Continue to finish'"
-"+(j.dash?', or open the dashboard now.':'.')"
+/* Only mention the dashboard when there is one — dashnote is hidden otherwise,
+ * and the sentence would point at an address that isn't on the page. */
+"lede.textContent='This board is online'+(j.ssid?' via '+j.ssid:'')+'. Tap Continue to finish.'"
 "}else if(j.uplink=='portal'){"
 /* The venue's own captive gate answers for the internet until THIS board's
  * MAC signs in — and one sign-in from here covers it (NAT: every client
@@ -898,23 +994,22 @@ static const char WELCOME_POST[] =
 "go.hidden=true;"
 "lede.textContent='Reconnecting to '+j.ssid+'\\u2026'"
 "}else{"
-/* Not online and not trying: picking a network is the whole job of this
- * state, so it is the primary tile here and the dashboard is the alternative
- * (driving offline is a real answer, just not the one they came for). */
+/* Not online and not trying: picking a network is the whole job of this state,
+ * so it is the one control here. Driving offline stays a real answer — it is
+ * the address below, not a tile, because this sheet cannot open one. */
 "go.hidden=true;w.hidden=false;"
 "lede.textContent='This board isn\\u2019t online yet \\u2014 set up its Wi-Fi below'"
-"+(j.dash?', or open the dashboard to drive it offline.':'.')"
+"+(j.dash?', or drive it offline at the address underneath.':'.')"
 "}"
-/* ONE primary per state: whichever tile is the answer right now. Continue
- * owns it once the board is really online, the venue gate owns it behind a
- * sign-in, and the picker owns it whenever it's showing and neither of those
- * can fire; the dashboard is the primary only when it's the sole thing left to
- * do (settling, reconnecting). Both Continue and the dashboard used to render
- * primary-blue side by side in the online state — two blue tiles is no
- * hierarchy at all, which is only visible when you enumerate the states. */
+/* ONE primary per state: whichever tile is the answer right now. Continue owns
+ * it once the board is really online, the venue gate owns it behind a sign-in,
+ * and the picker owns it whenever it's showing and neither of those can fire.
+ * Still needed even though the dashboard is no longer a tile: a ROVER-pinned
+ * board with a full uplink has dash=="" (it never self-brokers), so the picker
+ * and Continue can both be on the page at once, and two blue tiles is no
+ * hierarchy at all. */
 "let owned=j.uplink=='full'||j.uplink=='portal';"
 "tier(w,!w.hidden&&!owned);"
-"tier(d0,w.hidden&&!owned);"
 "setTimeout(refresh,3000)"
 "}).catch(()=>{"
 "lede.textContent='Checking this board\\u2019s status\\u2026';setTimeout(refresh,3000)});}"
