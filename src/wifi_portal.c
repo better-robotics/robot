@@ -205,6 +205,12 @@ static const char PAGE_BODY[] =
 "<div id=msg class=s></div>"
 "<p class=foot><button id=rescan class=link-btn>Rescan</button></p>"
 "</div>"
+/* The default-password warning lives ABOVE the fold, not inside it: the field
+ * it points to is collapsed under Advanced, but this alert has to stay visible
+ * on any board still on the built-in password — that credential gates OTA on
+ * EVERY board, so a silent default is a whole-fleet reflash risk. setprofwarn
+ * clears it once a real one is stored. */
+"<p class=\"s warn\" id=profwarn hidden>&#9888; Still the built-in instructor password &#8212; anyone on this Wi-Fi can stop the whole class or reflash this board. Set one under Advanced below.</p>"
 "<details class=card id=adv>"
 "<summary>Advanced</summary>"
 "<h2>Board role</h2>"
@@ -226,10 +232,6 @@ static const char PAGE_BODY[] =
  * compile-time default. */
 "<div id=profwrap hidden>"
 "<h2>Instructor password</h2>"
-/* Shown only while NVS is unset. Without it the placeholder is silent: the one
- * gated action in the whole classroom sits behind a string anyone can read out
- * of a published .bin, and nothing anywhere says so. */
-"<p class=\"s warn\" id=profwarn hidden>&#9888; Still the built-in password &#8212; it ships in every firmware download, so anyone on this Wi-Fi can stop the whole class or replace this board&#8217;s firmware. Set a real one below.</p>"
 "<p class=s id=profnote>Gates the fleet-wide emergency stop and firmware updates over Wi-Fi. Leave blank to keep the current one; &quot;-&quot; resets it to the built-in default.</p>"
 "<input id=profpass type=password placeholder=\"new instructor password\" autocapitalize=off autocorrect=off>"
 "<button onclick=setprof() class=btn>Save password</button>"
