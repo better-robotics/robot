@@ -1,22 +1,39 @@
 ## Managed dependencies for the HUB ROLE of the unified image.
 ## espressif/mosquitto = the on-chip MQTT broker (mosq_broker.h); espressif/mdns
 ## advertises hub.local. The rover role uses neither — they cost flash only in
-## the one image that also carries the hub role (feasibility: ~1.49 MB total,
-## ~48% of the 3 MB factory partition). The component manager auto-adds these to
-## the src component's REQUIRES.
+## the one image that also carries the hub role. The component manager auto-adds
+## these to the src component's REQUIRES.
+##
+## EVERY version here is pinned, and this manifest is the ONLY place that can do
+## it. dependencies.lock would be the natural pin and cannot be: PlatformIO
+## rewrites it per build env, and the camera below is target-gated — so the lock
+## gains esp32-camera + esp_jpeg after an esp32dev build and loses them after an
+## esp32c3 build (measured 2026-07-17, both directions). Committing it would
+## thrash on every build and hand CI's three matrix jobs three different locks.
+## It is gitignored deliberately, not by neglect.
+##
+## So a "*" here floats with nothing behind it, and it has now bitten twice.
+## The second, caught 2026-07-17 with two boot logs side by side: a CI-built
+## image announced `mosquitto v2.0.20~8` while a local build of a neighbouring
+## commit announced `v2.0.20~7`. Which broker ran a classroom was decided by
+## WHEN a build happened, not by what was committed -- precisely the property
+## firmware.yml's provenance argument claims the image already has.
+## Bump these deliberately, in their own commit, never incidentally.
 dependencies:
-  espressif/mosquitto: "*"
-  espressif/mdns: "*"
+  ## The on-chip MQTT broker (mosq_broker.h) — the hub role's reason to exist.
+  espressif/mosquitto: "==2.0.20~8"
+  ## Advertises hub.local / rover-<id>.local.
+  espressif/mdns: "==1.11.3"
   ## Camera (esp32cam board only). TARGET-GATED: esp32-camera compiles only on
   ## chips with the I2S/LCD_CAM peripheral — pulling it on the C3 (no camera HW)
   ## breaks the build. The rule keeps it out of esp32c3; the other ESP32 boards
   ## pull it but never reference it (HAS_CAMERA is esp32cam-only), so --gc-sections
   ## drops it from their binaries. Actual init/stream lives in camera.c (#ifdef).
   ## PINNED ==2.1.6 for reproducibility: "*" let a routine rebuild silently swap
-  ## 2.1.6→2.1.7 inside an unrelated UI commit (dependencies.lock is gitignored,
-  ## so the manifest is the only durable pin — same reason platformio.ini pins
-  ## espressif32). Tested 2026-07-10: 2.1.6 and 2.1.7 behave identically on the
-  ## AI-Thinker board; bump deliberately, not incidentally.
+  ## 2.1.6→2.1.7 inside an unrelated UI commit — the first of the two bites in
+  ## the header above, and the reason the other two are now pinned as well.
+  ## Tested 2026-07-10: 2.1.6 and 2.1.7 behave identically on the AI-Thinker
+  ## board; bump deliberately, not incidentally.
   espressif/esp32-camera:
     version: "==2.1.6"
     rules:
