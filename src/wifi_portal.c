@@ -332,12 +332,12 @@ static const char PAGE_BODY[] =
 "document.getElementById('bst').textContent=t;"
 "let g=document.getElementById('bgo');g.textContent='';"
 "if(j.dash&&document.documentElement.className!='embed'){"
-/* target=_blank opens the phone's real browser (where an instructor sign-in
- * sticks), but the captive sheet only completes that hand-off with a live
- * uplink — offline it's inert, so fall back to same-tab, which loads the
- * dashboard in-sheet and drives with no internet. Suppressed in embed mode by
- * the guard above (it would navigate the modal iframe into a nested dashboard). */
-"let a=document.createElement('a');a.className='btn';a.href=j.dash;a.target=j.uplink=='full'?'_blank':'';a.rel='noopener';"
+/* Same-tab, no _blank: this page is reachable INSIDE the captive sheet (the
+ * /welcome picker links here), where an unreleased device can't complete a
+ * _blank hand-off — and the page can't tell in-sheet from a real browser. A
+ * same-tab nav to the dashboard works in both; in a real browser it just
+ * replaces the settings page, which is fine. Suppressed in embed mode above. */
+"let a=document.createElement('a');a.className='btn';a.href=j.dash;a.rel='noopener';"
 "a.textContent=j.dash=='/'?'Open the dashboard':'Open the class dashboard';g.appendChild(a)}"
 "}catch(e){}setTimeout(stat,5000)}"
 "stat();"
@@ -398,9 +398,10 @@ static const char LANDING_BODY[] =
 "if(j.dash){"
 "st.textContent='Part of the classroom network'+(j.ssid?' '+j.ssid:'')+' \\u2014 drive it from the class dashboard.';"
 /* DOM, not innerHTML: dash derives from a stored locator (user-supplied NVS).
- * target=_blank opens the real browser when online; same-tab offline, since the
- * captive sheet can't hand off a _blank with no uplink (it drives in-sheet). */
-"if(!act.firstChild){let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target=j.uplink=='full'?'_blank':'';a.rel='noopener';"
+ * Same-tab, no _blank — this landing is reachable inside the captive sheet too,
+ * where an unreleased device can't complete a _blank hand-off; a same-tab nav
+ * works whether we're in the sheet or a real browser. */
+"if(!act.firstChild){let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.rel='noopener';"
 "a.textContent='Open the class dashboard';act.appendChild(a)}"
 "setTimeout(go,5000);return}"
 "act.innerHTML='';"
@@ -785,18 +786,18 @@ static esp_err_t instructor_post(httpd_req_t *req)
  * AP_MAX_CONN (hub_role.c) — never more concurrent clients than the AP
  * itself allows; a full table evicts the oldest accept.
  *
- * Gated on board_has_uplink() (live-tested 2026-07-14): flipping
- * unconditionally worked exactly as designed on a pure-island board with no
- * uplink of its own — and broke the joining phone's real internet, because
- * "genuine success" IS iOS's signal to trust this Wi-Fi for real routing.
- * That's true and harmless when this board actually has a working uplink
- * (a classroom hub's venue Wi-Fi, or a rover joined to real home Wi-Fi with
- * NAT); it's a lie when there's no uplink at all, and iOS believed the lie.
- * So the flip only ever fires when board_has_uplink() is true right now —
- * checked live, not cached, since a board's uplink can come and go after
- * Continue was tapped. No uplink → captive_accepted() stays false forever,
- * the sheet never auto-dismisses, and /welcome's copy (below) says so
- * plainly instead of promising a Continue that can't deliver. */
+ * NOT gated on board_has_uplink() (reversed 2026-07-17 to match the Pi, which
+ * releases on Accept regardless of uplink). An Accept returns "genuine success"
+ * even on a pure-island board with no uplink — which IS iOS's signal to trust
+ * this Wi-Fi and dismiss the sheet, and dismissing is exactly what lets the
+ * dashboard then open in the phone's REAL browser offline (target=_blank only
+ * hands off once the OS trusts the network). The known cost, taken on purpose:
+ * the phone believes this dead network has internet and won't fall back to
+ * cellular until it leaves — "connected, but only the dashboard loads".
+ * Acceptable for a join-to-drive board, and self-healing: the presence reaper
+ * forgets a departed device after 90 s, so its next join is greeted fresh. The
+ * 2026-07-14 gate that refused this lie (to keep a phone's cellular fallback
+ * honest) is the behaviour we deliberately traded away for the Pi's. */
 #define ACKED_IDLE_US (15LL * 60 * 1000 * 1000)
 #define ACCEPTED_MAX 8   /* == AP_MAX_CONN, hub_role.c */
 static struct { uint32_t ip; int64_t accepted_us; int64_t last_seen_us; } s_accepted[ACCEPTED_MAX];
@@ -826,7 +827,7 @@ static bool captive_accepted(uint32_t ip)
             s_accepted[i].ip = 0;
             return false;
         }
-        return board_has_uplink();
+        return true;   /* released regardless of uplink — the Pi-matching flip, see header */
     }
     return false;
 }
@@ -978,12 +979,13 @@ static const char WELCOME_POST[] =
  * this page as. A dash already starting with 'http' (the remote/hub-joined
  * case, hub_role.c's board_run) is already absolute and passes through. */
 "function abs(u){return u&&u.indexOf('http')==0?u:AP_BASE+(u||'/')}"
-/* target=_blank hands the tab to the phone's real browser, but the OS captive
- * sheet only completes that hand-off when the phone actually has internet
- * through this AP — i.e. the board's uplink is "full". Offline, _blank is inert
- * (no browser to hand to), so the link falls back to same-tab: it loads the
- * board's own dashboard right here in the sheet, which drives fine with no
- * uplink. Browser tab when online, in-sheet when not — and the note says which. */
+/* target=_blank hands the tab to the phone's real browser, but only once the OS
+ * TRUSTS the network — which it does after the board answers a probe with
+ * success, i.e. after Accept (captive_accepted, now uplink-independent). So the
+ * AFTER card (post-Accept, released) uses _blank and really opens the browser,
+ * even with no uplink; the BEFORE card (pre-Accept, sheet still captive) uses
+ * same-tab, loading the dashboard in-sheet to drive right here without asking
+ * the OS to trust anything. `on` = "is this the released view", NOT "is online". */
 "function dashlink(g,ael,sel,url,on){g.href=url;g.target=on?'_blank':'';ael.textContent=url;sel.textContent=on?' in your browser.':' here to drive.'}"
 /* ?done=1 is the post-Continue view. Continue REACHES it by a real navigation
  * (location.href), never a DOM swap: the captive sheet re-runs its probe only
@@ -996,14 +998,13 @@ static const char WELCOME_POST[] =
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
 "let h=!j.dash,g=document.getElementById('dashgo2');g.hidden=h;"
 "document.getElementById('dashnote2').hidden=h;"
-"if(j.dash)dashlink(g,document.getElementById('dashaddr2'),document.getElementById('dashsuf2'),abs(j.dash),j.uplink=='full')}).catch(()=>{})"
+"if(j.dash)dashlink(g,document.getElementById('dashaddr2'),document.getElementById('dashsuf2'),abs(j.dash),true)}).catch(()=>{})"
 "}else{refresh()}"
 /* Poll, don't check once: right after a connect-reboot the phone rejoins and
  * this sheet reopens while the STA is still mid-join — a single check showed
- * stale status ("didn't I just do this?"). Whether Continue can do anything
- * stays decided server-side (captive_accepted() gates on board_has_uplink())
- * — promising it before a real uplink would promise an auto-dismiss that can
- * never happen. The dashboard address is printed the whole time regardless. */
+ * stale status ("didn't I just do this?"). Continue now releases the device
+ * regardless of uplink (captive_accepted), so it's offered whenever there's a
+ * dashboard to open; the address is printed the whole time regardless. */
 "function refresh(){"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
 /* dash is "" whenever this board hosts no dashboard (SEARCHING, and
@@ -1013,7 +1014,7 @@ static const char WELCOME_POST[] =
  * one to open. AP_BASE keeps it this board's literal IP, which is what a
  * student has to be able to type into Safari — a .local name is exactly what a
  * phone still on this AP may not resolve. */
-"dn.hidden=!j.dash;dg.hidden=!j.dash;if(j.dash)dashlink(dg,da,document.getElementById('dashsuf'),abs(j.dash),j.uplink=='full');"
+"dn.hidden=!j.dash;dg.hidden=!j.dash;if(j.dash)dashlink(dg,da,document.getElementById('dashsuf'),abs(j.dash),false);"
 "w.href=AP_BASE+'/wifi';"
 /* The picker is an in-sheet navigation, never a new tab (see WELCOME_BODY). It
  * stays out of the way while the board is online or still settling; the offline
@@ -1043,13 +1044,15 @@ static const char WELCOME_POST[] =
 "go.hidden=true;"
 "lede.textContent='Reconnecting to '+j.ssid+'\\u2026'"
 "}else{"
-/* Not online and not trying: picking a network is the primary job here, but
- * driving offline is a real answer too — the dashboard button below loads the
- * board's own dashboard in-sheet (same-tab, since _blank can't hand off with no
- * uplink) and drives with no internet at all. */
-"go.hidden=true;w.hidden=false;"
-"lede.textContent='This board isn\\u2019t online yet \\u2014 set up its Wi-Fi below'"
-"+(j.dash?', or drive it offline with the button underneath.':'.')"
+/* Offline, but a self-hosting board still has a dashboard — and Continue does
+ * something here now too: it releases this device (captive_accepted no longer
+ * waits on a real uplink), which is what lets the dashboard open in the phone's
+ * real browser, the Pi's behaviour. Wi-Fi setup stays the primary tile (an
+ * offline board's real need, 2026-07-16); Continue rides below it (neutral, via
+ * the tier() call after the branch), and the in-sheet dashboard button under
+ * that drives here without releasing at all. */
+"go.hidden=!j.dash;w.hidden=false;"
+"lede.textContent=j.dash?'This board isn\\u2019t online yet. Tap Continue to open its dashboard in your browser, or set up its Wi-Fi below.':'This board isn\\u2019t online yet \\u2014 set up its Wi-Fi below.'"
 "}"
 /* ONE primary per state: whichever tile is the answer right now. Continue owns
  * it once the board is really online, the venue gate owns it behind a sign-in,
@@ -1060,6 +1063,10 @@ static const char WELCOME_POST[] =
  * hierarchy at all. */
 "let owned=j.uplink=='full'||j.uplink=='portal';"
 "tier(w,!w.hidden&&!owned);"
+/* Continue is primary only when it's the whole answer (online, "tap to finish");
+ * offline it's the secondary path to the browser dashboard, so it drops to a
+ * neutral tile and leaves the Wi-Fi picker the one blue button. */
+"tier(go,j.uplink=='full');"
 "setTimeout(refresh,3000)"
 "}).catch(()=>{"
 "lede.textContent='Checking this board\\u2019s status\\u2026';setTimeout(refresh,3000)});}"
