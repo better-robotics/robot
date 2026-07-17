@@ -24,6 +24,34 @@ jobs:
       - name: Unit tests (native env, system gcc)
         run: pio test -e native
 
+  # The vendored dashboard's freshness gate, finally wired to something.
+  # hub/dashboard.html is canonical; this repo embeds a byte-identical copy so
+  # the hub role can serve the UI offline (src/CMakeLists.txt), and byte-identical
+  # is what makes drift a plain `cmp` instead of a semantic diff.
+  #
+  # sync-dashboard.sh has called itself the "CI / pre-flash freshness gate" since
+  # the day it was written and had never once run in CI — it resolves ../../hub,
+  # a sibling checkout on a maintainer's laptop, which does not exist in a clone,
+  # so it could only ever have exited 2. The actual gate was a human remembering:
+  # four "Resync the vendored dashboard" commits in the last fifteen is what that
+  # looks like from the outside. It works until it doesn't, and the failure is an
+  # ESP hub serving a months-old dashboard against a current contract, green.
+  #
+  # hub is public, so this needs no token. It checks hub@main on purpose: a
+  # dashboard change landed there SHOULD red this repo until someone resyncs —
+  # that is the tradeoff the vendoring seam accepts, made visible instead of
+  # remembered.
+  dashboard-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: better-robotics/hub
+          path: .hub
+      - name: The vendored dashboard is byte-identical to hub's canonical copy
+        run: HUB_REPO="$PWD/.hub" tools/sync-dashboard.sh --check
+
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -82,11 +110,22 @@ jobs:
   # that deploys the site — the same channel the Pi image ships on (hub's
   # build-image.yml).
   publish:
-    needs: [build, native-tests]
+    needs: [build, native-tests, dashboard-drift]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    # Never two publishes at once. This job DELETES firmware-latest and recreates
+    # it, so two pushes landing together interleave: both delete (the `|| true`
+    # below swallows the second miss), then whichever creates LAST wins — which
+    # may be the OLDER commit, leaving the rolling tag permanently behind main
+    # with both runs green. cancel-in-progress is false deliberately: a publish
+    # interrupted between the delete and the create leaves no release at all.
+    # (deploy.yml has guarded its Pages deploys this way since it was written;
+    # the publisher that feeds it had no equivalent.)
+    concurrency:
+      group: firmware-release
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -163,14 +202,27 @@ jobs:
             --title "Firmware from main" \
             --notes "Images built from ${GITHUB_SHA} by run ${GITHUB_RUN_ID}. The flasher at better-robotics.github.io deploys from this release."
 
-      # Without the token this is a no-op rather than a red build: the release is
-      # published either way and the site can redeploy on demand.
-      - name: Ask the flasher site to redeploy
+      # An ACCELERATOR, not the mechanism — and it must stay that way. This step
+      # exited 0 on a missing token, reasoning that "the release is published
+      # either way and the site can redeploy on demand". True, and irrelevant:
+      # nobody redeploys on demand, because nothing tells them to. The secret was
+      # never set, so this dispatch had NEVER fired, and the flasher only ever
+      # updated when someone happened to push to the website repo. On 2026-07-17
+      # it was serving 15-commit-old firmware to students while every run here
+      # was green.
+      #
+      # Fixed at the other end: deploy.yml now polls firmware-latest on a
+      # schedule, so the site converges with no secret at all and a missing or
+      # expired token costs LATENCY, not correctness. That makes exit-0 the right
+      # behaviour here for the first time — but it warns now, because a silent
+      # skip is what let this run for a day. A fine-grained PAT expires; the day
+      # it does, this must say so.
+      - name: Ask the flasher site to redeploy (accelerator — cron backstops it)
         env:
           SITE_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
         run: |
           if [ -z "${SITE_TOKEN:-}" ]; then
-            echo "SITE_DEPLOY_TOKEN not set — skipping site trigger"
+            echo "::warning title=Site redeploy not triggered::SITE_DEPLOY_TOKEN is unset, so the flasher will not pick this build up until deploy.yml's next scheduled poll. Set the secret to make it immediate."
             exit 0
           fi
           curl -fsS -X POST \
