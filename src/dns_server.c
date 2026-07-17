@@ -12,17 +12,19 @@
  * FreeRTOS task, matching wifi_portal.c's reboot_task idiom (fire-and-forget
  * via xTaskCreate, no handle kept).
  *
- * Uplink-aware since 2026-07-14: hijacking is only ever the truth while the
- * board has no working internet. With a FULL (probe-verified) uplink this
- * server is a plain forwarder — relay the query to the uplink's real DNS,
- * relay the answer back — because wildcard-answering a client with real
- * internet behind the NAT would leave it with "trusted network, but every
- * website is the robot". With a PORTAL uplink (venue's own captive gate —
- * see roles.h board_uplink_t) it forwards everything EXCEPT the OS probe
- * hostnames, so the phone's captive sheet stays ours while the venue's
- * sign-in page stays reachable through it. AP clients are always handed
- * THIS board as their only resolver (the dhcps default); the verdict is
- * read per query, so state changes apply instantly — no DHCP lease races.
+ * Uplink-aware since 2026-07-14, revised 2026-07-17: the OS captive-probe
+ * hostnames (probe_hostname) are ALWAYS hijacked to this board, in every state
+ * with an AP up — so the captive sheet, and the dashboard link on it, greets a
+ * phone even when the board has full internet (matching the Pi, whose dnsmasq
+ * pins captive.apple.com to itself unconditionally). Every OTHER name is
+ * forwarded to the uplink's real DNS once the uplink is up (FULL or PORTAL) —
+ * wildcard-answering a real-internet client for everything would leave it
+ * "trusted network, but every website is the robot", and it lets the venue's
+ * own sign-in page stay reachable in PORTAL mode. With NO uplink there is
+ * nowhere to forward, so everything is hijacked. A device that taps Accept has
+ * its probe answered 204 by wifi_portal.c and is released to the internet. AP
+ * clients are always handed THIS board as their only resolver (the dhcps
+ * default); the verdict is read per query, so state changes apply instantly.
  */
 #include <string.h>
 #include <errno.h>
@@ -185,7 +187,7 @@ static void dns_server_task(void *arg)
     int up = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     static struct { uint16_t txid; struct sockaddr_in client; } pend[8];
 
-    ESP_LOGI(TAG, "DNS on :53 — hijack to " IPSTR " while offline, forward once the uplink is up",
+    ESP_LOGI(TAG, "DNS on :53 — OS probe hostnames always hijacked to " IPSTR ", everything else forwarded once the uplink is up",
              IP2STR(&ip_info.ip));
 
     static uint8_t rx[DNS_MAX_LEN], tx[DNS_MAX_LEN];   /* static: 3 KB doesn't fit the task stack */
@@ -217,20 +219,26 @@ static void dns_server_task(void *arg)
         char qname[80];
         question_name(rx, n, qname, sizeof qname);
 
-        /* Three-way policy, keyed on the probed uplink verdict (roles.h):
-         *   FULL   → forward everything (real internet behind the NAT).
-         *   PORTAL → forward everything EXCEPT the OS probe hostnames. The
-         *            venue's own captive gate answers HTTP in our stead, so
-         *            forwarded probes would render the VENUE's sign-in sheet
-         *            (observed live: a university SSO page where /welcome
-         *            should be). Hijacking just the probe names keeps the
-         *            sheet OURS — which then links the venue gate through
-         *            the NAT — while every other name still resolves so that
-         *            link actually works.
+        /* Policy, keyed on the probed uplink verdict (roles.h). The OS probe
+         * hostnames are hijacked in EVERY state with an AP to answer for them,
+         * so the captive sheet — and the dashboard link on it — greets a phone
+         * even when the board has full internet, matching the Pi (whose dnsmasq
+         * pins captive.apple.com to itself unconditionally). Everything else
+         * forwards once there's an uplink to forward to:
+         *   FULL   → forward everything EXCEPT the probe hostnames. Those stay
+         *            ours so the sheet always greets; once a device taps Accept
+         *            its probe is answered 204 (wifi_portal.c) and the OS
+         *            releases it to the real internet behind the NAT.
+         *   PORTAL → same rule, and load-bearing: the venue's own gate answers
+         *            HTTP in our stead, so a forwarded probe would render the
+         *            VENUE's sign-in sheet where /welcome should be (observed
+         *            live: a university SSO page). Hijacking the probe names
+         *            keeps the sheet OURS, which then links the venue gate
+         *            through the NAT.
          *   NONE   → hijack everything (nowhere to forward to anyway). */
         board_uplink_t up_state = board_uplink();
-        bool fwd = up_state == BOARD_UPLINK_FULL ||
-                   (up_state == BOARD_UPLINK_PORTAL && !probe_hostname(qname));
+        bool fwd = (up_state == BOARD_UPLINK_FULL || up_state == BOARD_UPLINK_PORTAL)
+                   && !probe_hostname(qname);
         if (n >= 12 && fwd && up >= 0) {
             esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
             esp_netif_dns_info_t di;
