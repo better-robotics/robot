@@ -172,9 +172,7 @@ static const char PAGE_CSS[] =
 /* Advanced disclosure: role + instructor password fold away so the Wi-Fi task
  * is the whole page for a student. A <details class=card> — the summary is the
  * card heading, the two controls inside get smaller sub-headings so the
- * hierarchy reads section > item. Auto-opened by JS when the instructor
- * password is still the built-in default, so that security nudge is never
- * hidden behind a closed fold. */
+ * hierarchy reads section > item. Collapsed by default. */
 "summary{cursor:pointer;font-size:20px;font-weight:700;letter-spacing:-.015em;"
 "list-style:none;display:flex;justify-content:space-between;align-items:center}"
 "summary::-webkit-details-marker{display:none}"
@@ -313,7 +311,7 @@ static const char PAGE_BODY[] =
 "document.getElementById('profwrap').hidden=false;"
 "fetch('/wifi/role').then(r=>r.json()).then(j=>{"
 "document.getElementById('role').value=j.role;"
-"setprofwarn(j.prof_default);if(j.prof_default)document.getElementById('adv').open=true}).catch(()=>{});"
+"setprofwarn(j.prof_default)}).catch(()=>{});"
 /* Status card: poll /wifi/status. In embed mode the panel already sits inside the
  * dashboard, so the "open the dashboard" button is suppressed (it would navigate
  * the modal iframe into a nested dashboard). */
@@ -335,7 +333,7 @@ static const char PAGE_BODY[] =
  * uplink — offline it's inert, so fall back to same-tab, which loads the
  * dashboard in-sheet and drives with no internet. Suppressed in embed mode by
  * the guard above (it would navigate the modal iframe into a nested dashboard). */
-"let a=document.createElement('a');a.className='link-btn';a.style.marginTop='.6rem';a.href=j.dash;a.target=j.uplink=='full'?'_blank':'';a.rel='noopener';"
+"let a=document.createElement('a');a.className='btn';a.href=j.dash;a.target=j.uplink=='full'?'_blank':'';a.rel='noopener';"
 "a.textContent=j.dash=='/'?'Open the dashboard':'Open the class dashboard';g.appendChild(a)}"
 "}catch(e){}setTimeout(stat,5000)}"
 "stat();"
