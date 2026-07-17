@@ -89,8 +89,12 @@ bool board_has_uplink(void);   /* verdict == FULL — the signal /wifi/status's
  * config panel (wifi_portal.c) can list networks without pulling in esp_wifi.h.
  * board_wifi_scan is implemented in hub_role.c because it owns the radio + the
  * s_want_connect reconnect gate — it saves/restores that gate around the scan so a
- * panel scan can't silently kill the STA auto-reconnect (robot#1). Returns the
- * count written (≤ max), 0 on failure (e.g. a scan already in flight). */
+ * panel scan can't silently kill the STA auto-reconnect (robot#1).
+ * Returns the count written (≤ max); 0 = scanned and saw nothing; **-1 = the
+ * radio was busy** (a hub-watch scan in flight; already retried 3× internally).
+ * Callers MUST keep those apart. They were ONE value (0) until 2026-07-17, which
+ * is how the picker came to tell a student in a full apartment block "No networks
+ * found." — a collision reported as a fact about the room. */
 typedef struct { char ssid[33]; signed char rssi; bool open; } board_ap_t;
 int board_wifi_scan(board_ap_t *out, int max);
 

@@ -227,8 +227,19 @@ static const char PAGE_BODY[] =
 "p.textContent=t;nets.appendChild(p)};"
 /* join is MOVED into the list; park it before any rebuild or it's deleted. */
 "function park(){join.hidden=true;document.getElementById('msg').before(join)}"
+/* 503 = the radio was busy, not an empty room (roles.h board_wifi_scan). Retry
+ * here rather than surface it: hub_watch scans every 20 s and the firmware
+ * already waited one out, so the honest move is to keep saying "Scanning…"
+ * until we actually looked. This existed as `first tap [], second tap the real
+ * list` — the student was the retry loop. */
 "async function scan(){if(scanning)return;scanning=true;park();note('Scanning\\u2026');"
-"let a;try{a=await(await fetch('/wifi/scan')).json()}"
+"let a;"
+"try{"
+"for(let i=0;;i++){let r=await fetch('/wifi/scan');"
+"if(r.status==503&&i<3){await new Promise(z=>setTimeout(z,2000));continue}"
+"if(!r.ok)throw new Error(r.status);"
+"a=await r.json();break}"
+"}"
 "catch(e){note('Scan failed \\u2014 tap Rescan to try again.');scanning=false;return}"
 "finally{scanning=false}"
 "if(!a.length){note('No networks found.');return}"
@@ -410,6 +421,16 @@ static esp_err_t scan_get(httpd_req_t *req)
     board_ap_t *aps = malloc(SCAN_MAX * sizeof *aps);
     if (!aps) { httpd_resp_send_500(req); return ESP_FAIL; }
     int n = board_wifi_scan(aps, SCAN_MAX);
+    /* Busy radio (-1) is NOT an empty room (0) — see roles.h. 503 + Retry-After
+     * so the picker can quietly try again instead of publishing "No networks
+     * found." as if it had looked. */
+    if (n < 0) {
+        free(aps);
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_set_hdr(req, "Retry-After", "2");
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_sendstr(req, "{\"error\":\"radio busy\"}");
+    }
 
     /* Each row ~ {"ssid":"<=32","signal":100,"security":"WPA2"}, — budget
      * generously. The shape is the Pi hubd's /wifi/scan dialect (wifi.rs
