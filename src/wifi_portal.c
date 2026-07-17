@@ -168,7 +168,19 @@ static const char PAGE_CSS[] =
 /* Re-inks .s, never a second note style: the ONE warn hue = "act here", and it
  * recedes to plain ink once a password is set (same rule the dashboard's
  * identity chip follows). Carried with a glyph + words, never hue alone. */
-".warn{color:var(--warn-ink);font-weight:600}";
+".warn{color:var(--warn-ink);font-weight:600}"
+/* Advanced disclosure: role + instructor password fold away so the Wi-Fi task
+ * is the whole page for a student. A <details class=card> — the summary is the
+ * card heading, the two controls inside get smaller sub-headings so the
+ * hierarchy reads section > item. Auto-opened by JS when the instructor
+ * password is still the built-in default, so that security nudge is never
+ * hidden behind a closed fold. */
+"summary{cursor:pointer;font-size:20px;font-weight:700;letter-spacing:-.015em;"
+"list-style:none;display:flex;justify-content:space-between;align-items:center}"
+"summary::-webkit-details-marker{display:none}"
+"summary::after{content:'\\203a';color:var(--ink-muted);font-weight:400;transition:transform .2s}"
+"details[open] summary::after{transform:rotate(90deg)}"
+"details.card h2{font-size:15px;font-weight:600;margin:14px 0 4px}";
 
 static const char PAGE_BODY[] =
 /* Set the embed class synchronously before first paint (no topbar flash) when
@@ -195,7 +207,8 @@ static const char PAGE_BODY[] =
 "<div id=msg class=s></div>"
 "<p class=foot><button id=rescan class=link-btn>Rescan</button></p>"
 "</div>"
-"<div class=card>"
+"<details class=card id=adv>"
+"<summary>Advanced</summary>"
 "<h2>Board role</h2>"
 "<p class=s>What this board is. Changing it restarts the board.</p>"
 "<select id=role>"
@@ -214,7 +227,7 @@ static const char PAGE_BODY[] =
  * stored (so the field can render without leaking it); "-" clears back to the
  * compile-time default. */
 "<div id=profwrap hidden>"
-"<h2 style=\"margin-top:20px\">Instructor password</h2>"
+"<h2>Instructor password</h2>"
 /* Shown only while NVS is unset. Without it the placeholder is silent: the one
  * gated action in the whole classroom sits behind a string anyone can read out
  * of a published .bin, and nothing anywhere says so. */
@@ -224,7 +237,7 @@ static const char PAGE_BODY[] =
 "<button onclick=setprof() class=btn>Save password</button>"
 "<div id=pmsg class=s></div>"
 "</div>"
-"</div>"
+"</details>"
 "</main>"
 "<script>"
 "let chosen=null,scanning=false;"
@@ -300,7 +313,7 @@ static const char PAGE_BODY[] =
 "document.getElementById('profwrap').hidden=false;"
 "fetch('/wifi/role').then(r=>r.json()).then(j=>{"
 "document.getElementById('role').value=j.role;"
-"setprofwarn(j.prof_default)}).catch(()=>{});"
+"setprofwarn(j.prof_default);if(j.prof_default)document.getElementById('adv').open=true}).catch(()=>{});"
 /* Status card: poll /wifi/status. In embed mode the panel already sits inside the
  * dashboard, so the "open the dashboard" button is suppressed (it would navigate
  * the modal iframe into a nested dashboard). */
@@ -322,7 +335,7 @@ static const char PAGE_BODY[] =
  * uplink — offline it's inert, so fall back to same-tab, which loads the
  * dashboard in-sheet and drives with no internet. Suppressed in embed mode by
  * the guard above (it would navigate the modal iframe into a nested dashboard). */
-"let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target=j.uplink=='full'?'_blank':'';a.rel='noopener';"
+"let a=document.createElement('a');a.className='link-btn';a.style.marginTop='.6rem';a.href=j.dash;a.target=j.uplink=='full'?'_blank':'';a.rel='noopener';"
 "a.textContent=j.dash=='/'?'Open the dashboard':'Open the class dashboard';g.appendChild(a)}"
 "}catch(e){}setTimeout(stat,5000)}"
 "stat();"
