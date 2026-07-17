@@ -21,6 +21,7 @@
  */
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>         /* json_append — bounded vsnprintf into a budget */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_http_server.h"
@@ -386,6 +387,24 @@ static esp_err_t status_get(httpd_req_t *req)
     return httpd_resp_sendstr(req, j);
 }
 
+/* Append into a budget, advancing only by what was WRITTEN. `off += snprintf(...)`
+ * is the trap this exists to close: snprintf returns the length it WANTED, so a
+ * single row over budget pushes off past cap, and the next call's `cap - off`
+ * underflows (size_t) to ~SIZE_MAX — an unbounded write at json + off, off the
+ * end of the block. Refusing to advance keeps a too-small budget a truncation
+ * instead of a heap overflow. */
+static bool json_append(char *buf, size_t cap, size_t *off, const char *fmt, ...)
+{
+    if (*off >= cap) return false;
+    va_list ap;
+    va_start(ap, fmt);
+    int w = vsnprintf(buf + *off, cap - *off, fmt, ap);
+    va_end(ap);
+    if (w < 0 || (size_t)w >= cap - *off) return false;   /* would truncate — don't advance */
+    *off += (size_t)w;
+    return true;
+}
+
 static esp_err_t scan_get(httpd_req_t *req)
 {
     board_ap_t *aps = malloc(SCAN_MAX * sizeof *aps);
@@ -396,12 +415,24 @@ static esp_err_t scan_get(httpd_req_t *req)
      * generously. The shape is the Pi hubd's /wifi/scan dialect (wifi.rs
      * scan/map_auth) — the shared dashboard reads `signal` (0-100) and gates
      * the password box on `security === "NO"`; the old {rssi, open} keys
-     * rendered as "undefined%" and asked open networks for a password. */
-    size_t cap = 32 + (size_t)n * 96;
+     * rendered as "undefined%" and asked open networks for a password.
+     *
+     * 112/row is MEASURED against the worst case, not eyeballed — the previous
+     * 96 was under it, which is how this became remotely exploitable. esc[]
+     * below emits up to 64 bytes (a 32-char SSID of all '"' escapes 1:2), so
+     * the longest row is
+     *   ,{"ssid":"<64>","signal":100,"security":"WPA2"}
+     *   1 + 9 + 64 + 11 + 3 + 13 + 4 + 2 = 107
+     * and the budget went negative at n >= 3 — three quote-filled SSIDs from
+     * any neighbouring radio, against a /wifi/scan that takes no auth (:1107).
+     * The 32 covers "[", "]", the NUL, and the slack that keeps json_append's
+     * refusal path unreachable rather than merely survivable. Recount both
+     * numbers if a key is renamed or a value's width changes. */
+    size_t cap = 32 + (size_t)n * 112;
     char *json = malloc(cap);
     if (!json) { free(aps); httpd_resp_send_500(req); return ESP_FAIL; }
     size_t off = 0;
-    off += snprintf(json + off, cap - off, "[");
+    json_append(json, cap, &off, "[");
     for (int i = 0; i < n; i++) {
         /* ssid is from a scan (device-supplied, attacker-controllable). Escape " and
          * \\ and DROP control bytes (<0x20): raw control chars are invalid JSON (would
@@ -420,10 +451,10 @@ static esp_err_t scan_get(httpd_req_t *req)
         int pct = 2 * (aps[i].rssi + 100);
         if (pct > 100) pct = 100;
         if (pct < 0) pct = 0;
-        off += snprintf(json + off, cap - off, "%s{\"ssid\":\"%s\",\"signal\":%d,\"security\":\"%s\"}",
-                        i ? "," : "", esc, pct, aps[i].open ? "NO" : "WPA2");
+        if (!json_append(json, cap, &off, "%s{\"ssid\":\"%s\",\"signal\":%d,\"security\":\"%s\"}",
+                         i ? "," : "", esc, pct, aps[i].open ? "NO" : "WPA2")) break;
     }
-    snprintf(json + off, cap - off, "]");
+    json_append(json, cap, &off, "]");
 
     httpd_resp_set_type(req, "application/json");
     esp_err_t r = httpd_resp_sendstr(req, json);
