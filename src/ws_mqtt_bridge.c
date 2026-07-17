@@ -24,6 +24,7 @@
 #include "esp_wifi.h"   /* fleet identity chip: read the AP's own SSID */
 #include "esp_log.h"
 #include "lwip/sockets.h"
+#include "roles.h"         /* board_uplink — /fleet reports the probe verdict, not the lease */
 #include "wifi_portal.h"   /* share the board's always-on :80 rather than fighting for it */
 
 #define WS_PORT      9001
@@ -267,18 +268,23 @@ static esp_err_t page_handler(httpd_req_t *req)
 
 /* The dashboard polls /fleet for the uplink pill + rover-setup locator. On the
  * Pi that's hubd; here the same httpd answers it so the real page works
- * unmodified. Uplink is honest, not hardcoded: an ESP hub/island with no STA
- * lease has no internet, and the dashboard's "none" pill tells the instructor
- * exactly that (robots unaffected) instead of leaving them to debug the venue.
- * Portal detection needs an HTTP probe the Pi does — "full" here means only
- * "an uplink exists". */
+ * unmodified. Uplink is the probe verdict, same none/portal/full vocabulary the
+ * Pi reports (board_uplink, roles.h) — NOT the DHCP lease.
+ *
+ * This read the lease until 2026-07-17 — the lease-is-not-internet bug surviving
+ * its own fix. /wifi/status was migrated to the verdict on 2026-07-14 (a venue
+ * whose network has its own captive gate hands out addresses freely and answers
+ * every HTTP request itself, so a lease proves association, not connectivity)
+ * and this call site was missed, so one board answered two ways. It mattered because the dashboard
+ * takes the pill from HERE, not /wifi/status (dashboard.html UPLINK_MSG) — so a
+ * board joined to a venue whose network has its own captive gate reported "full",
+ * the page's carefully-worded "portal" message ("one sign-in covers the whole
+ * classroom") could never fire, and the instructor got silence. Silence was the
+ * exact failure the 2026-07-14 investigation existed to kill. */
 static esp_err_t fleet_handler(httpd_req_t *req)
 {
-    const char *uplink = "none";
-    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    esp_netif_ip_info_t ipi;
-    if (sta && esp_netif_get_ip_info(sta, &ipi) == ESP_OK && ipi.ip.addr)
-        uplink = "full";
+    static const char *up_str[] = { "none", "portal", "full" };
+    const char *uplink = up_str[board_uplink()];
     /* ssid/host feed the dashboard's identity chip: which host serves this
      * page. Read from the live AP config, so a hub reports hub-XXXX and an
      * island board reports its own rover-XXXX — both truthful. */
