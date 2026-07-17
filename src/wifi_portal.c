@@ -317,11 +317,12 @@ static const char PAGE_BODY[] =
 "document.getElementById('bst').textContent=t;"
 "let g=document.getElementById('bgo');g.textContent='';"
 "if(j.dash&&document.documentElement.className!='embed'){"
-/* Opens in a new tab (target=_blank) — the dashboard is where you drive, and a
- * real browser tab is where an instructor sign-in sticks. Suppressed in embed
- * mode by the guard above (it would navigate the modal iframe into a nested
- * dashboard). */
-"let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target='_blank';a.rel='noopener';"
+/* target=_blank opens the phone's real browser (where an instructor sign-in
+ * sticks), but the captive sheet only completes that hand-off with a live
+ * uplink — offline it's inert, so fall back to same-tab, which loads the
+ * dashboard in-sheet and drives with no internet. Suppressed in embed mode by
+ * the guard above (it would navigate the modal iframe into a nested dashboard). */
+"let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target=j.uplink=='full'?'_blank':'';a.rel='noopener';"
 "a.textContent=j.dash=='/'?'Open the dashboard':'Open the class dashboard';g.appendChild(a)}"
 "}catch(e){}setTimeout(stat,5000)}"
 "stat();"
@@ -382,9 +383,9 @@ static const char LANDING_BODY[] =
 "if(j.dash){"
 "st.textContent='Part of the classroom network'+(j.ssid?' '+j.ssid:'')+' \\u2014 drive it from the class dashboard.';"
 /* DOM, not innerHTML: dash derives from a stored locator (user-supplied NVS).
- * Opens in a new tab (target=_blank) — a real browser tab is where a sign-in
- * sticks. */
-"if(!act.firstChild){let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target='_blank';a.rel='noopener';"
+ * target=_blank opens the real browser when online; same-tab offline, since the
+ * captive sheet can't hand off a _blank with no uplink (it drives in-sheet). */
+"if(!act.firstChild){let a=document.createElement('a');a.className='btn btn-primary';a.href=j.dash;a.target=j.uplink=='full'?'_blank':'';a.rel='noopener';"
 "a.textContent='Open the class dashboard';act.appendChild(a)}"
 "setTimeout(go,5000);return}"
 "act.innerHTML='';"
@@ -874,9 +875,11 @@ static const char WELCOME_BODY[] =
 "<main>"
 "<div class=card id=before><h2>Welcome</h2>"
 "<p class=s id=lede>Checking this board&rsquo;s internet&#8230;</p>"
-/* The dashboard opens in a new browser tab (target=_blank) — that is where you
- * drive, and a real browser tab is where a sign-in sticks. The Wi-Fi picker and
- * venue sign-in are in-sheet navigations (/wifi and the venue gate): a
+/* The dashboard link adapts to the uplink (see dashlink() below): target=_blank
+ * to the phone's real browser when the board is online, same-tab in-sheet when
+ * it isn't — because the captive sheet only completes a _blank hand-off with a
+ * live uplink, and offline it drives in-sheet instead. The Wi-Fi picker and
+ * venue sign-in are always in-sheet navigations (/wifi and the venue gate): a
  * walled-garden client browsing the gate's own pages is the whole point of a
  * captive sheet, and neither needs anything a real browser has. AP_BASE is this
  * board's literal IP, always safe to hand a new tab regardless of what hostname
@@ -895,12 +898,12 @@ static const char WELCOME_BODY[] =
  * it has to happen from inside this specific captive session. */
 "<a class=\"btn btn-primary\" id=venue-go hidden>Sign in</a>"
 "<button class=\"btn btn-primary\" id=go hidden>Continue</button>"
-"<a class=btn id=dashgo target=_blank rel=noopener hidden>Open the dashboard</a>"
-"<p class=s id=dashnote hidden>Opens <b class=addr id=dashaddr></b> in your browser.</p>"
+"<a class=btn id=dashgo rel=noopener hidden>Open the dashboard</a>"
+"<p class=s id=dashnote hidden>Opens <b class=addr id=dashaddr></b><span id=dashsuf> in your browser.</span></p>"
 "</div>"
 "<div class=card id=after hidden><h2>You're set</h2>"
-"<a class=\"btn btn-primary\" id=dashgo2 target=_blank rel=noopener hidden>Open the dashboard</a>"
-"<p class=s id=dashnote2 hidden>Opens <b class=addr id=dashaddr2></b> in your browser.</p></div>"
+"<a class=\"btn btn-primary\" id=dashgo2 rel=noopener hidden>Open the dashboard</a>"
+"<p class=s id=dashnote2 hidden>Opens <b class=addr id=dashaddr2></b><span id=dashsuf2> in your browser.</span></p></div>"
 "</main>"
 "<script>";
 /* welcome_get() sends "const AP_BASE='http://a.b.c.d';" here, then this. */
@@ -917,6 +920,13 @@ static const char WELCOME_POST[] =
  * this page as. A dash already starting with 'http' (the remote/hub-joined
  * case, hub_role.c's board_run) is already absolute and passes through. */
 "function abs(u){return u&&u.indexOf('http')==0?u:AP_BASE+(u||'/')}"
+/* target=_blank hands the tab to the phone's real browser, but the OS captive
+ * sheet only completes that hand-off when the phone actually has internet
+ * through this AP — i.e. the board's uplink is "full". Offline, _blank is inert
+ * (no browser to hand to), so the link falls back to same-tab: it loads the
+ * board's own dashboard right here in the sheet, which drives fine with no
+ * uplink. Browser tab when online, in-sheet when not — and the note says which. */
+"function dashlink(g,ael,sel,url,on){g.href=url;g.target=on?'_blank':'';ael.textContent=url;sel.textContent=on?' in your browser.':' here to drive.'}"
 /* ?done=1 is the post-Continue view. Continue REACHES it by a real navigation
  * (location.href), never a DOM swap: the captive sheet re-runs its probe only
  * on a full-page load, so an AJAX-only accept leaves the sheet stuck on
@@ -926,9 +936,9 @@ static const char WELCOME_POST[] =
 "document.getElementById('before').hidden=true;"
 "document.getElementById('after').hidden=false;"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
-"let a=abs(j.dash),h=!j.dash,g=document.getElementById('dashgo2');"
-"document.getElementById('dashaddr2').textContent=a;g.href=a;g.hidden=h;"
-"document.getElementById('dashnote2').hidden=h}).catch(()=>{})"
+"let h=!j.dash,g=document.getElementById('dashgo2');g.hidden=h;"
+"document.getElementById('dashnote2').hidden=h;"
+"if(j.dash)dashlink(g,document.getElementById('dashaddr2'),document.getElementById('dashsuf2'),abs(j.dash),j.uplink=='full')}).catch(()=>{})"
 "}else{refresh()}"
 /* Poll, don't check once: right after a connect-reboot the phone rejoins and
  * this sheet reopens while the STA is still mid-join — a single check showed
@@ -945,7 +955,7 @@ static const char WELCOME_POST[] =
  * one to open. AP_BASE keeps it this board's literal IP, which is what a
  * student has to be able to type into Safari — a .local name is exactly what a
  * phone still on this AP may not resolve. */
-"let dh=abs(j.dash);dn.hidden=!j.dash;dg.hidden=!j.dash;if(j.dash){da.textContent=dh;dg.href=dh}"
+"dn.hidden=!j.dash;dg.hidden=!j.dash;if(j.dash)dashlink(dg,da,document.getElementById('dashsuf'),abs(j.dash),j.uplink=='full');"
 "w.href=AP_BASE+'/wifi';"
 /* The picker is an in-sheet navigation, never a new tab (see WELCOME_BODY). It
  * stays out of the way while the board is online or still settling; the offline
@@ -975,9 +985,10 @@ static const char WELCOME_POST[] =
 "go.hidden=true;"
 "lede.textContent='Reconnecting to '+j.ssid+'\\u2026'"
 "}else{"
-/* Not online and not trying: picking a network is the whole job of this state,
- * so it is the one control here. Driving offline stays a real answer — it is
- * the address below, not a tile, because this sheet cannot open one. */
+/* Not online and not trying: picking a network is the primary job here, but
+ * driving offline is a real answer too — the dashboard button below loads the
+ * board's own dashboard in-sheet (same-tab, since _blank can't hand off with no
+ * uplink) and drives with no internet at all. */
 "go.hidden=true;w.hidden=false;"
 "lede.textContent='This board isn\\u2019t online yet \\u2014 set up its Wi-Fi below'"
 "+(j.dash?', or drive it offline with the button underneath.':'.')"
