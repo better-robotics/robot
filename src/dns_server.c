@@ -41,10 +41,14 @@ static const char *TAG = "dns-server";
 #define DNS_PORT       53
 #define DNS_MAX_LEN    1536 /* upstream answers can be EDNS-sized; a truncated
                              * relay is worse than none */
-#define DNS_ANSWER_TTL 60   /* seconds — short: nothing here ever changes (the
-                             * AP's IP is fixed for the boot), but a client that
-                             * lingers shouldn't hold an answer any longer than
-                             * it has to either */
+#define DNS_ANSWER_TTL 5    /* seconds — a HIJACK is a lie with a short shelf
+                             * life: once a device is released it must re-resolve
+                             * the real IP, so a poisoned answer can't linger. The
+                             * captive-portal norm is 0 or a few seconds; 0 is
+                             * avoided because some stub resolvers mishandle it,
+                             * 5 s is the predictable hedge (was 60, too long —
+                             * a released client held our IP for a real name up
+                             * to a minute). */
 
 /* The hostnames OS captive-portal detectors dial (wifi_portal.c answers the
  * HTTP side). Hijacked even in PORTAL mode so the sheet a phone opens is

@@ -1071,6 +1071,11 @@ static esp_err_t probe_redirect(httpd_req_t *req)
 {
     char host[64] = "?";
     httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
+    /* Never let an intermediary or the OS cache the captive verdict: a stale
+     * "302 /welcome" would strand a released device, a stale success would
+     * skip greeting a fresh one. RFC 8908 says the same for the API half. Set
+     * once here — httpd carries it onto whichever branch sends below. */
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     bool accepted = captive_accepted(client_ip(req));
     ESP_LOGI(TAG, "probe %s (Host: %s) -> %s", req->uri, host,
              accepted ? "genuine success" : "302 /welcome");
@@ -1091,6 +1096,14 @@ static esp_err_t probe_redirect(httpd_req_t *req)
     if (strcmp(req->uri, "/ncsi.txt") == 0) {
         httpd_resp_set_type(req, "text/plain");
         return httpd_resp_sendstr(req, "Microsoft NCSI");
+    }
+    /* Firefox's detectportal probe checks for this EXACT body (lowercase,
+     * trailing newline) — the Apple HTML below would leave a released Firefox
+     * reading as still-captive, since we keep hijacking the probe name for
+     * accepted clients rather than letting it reach the real server. */
+    if (strcmp(req->uri, "/success.txt") == 0) {
+        httpd_resp_set_type(req, "text/plain");
+        return httpd_resp_sendstr(req, "success\n");
     }
     /* Apple's hotspot-detect.html: the CNA checks the body for this exact string. */
     httpd_resp_set_type(req, "text/html");
@@ -1126,6 +1139,7 @@ static esp_err_t not_found_handler(httpd_req_t *req, httpd_err_code_t err)
     ESP_LOGI(TAG, "404 %s (Host: %s) -> 302 %s (unlisted probe path)", req->uri, host, s_welcome_url);
     httpd_resp_set_status(req, "302 Found");
     httpd_resp_set_hdr(req, "Location", s_welcome_url);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");   /* don't cache the redirect past a release */
     return httpd_resp_send(req, NULL, 0);
 }
 

@@ -38,6 +38,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_netif_net_stack.h"  /* esp_netif_get_netif_impl — the raw lwIP netif, for captive_nat */
+#include "dhcpserver/dhcpserver.h" /* dhcps_offer_t / OFFER_DNS — the DHCP DNS offer flag */
 #include "esp_mac.h"
 #include "lwip/ip4_addr.h"       /* IP4_ADDR — relocating the board AP off 192.168.4.0/24 */
 #include "lwip/sockets.h"        /* the uplink probe below speaks raw HTTP, like the Pi's */
@@ -320,13 +321,17 @@ static int connect_cb(const char *client_id, const char *username,
     return 0;
 }
 
-/* AP clients always resolve through THIS board (the dhcps default offers our
- * own IP as DNS; dns_server.c decides per query whether to hijack or forward
- * upstream). The old design switched the DHCP offer to the venue's DNS on
- * got-IP — removed 2026-07-14: a DHCP offer can't be un-offered (leases
- * outlive state changes), and on a captive venue it handed phones a resolver
- * that routed their probes straight into the venue's SSO page instead of
- * /welcome. One policy point (the forwarder) beats two racing ones. */
+/* AP clients always resolve through THIS board — we hand our own IP out as the
+ * DHCP DNS offer EXPLICITLY (wifi_apsta_up, below), the Pi's dnsmasq "polite
+ * fast path": a well-behaved client then asks us directly and dns_server.c
+ * decides per query whether to hijack or forward upstream, and captive_nat.c
+ * only has to catch the clients that pin their own resolver. This used to lean
+ * on "the dhcps default offers our IP as DNS" — an unverified assumption behind
+ * a load-bearing behavior, made explicit 2026-07-19. The old design switched
+ * the offer to the venue's DNS on got-IP — removed 2026-07-14: a DHCP offer
+ * can't be un-offered (leases outlive state changes), and on a captive venue it
+ * handed phones a resolver that routed their probes straight into the venue's
+ * SSO page instead of /welcome. One policy point (the forwarder) beats two. */
 /* Fires from the esp_timer task — esp_wifi_connect is thread-safe, and the gate
  * re-check means a redial armed before a scan/re-dial cleared it is a no-op. */
 static void redial_cb(void *arg)
@@ -423,6 +428,9 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, const char
      * — impractical for a private AP with no real certificate — so this is
      * the DHCP-hint half only: a strict client may ignore a plain-HTTP URI
      * and fall back to the probe flow this file already answers regardless.
+     * CONFIRMED ignored by macOS 2026-07-19: serial showed the CNA reach for
+     * /hotspot-detect.html, never /captive-portal-api. Kept for Android 11+,
+     * which does read it; do not expect it to be the trigger on Apple.
      * esp_netif_dhcps_option stores the POINTER, not a copy (dhcpserver.c),
      * so the buffer must outlive the DHCP server — static, not stack-local. */
     static char s_captive_uri[48];
@@ -438,6 +446,18 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, const char
     }
     ESP_ERROR_CHECK(esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI,
                                            s_captive_uri, strlen(s_captive_uri) + 1));
+    /* Offer OUR OWN IP as the client's DNS resolver, explicitly (see the comment
+     * on the redial section for why this stopped being an assumption). Read the
+     * AP's actual IP back rather than hardcode it — it's just been set to .99.1
+     * or is the default .4.1. dns_server.c answers :53 for whatever asks. */
+    esp_netif_ip_info_t ap_ip = {0};
+    ESP_ERROR_CHECK(esp_netif_get_ip_info(ap_netif, &ap_ip));
+    esp_netif_dns_info_t ap_dns = { .ip = { .type = ESP_IPADDR_TYPE_V4 } };
+    ap_dns.ip.u_addr.ip4.addr = ap_ip.ip.addr;
+    ESP_ERROR_CHECK(esp_netif_set_dns_info(ap_netif, ESP_NETIF_DNS_MAIN, &ap_dns));
+    dhcps_offer_t dns_offer = OFFER_DNS;
+    ESP_ERROR_CHECK(esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER,
+                                           &dns_offer, sizeof dns_offer));
     ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
 
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
