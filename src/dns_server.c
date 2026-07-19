@@ -263,10 +263,17 @@ static void dns_server_task(void *arg)
          * struct in_addr has `s_addr` instead, so bridge through a same-layout
          * local rather than cast the sockaddr's field directly. */
         esp_ip4_addr_t from_ip = { .addr = from.sin_addr.s_addr };
+        /* Label by the REAL reason we're hijacking rather than forwarding, not by
+         * uplink alone: with an uplink up, THIS path is only reached for a probe
+         * name (a non-probe name would have forwarded above), so calling it
+         * "no uplink" is a lie that reads as a broken board — it cost a whole
+         * debug session on 2026-07-19, a captive.apple.com hijack on FULL logged
+         * as "no uplink" while the board plainly had internet. */
         ESP_LOGI(TAG, "query '%s' from " IPSTR " -> %s", qname, IP2STR(&from_ip),
                  tlen <= 0                          ? "dropped (malformed)" :
+                 up_state == BOARD_UPLINK_NONE      ? "hijacked (no uplink — all names)" :
                  up_state == BOARD_UPLINK_PORTAL    ? "hijacked (probe name, venue is walled)"
-                                                    : "hijacked (no uplink)");
+                                                    : "hijacked (probe name)");
         if (tlen > 0) sendto(sock, tx, tlen, 0, (struct sockaddr *)&from, fromlen);
     }
 }

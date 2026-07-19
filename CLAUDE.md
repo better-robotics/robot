@@ -55,6 +55,18 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   name is assigned post-join over MQTT (`robots/<id>/cmd/config` → NVS) from
   the dashboard's "Assign a rover" panel, so boards flash identically and get
   named at the hub.
+- **"Done" on firmware = the serial boot banner, not a green build.** After
+  `-t upload`, read the `App version:` line and confirm it matches
+  `git describe --tags --dirty` for the tree you flashed. A behaviour change is
+  only real once you've watched it on the wire — a green `pio run` is necessary,
+  never sufficient (scar 2026-07-19: a captive fix was declared done twice off
+  builds; the first *direct* flash even shipped a **stale cached `.bin`** —
+  `0e51330-dirty` while HEAD was `e3b9ace` — because an incremental build took
+  4 s and regenerated nothing. A build that finishes suspiciously fast after a
+  source edit is the tell; `pio run -t clean` first when in doubt). For AP-side
+  captive/network behaviour specifically, the ground truth is the board's own
+  log — `pio device monitor`, or drive it over serial and grep `dns-server` /
+  `wifi-portal`.
 - Platform pinned **`espressif32@6.13.0`** (ships **IDF 5.5.3**, not 5.1 as an
   earlier note claimed) for reproducible builds — the old `<7.x` constraint was
   zenoh-pico's; the pin is now just stability (and 5.5.x is what the mosquitto
