@@ -1073,6 +1073,9 @@ static esp_err_t captive_api_get(httpd_req_t *req)
 
 /* OS-native captive-portal connectivity probes (robot's own island onboarding,
  * NOT the classroom/MDM auto-join flow — CLAUDE.md § Status & design history).
+ * The genuine-success bodies below are the table in better-robotics/hub's
+ * CONTRACT.md § Captive onboarding — the single spec this and the Pi's hubd.rs
+ * both reconcile to; keep every row byte-identical across both hubs.
  * Apple, Android, and Windows each fire a GET against one of these fixed,
  * well-known paths right after a device joins any network. An unacked client
  * redirects to /welcome, above — dashboard-free, so a captive sheet never
@@ -1189,8 +1192,8 @@ void wifi_portal_start(void)
      * costs the last one registered (/wifi/instructor took it from 18 to 19 on
      * 2026-07-16, which would have left zero headroom at 19; dropping the IDE's
      * /ide/?* wildcard took it back to 18; /ota, its preflight and /log took it
-     * to 21). */
-    cfg.max_uri_handlers = 22;
+     * to 21; /success.txt (Firefox probe) took it to 22 on 2026-07-19). */
+    cfg.max_uri_handlers = 23;
     cfg.lru_purge_enable = true;
     /* No uri_match_fn: every route here is an exact path. The wildcard matcher
      * was here only for the bridge's /ide/?* route, which left with the IDE
@@ -1234,6 +1237,12 @@ void wifi_portal_start(void)
      * consistent than Apple's/Android's — sometimes it's only a taskbar toast,
      * not a full popup — so this is best-effort, not a guaranteed auto-open. */
     httpd_uri_t u_ncsi    = { .uri = "/ncsi.txt",             .method = HTTP_GET, .handler = probe_redirect };
+    /* Firefox's detectportal. MUST be registered, not just handled in
+     * probe_redirect: an unregistered path falls to not_found_handler, which
+     * 302s any foreign Host with no acked check — so a RELEASED Firefox client
+     * would be bounced back to /welcome. (The handler arm existed unwired until
+     * 2026-07-19; reconciled to the Pi + CONTRACT.md § Captive onboarding.) */
+    httpd_uri_t u_firefox = { .uri = "/success.txt",          .method = HTTP_GET, .handler = probe_redirect };
     httpd_register_uri_handler(s_http, &u_page);
     httpd_register_uri_handler(s_http, &u_scan);
     httpd_register_uri_handler(s_http, &u_save);
@@ -1251,6 +1260,7 @@ void wifi_portal_start(void)
     httpd_register_uri_handler(s_http, &u_android);
     httpd_register_uri_handler(s_http, &u_wintest);
     httpd_register_uri_handler(s_http, &u_ncsi);
+    httpd_register_uri_handler(s_http, &u_firefox);
     /* Unlisted probe paths on hijacked hostnames — see not_found_handler. */
     httpd_register_err_handler(s_http, HTTPD_404_NOT_FOUND, not_found_handler);
 
