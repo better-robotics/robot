@@ -2,24 +2,33 @@
  * captive_nat.c — packet-layer backstop for the captive-portal DNS hijack.
  * See captive_nat.h for the why.
  *
- * Mirrors dns_server.c's own hijack/forward policy exactly — this must not
- * invent a second rule that can drift from the first:
- *   FULL   -> never touch anything. A hardcoded-DNS client's real traffic
- *             IS real; capturing it would silently reintroduce "every
- *             website is the robot" for exactly the clients robot@9404492
- *             already fixed that for (the ones that DO use our DNS).
+ * The DNS decision mirrors dns_server.c's own hijack/forward policy exactly (one
+ * rule, not two that can drift). The TCP:80 decision is this file's alone —
+ * dns_server.c has no transport layer — and is gated on the captive Accept, not
+ * only the uplink:
  *   NONE   -> capture all AP-client UDP:53/TCP:80 to any address that isn't
  *             this board — nothing real to reach anyway, same "hijack
  *             everything" policy dns_server.c already applies.
+ *   FULL   -> DNS: never touch. A client that uses our DNS is already greeted by
+ *             dns_server.c; rewriting a hardcoded-DNS client's real lookups would
+ *             reintroduce "every website is the robot" for exactly the clients
+ *             robot@9404492 fixed that for. TCP:80: capture an UN-GREETED
+ *             client's port-80 only (gated on captive_accepted, wifi_portal.c).
+ *             This is the packet-layer half of greet-with-internet: a laptop
+ *             that has been online caches the probe host's IP and skips our DNS,
+ *             so its probe escapes out the NAT to the real captive endpoint and
+ *             comes back Success with no sheet (a macOS laptop on a board with
+ *             internet, 2026-07-19). Capturing it lands that probe on /welcome
+ *             instead; the Accept flip then releases the device, so its real
+ *             browsing flows untouched — which is what keeps this from being the
+ *             regression the FULL-never-touch rule used to guard against.
  *   PORTAL -> DNS: capture ONLY probe hostnames, via the SAME probe_hostname()
- *             list dns_server.c uses (one list, not two, so the two
- *             mechanisms can't drift apart). TCP:80: never capture — by the
- *             time a SYN's eventual payload could reveal "this was a probe
- *             path", the handshake has already completed against the real
- *             remote peer, and there is no way to redirect an established
- *             connection's peer after the fact. Documented gap, not a
- *             regression: without this file, that traffic isn't captured
- *             either.
+ *             list dns_server.c uses. TCP:80: never capture — the venue's own
+ *             gate answers :80 and /welcome links a still-un-accepted client
+ *             THROUGH to it, so capturing here would trap that tap-through; and
+ *             by the time a SYN's payload could reveal "this was a probe path",
+ *             the handshake has already completed against the venue, with no way
+ *             to redirect an established connection's peer after the fact.
  *
  * Mechanism: lwIP's own NAPT (ip4_napt.c, vendored in this SDK) rewrites an
  * address in place and fixes up both checksums with an RFC1624 incremental
@@ -57,6 +66,7 @@
 
 #include "dns_server.h"   /* probe_hostname / question_name — the one list */
 #include "roles.h"        /* board_uplink_t, board_uplink() */
+#include "wifi_portal.h"  /* captive_accepted — release a greeted client's :80 */
 
 static const char *TAG = "captive_nat";
 
@@ -169,13 +179,31 @@ static bool should_capture_dns(const uint8_t *payload, int paylen)
     return probe_hostname(qname);
 }
 
-static bool should_capture_tcp80(void)
+static bool should_capture_tcp80(uint32_t client_ip)
 {
-    /* PORTAL: can't tell "probe path" from "real page" before the SYN
-     * completes against whoever the client is actually targeting — see the
-     * file banner. Only NONE gets the same "nothing real to reach anyway"
-     * treatment DNS gets. */
-    return board_uplink() == BOARD_UPLINK_NONE;
+    switch (board_uplink()) {
+    case BOARD_UPLINK_NONE:
+        return true;                        /* nothing real to reach anyway */
+    case BOARD_UPLINK_FULL:
+        /* The greet-with-internet case (robot@0e51330 was a no-op here without
+         * this): a laptop that has been online caches the probe host's IP and
+         * skips our DNS entirely, so dns_server.c never sees it and its probe
+         * escapes out the NAT to the real captive endpoint — a genuine Success,
+         * no sheet. Capture an UN-GREETED client's :80 so that probe lands on
+         * /welcome instead; the moment it taps Continue, captive_accepted flips
+         * and its real browsing flows untouched. Gating on the Accept (not the
+         * uplink) is what keeps this from being the "every website is the robot"
+         * regression the banner warns of — an accepted client is never captured.
+         * Pre-Accept, an external http page redirecting to /welcome IS the
+         * captive-portal contract, not a bug. */
+        return !captive_accepted(client_ip);
+    default:
+        /* PORTAL: never — the venue's own gate answers :80, and /welcome links a
+         * still-un-accepted client THROUGH to it; capturing here would trap that
+         * tap-through. And a SYN can't be told "probe" from "real page" before it
+         * completes against the venue anyway (see the file banner). */
+        return false;
+    }
 }
 
 /* -------- receive path (prerouting-equivalent) -------- */
@@ -217,7 +245,7 @@ static err_t captive_nat_input(struct pbuf *p, struct netif *inp)
             int dns_len = l4_avail - (int)sizeof(struct udp_hdr);
             capture = dns_len > 0 && should_capture_dns(dns_payload, dns_len);
         } else {
-            capture = proto == IP_PROTO_TCP && should_capture_tcp80();
+            capture = proto == IP_PROTO_TCP && should_capture_tcp80(iph->src.addr);
         }
         if (!capture) break;
 

@@ -486,11 +486,12 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, const char
              ap_ssid);
 
     /* Backstop for clients that bypass our DNS entirely (hardcoded resolver,
-     * DoH) — dns_server.c's hijack only works for a client that actually
-     * asks US. See captive_nat.h. Safe by construction to install
-     * unconditionally here: it mirrors dns_server.c's own uplink-gated
-     * policy internally, so it's a no-op whenever the board has FULL real
-     * internet. */
+     * DoH, or a cached probe-host IP) — dns_server.c's hijack only works for a
+     * client that actually asks US. See captive_nat.c's banner for the per-state
+     * policy: it decides capture per packet on the live uplink verdict and the
+     * captive Accept, so installing it unconditionally here is safe. On FULL it
+     * captures only an un-greeted client's :80 (the greet-with-internet path);
+     * an accepted device is never touched. */
     captive_nat_install((struct netif *)esp_netif_get_netif_impl(ap_netif));
 
     /* ── mDNS: two names, split by which link they belong to ─────────────────
