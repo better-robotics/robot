@@ -51,6 +51,13 @@ jobs:
           path: .hub
       - name: The vendored dashboard is byte-identical to hub's canonical copy
         run: HUB_REPO="$PWD/.hub" tools/sync-dashboard.sh --check
+      # Same seam, the other shared surface: the captive probe handlers must
+      # register exactly the probe paths in hub's CONTRACT.md § Captive
+      # onboarding and serve each genuine-success body byte-for-byte. Catches a
+      # dead (unregistered) handler and probe-table drift — both invisible to
+      # code review, both shipped once on 2026-07-19.
+      - name: The captive probe handlers match CONTRACT.md § Captive onboarding
+        run: HUB_REPO="$PWD/.hub" python3 tools/check-captive-probes.py
 
   build:
     runs-on: ubuntu-latest
