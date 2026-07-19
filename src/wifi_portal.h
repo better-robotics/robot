@@ -1,6 +1,9 @@
 #ifndef WIFI_PORTAL_H
 #define WIFI_PORTAL_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "esp_http_server.h"
 
 /* The per-board Wi-Fi config panel (robot#2 / #17). A single always-on httpd on
@@ -40,5 +43,13 @@ httpd_handle_t wifi_portal_httpd(void);
  * behaviour). Safe to call on any board — a no-op when no AP is up. Driven by
  * the uplink-probe loop; see wifi_portal.c for the presence-reaper rationale. */
 void captive_reap_absent(void);
+
+/* Has this AP client (IPv4, network byte order) tapped Continue on /welcome and
+ * not yet been reaped for absence? The captive Accept table, keyed per device —
+ * captive_nat.c reads it as the sole bypass to its packet-layer capture, so an
+ * accepted client's traffic flows to the real net while an un-greeted one's is
+ * still walled onto /welcome. 0 (the getpeername-failure sentinel) is never
+ * accepted. */
+bool captive_accepted(uint32_t ip);
 
 #endif

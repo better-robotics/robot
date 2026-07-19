@@ -813,7 +813,8 @@ static uint32_t client_ip(httpd_req_t *req)
     return addr.sin6_addr.un.u32_addr[3];
 }
 
-static bool captive_accepted(uint32_t ip)
+bool captive_accepted(uint32_t ip)   /* exported: captive_nat.c gates its packet
+                                        backstop on the same per-device Accept */
 {
     if (!ip) return false;
     for (int i = 0; i < ACCEPTED_MAX; i++) {

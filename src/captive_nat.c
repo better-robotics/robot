@@ -2,24 +2,32 @@
  * captive_nat.c — packet-layer backstop for the captive-portal DNS hijack.
  * See captive_nat.h for the why.
  *
- * Mirrors dns_server.c's own hijack/forward policy exactly — this must not
- * invent a second rule that can drift from the first:
- *   FULL   -> never touch anything. A hardcoded-DNS client's real traffic
- *             IS real; capturing it would silently reintroduce "every
- *             website is the robot" for exactly the clients robot@9404492
- *             already fixed that for (the ones that DO use our DNS).
- *   NONE   -> capture all AP-client UDP:53/TCP:80 to any address that isn't
- *             this board — nothing real to reach anyway, same "hijack
- *             everything" policy dns_server.c already applies.
- *   PORTAL -> DNS: capture ONLY probe hostnames, via the SAME probe_hostname()
- *             list dns_server.c uses (one list, not two, so the two
- *             mechanisms can't drift apart). TCP:80: never capture — by the
- *             time a SYN's eventual payload could reveal "this was a probe
- *             path", the handshake has already completed against the real
- *             remote peer, and there is no way to redirect an established
- *             connection's peer after the fact. Documented gap, not a
- *             regression: without this file, that traffic isn't captured
- *             either.
+ * Policy is the Pi's, verbatim (pi/deploy/hub-ap-setup.sh's nft `hub-captive`
+ * table, which greets a joining device with the dashboard whether or not the
+ * hub has internet): capture every non-accepted AP client's UDP:53 and TCP:80
+ * to any off-board address, in EVERY uplink state; an ACCEPTED client (tapped
+ * Continue on /welcome) is the sole bypass. NOT gated on the uplink verdict —
+ * that gate was the bug: a laptop that has been online caches the probe host's
+ * IP and pins its own resolver, so it never asks our DNS and, with the board on
+ * FULL internet, its probe sailed out the NAT to the real captive endpoint and
+ * came back Success with no sheet (a macOS laptop on a board reporting full
+ * internet, 2026-07-19). The IP layer is the one a client's resolver choice
+ * can't route around — the Pi's own note, measured there 2026-07-13.
+ *
+ * Why capturing an un-greeted client's real :80 is NOT the "every website is
+ * the robot" regression an earlier rule feared: a client that hasn't tapped
+ * Continue has not been admitted, and walling it onto /welcome until it does IS
+ * the captive-portal contract (every hotel Wi-Fi). The instant it acks,
+ * captive_accepted flips and every port of its traffic flows to the real net
+ * untouched — the release is the whole point, and it's per-device, so one
+ * student's Accept never lifts the wall for the next join. HTTPS (:443) is never
+ * touched — this redirects, it never impersonates; a probe is HTTP by design, so
+ * :80 is the only lever the OS captive check actually pulls.
+ *
+ * dns_server.c still owns the hijack-vs-forward call for a query that reaches
+ * it: whatever we DNAT here lands on its :53 and it forwards a non-probe name
+ * upstream exactly as if the client had asked it directly, so a walled client's
+ * real name resolution still works — it just can't skip us to do it.
  *
  * Mechanism: lwIP's own NAPT (ip4_napt.c, vendored in this SDK) rewrites an
  * address in place and fixes up both checksums with an RFC1624 incremental
@@ -55,8 +63,7 @@
 #include "lwip/prot/tcp.h"
 #include "lwip/prot/udp.h"
 
-#include "dns_server.h"   /* probe_hostname / question_name — the one list */
-#include "roles.h"        /* board_uplink_t, board_uplink() */
+#include "wifi_portal.h"  /* captive_accepted — the sole capture bypass */
 
 static const char *TAG = "captive_nat";
 
@@ -156,26 +163,16 @@ static flow_t *flow_lookup_reverse(uint8_t proto, uint32_t client_ip, uint16_t c
     return f;
 }
 
-/* Does policy say to capture this DNS query? Mirrors dns_server.c's own
- * fwd/hijack decision exactly (see file banner). `payload`/`paylen` is the
- * raw UDP payload — the DNS message itself. */
-static bool should_capture_dns(const uint8_t *payload, int paylen)
+/* Capture an off-board :53 / :80 packet from this client? The Pi's rule (see
+ * banner): yes for every client that has not tapped Continue, in every uplink
+ * state — the accept table is the only bypass, and dns_server.c / the portal
+ * httpd decide what to do with what we hand them. No name inspection here: the
+ * Pi captures all :53 (nft can't parse a query anyway), which also catches an
+ * OEM probe hostname that isn't on our list. `client_ip` is network byte order,
+ * as captive_accepted and the AP DHCP leases key on. */
+static bool should_capture(uint32_t client_ip)
 {
-    board_uplink_t up = board_uplink();
-    if (up == BOARD_UPLINK_FULL) return false;
-    if (up == BOARD_UPLINK_NONE) return true;
-    char qname[80];
-    question_name(payload, paylen, qname, sizeof qname);
-    return probe_hostname(qname);
-}
-
-static bool should_capture_tcp80(void)
-{
-    /* PORTAL: can't tell "probe path" from "real page" before the SYN
-     * completes against whoever the client is actually targeting — see the
-     * file banner. Only NONE gets the same "nothing real to reach anyway"
-     * treatment DNS gets. */
-    return board_uplink() == BOARD_UPLINK_NONE;
+    return !captive_accepted(client_ip);
 }
 
 /* -------- receive path (prerouting-equivalent) -------- */
@@ -213,11 +210,9 @@ static err_t captive_nat_input(struct pbuf *p, struct netif *inp)
         bool capture;
         if (dport_h == 53) {
             if (proto != IP_PROTO_UDP) break;   /* DNS-over-TCP: rare, skip */
-            uint8_t *dns_payload = l4 + sizeof(struct udp_hdr);
-            int dns_len = l4_avail - (int)sizeof(struct udp_hdr);
-            capture = dns_len > 0 && should_capture_dns(dns_payload, dns_len);
+            capture = should_capture(iph->src.addr);
         } else {
-            capture = proto == IP_PROTO_TCP && should_capture_tcp80();
+            capture = proto == IP_PROTO_TCP && should_capture(iph->src.addr);
         }
         if (!capture) break;
 
