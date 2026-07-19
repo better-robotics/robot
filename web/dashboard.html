@@ -1166,9 +1166,21 @@
       max-height: calc(90vh - 30rem); margin-inline: auto; }
     /* The raw-stream link: subtle, right under the frame it points at. */
     .drive-cam-wrap { display: flex; flex-direction: column; }
-    .cam-popout { align-self: flex-end; margin-top: 0.35rem; font-size: var(--fs-small);
-      color: var(--ink-faint); }
+    .cam-popout { font-size: var(--fs-small); color: var(--ink-faint); }
     .cam-popout:hover { color: var(--link); }
+    /* Rotate a view whose camera is mounted any way up. The element box is a
+       fixed 4:3 (width:100% + aspect-ratio), so transforms don't touch layout —
+       a 90/270 turn overflows unless scaled back by the 3/4 min-dimension ratio,
+       which also lands the rotated footprint exactly on the height cap. */
+    .drive-cam-wrap[data-rot="90"]  .cam-full { transform: rotate(90deg)  scale(0.75); }
+    .drive-cam-wrap[data-rot="180"] .cam-full { transform: rotate(180deg); }
+    .drive-cam-wrap[data-rot="270"] .cam-full { transform: rotate(270deg) scale(0.75); }
+    /* One control row under the frame: rotate left, raw-stream link right —
+       both subtle text actions, not tiles. */
+    .cam-controls { display: flex; align-items: center; justify-content: space-between;
+      margin-top: 0.35rem; }
+    .cam-rotate { font-size: var(--fs-small); color: var(--ink-faint); }
+    .cam-rotate:hover { color: var(--link); }
     #modal-body iframe.cfg-frame { width: 100%; height: min(72vh, 40rem); border: 0; display: block; background: var(--bg); }
     #modal-body .modal-note { padding: 1.25rem; color: var(--ink-muted); font-size: 0.9rem; line-height: 1.5; }
     /* Join-QR sheet + its print-only sticker twin. The SVG carries its own
@@ -4670,6 +4682,20 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       };
     }
 
+    // Camera rotation is a per-board preference (a mount is physically fixed),
+    // stored as one board→angle map so the key space can't sprawl. Same flat,
+    // try-guarded localStorage shape as hubPanel/hubDriveMode.
+    function getCamRot(k) {
+      try { return (JSON.parse(localStorage.getItem("hubCamRot") || "{}"))[k] || 0; }
+      catch { return 0; }
+    }
+    function setCamRot(k, a) {
+      try {
+        const m = JSON.parse(localStorage.getItem("hubCamRot") || "{}");
+        m[k] = a; localStorage.setItem("hubCamRot", JSON.stringify(m));
+      } catch {}
+    }
+
     // The live stream + its can't-reach fallback. A board is reachable only
     // from the hub's own Wi-Fi, so a failure here is a network location problem,
     // not a broken rover — say which.
@@ -4697,7 +4723,30 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       pop.className = "cam-popout";
       pop.href = streamUrl; pop.target = "_blank"; pop.rel = "noopener";
       pop.textContent = "Open the stream in its own tab ↗";
-      wrap.append(img, pop);
+      // Rotate the view for a camera mounted any way up. Cycles 0→90→180→270 as
+      // a view-only CSS transform on the wrap (the board streams the same bytes),
+      // remembered per board. Neutral .link-btn weight, paired with the popout in
+      // one control row under the frame.
+      const rotKey = board || id;
+      let rot = getCamRot(rotKey);
+      const rotBtn = document.createElement("button");
+      rotBtn.type = "button";
+      rotBtn.className = "link-btn cam-rotate";
+      rotBtn.innerHTML = `<span aria-hidden="true">↻</span> Rotate`;
+      const applyRot = () => {
+        wrap.dataset.rot = String(rot);
+        rotBtn.setAttribute("aria-label", `Rotate camera view (currently ${rot}°)`);
+      };
+      rotBtn.addEventListener("click", () => {
+        rot = (rot + 90) % 360;
+        setCamRot(rotKey, rot);
+        applyRot();
+      });
+      const foot = document.createElement("div");
+      foot.className = "cam-controls";
+      foot.append(rotBtn, pop);
+      wrap.append(img, foot);
+      applyRot();
       return wrap;
     }
     function openConfig(id, ip, board) {
