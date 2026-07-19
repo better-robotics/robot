@@ -40,6 +40,26 @@ void test_robot_id_format(void) {
     TEST_ASSERT_EQUAL_STRING("rover-0d08", id);
 }
 
+// Host discriminator: OUR origins (IP literal / *.local / bare / empty) are
+// local; a public dotted name is a probe (→ /welcome) or a rebind (→ 403).
+void test_host_local(void) {
+    TEST_ASSERT_TRUE (rover_host_is_local("192.168.99.1"));      // AP IP
+    TEST_ASSERT_TRUE (rover_host_is_local("192.168.99.1:80"));   // IP with port
+    TEST_ASSERT_TRUE (rover_host_is_local("rover-a044.local"));  // mDNS
+    TEST_ASSERT_TRUE (rover_host_is_local("rover.local"));       // mDNS alias
+    TEST_ASSERT_TRUE (rover_host_is_local("ROVER.LOCAL"));       // case-insensitive
+    TEST_ASSERT_TRUE (rover_host_is_local("hub"));               // bare single label
+    TEST_ASSERT_TRUE (rover_host_is_local(""));                  // no Host
+    TEST_ASSERT_TRUE (rover_host_is_local(NULL));
+}
+void test_host_foreign(void) {
+    TEST_ASSERT_FALSE(rover_host_is_local("captive.apple.com"));      // Apple probe
+    TEST_ASSERT_FALSE(rover_host_is_local("connectivitycheck.gstatic.com"));
+    TEST_ASSERT_FALSE(rover_host_is_local("attacker.com"));           // rebind pivot
+    TEST_ASSERT_FALSE(rover_host_is_local("evil.local.attacker.com")); // .local not the suffix
+    TEST_ASSERT_FALSE(rover_host_is_local("localhost.evil.com"));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_valid_locator);
@@ -54,5 +74,7 @@ int main(void) {
     RUN_TEST(test_admits_unpinned);
     RUN_TEST(test_admits_pinned);
     RUN_TEST(test_robot_id_format);
+    RUN_TEST(test_host_local);
+    RUN_TEST(test_host_foreign);
     return UNITY_END();
 }

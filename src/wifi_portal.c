@@ -34,6 +34,7 @@
 #include "cJSON.h"          /* /wifi/connect speaks hubd's JSON dialect */
 #include "roles.h"          /* board_ap_t, board_wifi_scan */
 #include "rover_config.h"   /* rover_config_set_wifi, rover_config_load */
+#include "provisioning_util.h" /* rover_host_is_local — captive 404 + rebind guard */
 #include "wifi_portal.h"
 #include "dns_server.h"     /* wildcard :53 responder — makes the OS captive-portal
                              * probes below actually get dialed against this board */
@@ -564,8 +565,28 @@ static void read_form_body(httpd_req_t *req, char *buf, size_t cap)
     buf[total] = 0;
 }
 
+/* DNS-rebinding guard for state-changing POSTs. Our wildcard responder answers
+ * every name with the AP IP, so a page a joined victim loads from a public site
+ * can resolve that site to us and script a POST at our config endpoints. Only an
+ * request whose Host is one of our own origins may reconfigure the board; a
+ * public Host is a rebind → 403. Reuses the captive 404's discriminator, so the
+ * two can't disagree. Returns true when it has already answered (caller returns
+ * immediately). */
+static bool reject_cross_origin(httpd_req_t *req)
+{
+    char host[64] = "";
+    httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
+    if (rover_host_is_local(host)) return false;
+    ESP_LOGW(TAG, "cross-origin POST %s (Host: %s) refused — DNS-rebind guard", req->uri, host);
+    httpd_resp_set_status(req, "403 Forbidden");
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "cross-origin request refused");
+    return true;
+}
+
 static esp_err_t save_post(httpd_req_t *req)
 {
+    if (reject_cross_origin(req)) return ESP_OK;
     char body[256];
     read_form_body(req, body, sizeof body);
 
@@ -599,6 +620,7 @@ static esp_err_t save_post(httpd_req_t *req)
  * no venue/home network configured — a fresh island, same as never-provisioned. */
 static esp_err_t forget_post(httpd_req_t *req)
 {
+    if (reject_cross_origin(req)) return ESP_OK;
     esp_err_t e = rover_config_clear_wifi();
     if (e != ESP_OK) {
         ESP_LOGE(TAG, "rover_config_clear_wifi failed: %s", esp_err_to_name(e));
@@ -625,6 +647,7 @@ static esp_err_t forget_post(httpd_req_t *req)
  * and rebooted into. */
 static esp_err_t connect_post(httpd_req_t *req)
 {
+    if (reject_cross_origin(req)) return ESP_OK;
     char body[256];
     read_form_body(req, body, sizeof body);   /* raw body reader, despite the name */
 
@@ -702,6 +725,7 @@ static esp_err_t role_get(httpd_req_t *req)
 
 static esp_err_t role_post(httpd_req_t *req)
 {
+    if (reject_cross_origin(req)) return ESP_OK;
     char body[64];
     read_form_body(req, body, sizeof body);
 
@@ -740,6 +764,7 @@ static esp_err_t role_post(httpd_req_t *req)
  * Never echoes the stored value back: the page can set it, not read it. */
 static esp_err_t instructor_post(httpd_req_t *req)
 {
+    if (reject_cross_origin(req)) return ESP_OK;
     char body[128];
     read_form_body(req, body, sizeof body);
     char pass[80];
@@ -1124,14 +1149,7 @@ static esp_err_t not_found_handler(httpd_req_t *req, httpd_err_code_t err)
     (void)err;
     char host[64] = "";
     httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
-    bool dotted = false, ip_literal = true;
-    for (const char *p = host; *p; p++) {
-        if (*p == '.') dotted = true;
-        if ((*p < '0' || *p > '9') && *p != '.' && *p != ':') ip_literal = false;
-    }
-    size_t hl = strlen(host);
-    bool local = hl >= 6 && strcasecmp(host + hl - 6, ".local") == 0;
-    if (!dotted || ip_literal || local) {
+    if (rover_host_is_local(host)) {   /* our own name → honest 404, not a probe */
         httpd_resp_set_status(req, "404 Not Found");
         httpd_resp_set_type(req, "text/plain");
         return httpd_resp_sendstr(req, "not found");

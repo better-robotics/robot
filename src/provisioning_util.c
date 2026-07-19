@@ -39,3 +39,26 @@ bool rover_hub_admits(const char *ssid, const char *pin) {
         return false;
     return !pin || !pin[0] || strcmp(ssid, pin) == 0;
 }
+
+bool rover_host_is_local(const char *host) {
+    if (!host || !host[0]) return true;         /* no Host → ours (a rebind names a host) */
+    bool dotted = false, ip_literal = true;
+    for (const char *p = host; *p; p++) {
+        if (*p == '.') dotted = true;
+        if ((*p < '0' || *p > '9') && *p != '.' && *p != ':') ip_literal = false;
+    }
+    if (!dotted || ip_literal) return true;     /* bare label, or a v4/v6 literal */
+    size_t hl = strlen(host);                   /* case-insensitive ".local" suffix */
+    if (hl >= 6) {
+        static const char suf[6] = { '.', 'l', 'o', 'c', 'a', 'l' };
+        const char *s = host + hl - 6;
+        bool ok = true;
+        for (int i = 0; i < 6; i++) {
+            char c = s[i];
+            if (c >= 'A' && c <= 'Z') c += 32;
+            if (c != suf[i]) { ok = false; break; }
+        }
+        if (ok) return true;
+    }
+    return false;                               /* a public dotted name — not ours */
+}
