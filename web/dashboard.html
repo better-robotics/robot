@@ -872,8 +872,8 @@
     #details-age { color: var(--ink-faint); font-size: 0.85rem; font-weight: 400; }
     /* Segmented control (iOS): a pill track holding equal segments, the selected
        one raised on an elevated thumb. Here it switches the drive input between
-       an analog joystick and a discrete D-pad — the D-pad is the one-handed
-       phone path where dragging a stick is awkward. */
+       the analog joystick, the discrete D-pad (the one-handed phone path where
+       dragging a stick is awkward), and tilt steering (phones only). */
     .segmented {
       display: inline-flex; gap: 2px; padding: 2px; margin-bottom: 1rem;
       background: var(--inset); border-radius: var(--radius); border: 0.5px solid var(--border-default);
@@ -910,7 +910,14 @@
     /* One input at a time (joystick OR d-pad), so the grid is just a centering
        wrapper now that live-status no longer rides beside it. */
     .drive-grid { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); }
-    #joystick-wrap, #dpad-wrap { display: none; text-align: center; }
+    #joystick-wrap, #dpad-wrap, #tilt-wrap { display: none; text-align: center; }
+    /* Tilt mode is a phone posture: no IMU rolls on a desk, so the segment
+       only exists where the pointer says handheld (the HIG coarse gate the
+       44pt rule already uses). JS mirrors this — a stored "tilt" preference
+       falls back to joystick on a fine-pointer machine, or the control would
+       point at a hidden segment. */
+    #drive-mode button[data-mode="tilt"] { display: none; }
+    @media (pointer: coarse) { #drive-mode button[data-mode="tilt"] { display: revert; } }
     .stick-pad {
       position: relative; width: 11rem; height: 11rem; margin: 0 auto;
       border-radius: 50%; background: var(--inset); border: 0.5px solid var(--border-default);
@@ -939,10 +946,35 @@
     .dpad .stop  { grid-column: 2; grid-row: 2; font-size: var(--fs-body); color: var(--ink-muted); }
     .dpad .right { grid-column: 3; grid-row: 2; }
     .dpad .down  { grid-column: 2; grid-row: 3; }
-    #motor-readout, #dpad-readout {
+    #motor-readout, #dpad-readout, #tilt-readout {
       margin-top: 0.85rem; font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
       font-size: 0.78rem; color: var(--ink-faint);
     }
+    /* Tilt steering read-back: fill grows from the bar's center toward the
+       tilt; the green band behind it is the dead zone (its width is set from
+       the same JS constants that define the zone, so the visual can't drift
+       from the behavior). */
+    .tilt-bar {
+      position: relative; height: 0.75rem; margin: 0.85rem auto; max-width: 16rem;
+      background: var(--inset); border: 0.5px solid var(--border-default);
+      border-radius: 999px; overflow: hidden;
+    }
+    .tilt-neutral {
+      position: absolute; top: 0; left: 50%; transform: translateX(-50%); height: 100%;
+      background: color-mix(in srgb, var(--success) 35%, transparent);
+    }
+    .tilt-fill { position: absolute; top: 0; height: 100%; background: var(--accent);
+      transition: left 60ms linear, width 60ms linear; }
+    /* Pedals: reverse left, forward right — the controller-grip order (right
+       thumb = go), sized to the D-pad tile so the two modes feel like one
+       family. touch-action:none for the same reason as the stick pad: a held
+       pedal must never turn into a scroll. */
+    .tilt-pedals { display: flex; gap: 0.85rem; justify-content: center; }
+    .tilt-pedal {
+      flex: 1; max-width: 11rem; min-height: 3.5rem; touch-action: none;
+      font-weight: 600;
+    }
+    .tilt-pedal.pressed { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
     /* Wire log header: names the teaching surface and keys its arrows.
        Wraps: at 320px a 9rem robot filter plus both buttons outgrow the row
        (pre-existing overflow, surfaced by long robot names). */
@@ -1657,6 +1689,8 @@
       <div class="segmented" id="drive-mode" role="group" aria-label="Drive input mode">
         <button data-mode="joystick" aria-pressed="true">Joystick</button>
         <button data-mode="dpad" aria-pressed="false">Buttons</button>
+        <!-- Coarse-pointer only (CSS): a desk machine has no IMU to roll. -->
+        <button data-mode="tilt" aria-pressed="false">Tilt</button>
       </div>
       <div class="drive-grid">
         <div class="drive-input">
@@ -1678,6 +1712,25 @@
               <button class="dpad-btn down"  data-drive="back"  aria-label="Reverse">▼</button>
             </div>
             <div id="dpad-readout">hold a direction to drive</div>
+          </div>
+          <!-- Tilt: phone-as-steering-wheel. Rolling the phone steers; the two
+               hold-pedals are the throttle. The bar mirrors the steering read
+               back (fill grows from center toward the tilt; the green band is
+               the dead zone where the rover keeps going straight). -->
+          <div id="tilt-wrap">
+            <div class="tilt-bar" aria-hidden="true">
+              <div class="tilt-neutral"></div>
+              <div class="tilt-fill" id="tilt-fill"></div>
+            </div>
+            <div class="tilt-pedals">
+              <button class="tilt-pedal" data-tilt="-1" aria-label="Reverse — hold to drive">▼ Reverse</button>
+              <button class="tilt-pedal" data-tilt="1" aria-label="Forward — hold to drive">▲ Forward</button>
+            </div>
+            <!-- iOS 13+ gates DeviceOrientationEvent behind a user-gesture
+                 permission prompt; this button IS that gesture. Everyone else
+                 never sees it. -->
+            <button id="tilt-permission" hidden>Allow motion sensors</button>
+            <div id="tilt-readout">roll the phone to steer · hold a pedal to go</div>
           </div>
         </div>
       </div>
@@ -2799,7 +2852,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // "Code" input is `username:password` (instructor's username is always
     // "instructor"; a robot's username is always its own name) — see
     // classroom.example.json5.
-    let driveClient = null, myScope = null, target = null, targetBoard = null, dragging = false, lastSend = 0;
+    let driveClient = null, myScope = null, target = null, targetBoard = null, lastSend = 0;
     const MAX_LOG = 60;
     // The bus's pulse, over a SLIDING window. Ingest TIMESTAMPS, not a count:
     // pushed before the beacon/rover filters so the rate is the BUS's, not the
@@ -3664,9 +3717,14 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
              : document.getElementById(`p-${storedPanel}`) ? storedPanel : "fleet");
     setRail(localStorage.getItem("hubRailCollapsed") === "true");
     // Drive input mode — the segmented control switches between the analog
-    // joystick and the discrete D-pad. Only reveal an input once a target is
-    // chosen (instructor "all" scope hasn't picked a robot before then).
+    // joystick, the discrete D-pad, and tilt steering. Only reveal an input
+    // once a target is chosen (instructor "all" scope hasn't picked a robot
+    // before then).
     let driveMode = localStorage.getItem("hubDriveMode") || "joystick";
+    // A phone's stored "tilt" must not follow the account to a desk machine:
+    // the segment is display:none there (no IMU), so the mode would select a
+    // control the user can't see or leave.
+    if (driveMode === "tilt" && !matchMedia("(pointer: coarse)").matches) driveMode = "joystick";
     function applyDriveMode() {
       const ready = !!target;
       for (const b of document.querySelectorAll("#drive-mode button"))
@@ -3674,13 +3732,15 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       document.getElementById("drive-mode").style.display    = ready ? "" : "none"; // inert before a target exists
       document.getElementById("joystick-wrap").style.display = ready && driveMode === "joystick" ? "block" : "none";
       document.getElementById("dpad-wrap").style.display     = ready && driveMode === "dpad"     ? "block" : "none";
+      document.getElementById("tilt-wrap").style.display     = ready && driveMode === "tilt"     ? "block" : "none";
+      syncTilt(ready && driveMode === "tilt");  // orientation listener runs only while Tilt is showing
     }
     document.getElementById("drive-mode").addEventListener("click", (e) => {
       const seg = e.target.closest("button[data-mode]");
       if (!seg) return;
       driveMode = seg.dataset.mode;
       localStorage.setItem("hubDriveMode", driveMode);
-      stopStick();        // releasing the old input must not leave motors latched
+      stopStick(); dpadStop(); tiltStop();  // releasing the old input must not leave motors latched
       applyDriveMode();
     });
 
@@ -4667,9 +4727,9 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // #drive-panel moved out of its hidden store (#drive-store) — the button
     // IS the target, so there's no picker to sync. Closing it — the ✕, the
     // backdrop, Escape, or another modal taking over — must not leave motors
-    // running: a held joystick drag or D-pad button doesn't get a pointerup
-    // just because the sheet went away, so both stops are called unconditionally
-    // (each is a no-op if that input wasn't engaged).
+    // running: a held joystick drag, D-pad button, or tilt pedal doesn't get a
+    // pointerup just because the sheet went away, so all three stops are called
+    // unconditionally (each is a no-op if that input wasn't engaged).
     function openDrive(robot, board) {
       selectTarget(robot, board);
       const panel = document.getElementById("drive-panel");
@@ -4682,7 +4742,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       if (rec?.sys?.cam && rec.sys.ip) camHost.appendChild(driveCam(robot, board, rec.sys.ip));
       openModal(`${board || robot} — drive`, panel);
       modalRestore = () => {
-        stopStick(); dpadStop();
+        stopStick(); dpadStop(); tiltStop();   // before target clears, so the stop frames still publish
         document.getElementById("drive-cam").textContent = "";   // end the stream
         target = null; targetBoard = null;
         applyDriveMode();
@@ -4860,13 +4920,30 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     const readout = document.getElementById("motor-readout");
     const STICK_PX = 44; // knob travel radius, px — half the pad's inner radius
 
+    // Differential mix, (throttle, turn) → {left, right}, operator-perspective:
+    // when reversing, "right" still means "the robot ends up to MY right." Raw
+    // tank-drive math (L = throttle + turn) keeps "left motor faster" in the
+    // robot's body frame, which from outside the robot inverts the turn while
+    // backing up — push the stick bottom-right and the rover swings LEFT. Every
+    // RC car and driving game flips the sign on reverse; so do we.
+    // The deadband exists BECAUSE of that flip: WPILib's arcadeDrive documents
+    // the zero-throttle discontinuity — sensor noise flickering throttle across
+    // 0 makes the turn direction alternate frame to frame. Snapping the band to
+    // exactly 0 kills the flicker (and the L/R asymmetry during a pure spin).
+    const THROTTLE_DEADBAND = 26; // ~10% of full scale
+    function mixDrive(throttle, turn) {
+      const c = (v) => Math.max(-255, Math.min(255, Math.round(v)));
+      if (Math.abs(throttle) < THROTTLE_DEADBAND) throttle = 0;
+      if (throttle < 0) turn = -turn;
+      return { left: c(throttle + turn), right: c(throttle - turn) };
+    }
+
     function drawStick(x, y) {
       knob.style.transform = `translate(${x * STICK_PX}px, ${-y * STICK_PX}px)`;
-      const left = Math.max(-255, Math.min(255, (y + x) * 255));
-      const right = Math.max(-255, Math.min(255, (y - x) * 255));
+      const m = mixDrive(y * 255, x * 255);
       readout.textContent =
-        `stick (${x.toFixed(2)}, ${y.toFixed(2)}) → left=${Math.round(left)} right=${Math.round(right)}`;
-      return { left, right };
+        `stick (${x.toFixed(2)}, ${y.toFixed(2)}) → left=${m.left} right=${m.right}`;
+      return m;
     }
 
     // The pad's geometry, captured at pointerdown. This USED to be a
@@ -4913,20 +4990,45 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       sendPwm(drawStick(0, 0));
     }
 
+    // Window-attached move/up instead of setPointerCapture — the nipplejs
+    // pattern (github.com/yoannmoinet/nipplejs): iOS Safari and mobile Chrome
+    // can silently drop an element's capture mid-drag (system gestures,
+    // capacitive dropouts), and a drag whose release lands outside the pad
+    // then never stops the motors. The window sees the release regardless.
+    // Moves are RAF-coalesced: 120 Hz pointer bursts collapse to one
+    // knob-paint per frame (maybeSend already rate-limits the network side).
+    let stickRaf = null, stickXY = null;
+    const stickMove = (e) => {
+      if (e.pointerId !== stickPointerId) return;
+      e.preventDefault();
+      stickXY = [e.clientX, e.clientY];
+      if (stickRaf) return;
+      stickRaf = requestAnimationFrame(() => {
+        stickRaf = null;
+        if (stickXY && stickPointerId !== null) maybeSend(stickFromPointer(...stickXY));
+      });
+    };
+    const stickRelease = (e) => {
+      if (e.pointerId !== stickPointerId) return;
+      stickPointerId = null; padRect = null;
+      if (stickRaf) { cancelAnimationFrame(stickRaf); stickRaf = null; }
+      window.removeEventListener("pointermove", stickMove);
+      window.removeEventListener("pointerup", stickRelease);
+      window.removeEventListener("pointercancel", stickRelease);
+      stopStick();
+    };
+    let stickPointerId = null;
     pad.addEventListener("pointerdown", (e) => {
-      pad.setPointerCapture(e.pointerId);
-      dragging = true;
+      if (stickPointerId !== null) return;    // one finger owns the stick
+      e.preventDefault();
+      stickPointerId = e.pointerId;
       padRect = pad.getBoundingClientRect();   // once per drag, not per move
       const m = stickFromPointer(e.clientX, e.clientY);
       sendPwm(m); stickAlive(m);
+      window.addEventListener("pointermove", stickMove);
+      window.addEventListener("pointerup", stickRelease);
+      window.addEventListener("pointercancel", stickRelease);
     });
-    pad.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      maybeSend(stickFromPointer(e.clientX, e.clientY));
-    });
-    ["pointerup", "pointercancel", "pointerleave"].forEach((evt) =>
-      pad.addEventListener(evt, () => { if (dragging) { dragging = false; padRect = null; stopStick(); } })
-    );
     // Keyboard alternative — arrow keys nudge the stick; releasing them (or
     // Space/Escape) stops. A drive control with no stop key is a safety bug,
     // not a nicety: the only other outs were Tab-away or the firmware watchdog.
@@ -5008,6 +5110,145 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     });
     dpad.addEventListener("keyup", (e) => {
       if (e.target.closest("button[data-drive]") && (e.key === "Enter" || e.key === " ")) dpadStop();
+    });
+
+    // ---- Tilt: phone-as-steering-wheel (the "Tilt" mode). Rolling the phone
+    // sets the turn rate; the pedals are the throttle — hold to go, release to
+    // stop. Same sendPwm + 120 ms keep-alive contract as the stick and D-pad. ----
+    const TILT_DEADZONE_DEG = 8;    // IMU noise floor + hand tremor + relaxed-grip drift
+    const TILT_SATURATION_DEG = 35; // ±35° = full turn rate; beyond clips
+    const TILT_THROTTLE = 150;      // pedal-held magnitude (~60% of full — classroom pace)
+    const TILT_TURN_RATIO = 0.7;    // comfortable arc at speed, not pivot-in-place
+    // iOS Safari can preempt a touch during hard tilts (system gestures,
+    // capacitive dropouts). A release re-pressed within this grace was never a
+    // release — the mobile-racing-game filter for glitchy pointerups.
+    const TILT_RELEASE_GRACE_MS = 80;
+    let tiltGamma = 0, tiltBeta = 0;   // device-frame roll / pitch, latest event
+    let tiltPedal = 0;                 // +1 forward held, -1 reverse held, 0 released
+    let tiltTimer = null, tiltGrace = null, tiltSensorOn = false, tiltGranted = false;
+
+    // DeviceOrientation axes are device-frame, not screen-frame: which axis
+    // means "rolled toward the screen's right edge" depends on how the phone
+    // is held. Remap via screen.orientation so steering survives rotation —
+    // positive always = turn right.
+    function tiltSteerDeg() {
+      const a = ((screen.orientation?.angle ?? 0) % 360 + 360) % 360;
+      if (a === 90)  return tiltBeta;
+      if (a === 270) return -tiltBeta;
+      if (a === 180) return -tiltGamma;
+      return tiltGamma;
+    }
+    function tiltMotors() {
+      let g = tiltSteerDeg();
+      if (Math.abs(g) < TILT_DEADZONE_DEG) g = 0;
+      g = Math.max(-TILT_SATURATION_DEG, Math.min(TILT_SATURATION_DEG, g));
+      return mixDrive(tiltPedal * TILT_THROTTLE,
+                      (g / TILT_SATURATION_DEG) * TILT_THROTTLE * TILT_TURN_RATIO);
+    }
+    function tiltIndicator() {
+      const steer = tiltSteerDeg();
+      const pct = Math.max(-1, Math.min(1, steer / TILT_SATURATION_DEG));
+      const fill = document.getElementById("tilt-fill");
+      fill.style.left = pct < 0 ? `${50 + pct * 50}%` : "50%";   // grow from center toward the tilt
+      fill.style.width = `${Math.abs(pct) * 50}%`;
+      document.getElementById("tilt-readout").textContent =
+        Math.abs(steer) < TILT_DEADZONE_DEG
+          ? (tiltPedal === 0 ? "roll the phone to steer · hold a pedal to go" : "going straight")
+          : `${steer > 0 ? "→ right" : "← left"} ${Math.round(Math.abs(steer))}°`;
+    }
+    function tiltOrient(e) {
+      if (typeof e.gamma === "number") tiltGamma = e.gamma;
+      if (typeof e.beta  === "number") tiltBeta  = e.beta;
+      tiltIndicator();
+    }
+    function tiltGo(dir) {
+      tiltPedal = dir;
+      for (const b of document.querySelectorAll(".tilt-pedal"))
+        b.classList.toggle("pressed", Number(b.dataset.tilt) === dir);
+      sendPwm(tiltMotors());
+      if (tiltTimer) clearInterval(tiltTimer);
+      tiltTimer = setInterval(() => sendPwm(tiltMotors()), 120);  // keep-alive vs the 200 ms watchdog
+    }
+    function tiltStop() {
+      if (tiltGrace) { clearTimeout(tiltGrace); tiltGrace = null; }
+      tiltPedal = 0;
+      if (!tiltTimer) return;             // same idle-page guard as dpadStop
+      clearInterval(tiltTimer); tiltTimer = null;
+      sendPwm({ left: 0, right: 0 });
+      for (const b of document.querySelectorAll(".tilt-pedal")) b.classList.remove("pressed");
+    }
+    // Sensor lifecycle rides the mode — applyDriveMode calls this with "is the
+    // tilt input showing." iOS 13+ gates orientation events behind a
+    // user-gesture requestPermission(); the button exists only on that path,
+    // and only until granted (elsewhere addEventListener just works).
+    function syncTilt(active) {
+      const needsPrompt = active && !tiltGranted
+        && typeof window.DeviceOrientationEvent?.requestPermission === "function";
+      document.getElementById("tilt-permission").hidden = !needsPrompt;
+      const listen = active && !needsPrompt;
+      if (listen && !tiltSensorOn) {
+        window.addEventListener("deviceorientation", tiltOrient, { passive: true });
+        tiltSensorOn = true;
+        // The dead-zone band derives from the same constants as the behavior,
+        // so tuning one can't silently desync the visual from the robot.
+        document.querySelector(".tilt-neutral").style.width =
+          `${(TILT_DEADZONE_DEG / TILT_SATURATION_DEG) * 100}%`;
+      } else if (!listen && tiltSensorOn) {
+        window.removeEventListener("deviceorientation", tiltOrient);
+        tiltSensorOn = false;
+        tiltGamma = tiltBeta = 0;
+      }
+      if (!active) tiltStop();
+    }
+    document.getElementById("tilt-permission").addEventListener("click", async () => {
+      try { tiltGranted = (await DeviceOrientationEvent.requestPermission()) === "granted"; }
+      catch { tiltGranted = false; }
+      applyDriveMode();   // re-run the lifecycle with the verdict
+    });
+    // Pedals: hold-to-drive with window-level release (same reasoning as the
+    // stick's window listeners — iOS can lose the element's pointer mid-tilt)
+    // plus the grace-period stop above. Keyboard parity mirrors the D-pad.
+    for (const btn of document.querySelectorAll(".tilt-pedal")) {
+      const dir = Number(btn.dataset.tilt);
+      let pid = null;
+      const release = (e) => {
+        if (e.pointerId !== pid) return;
+        pid = null;
+        window.removeEventListener("pointerup", release);
+        window.removeEventListener("pointercancel", release);
+        if (tiltGrace) clearTimeout(tiltGrace);
+        tiltGrace = setTimeout(() => {
+          tiltGrace = null;
+          if (tiltPedal === dir) tiltStop();
+        }, TILT_RELEASE_GRACE_MS);
+      };
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        if (tiltGrace) { clearTimeout(tiltGrace); tiltGrace = null; }  // re-press inside the grace = never released
+        pid = e.pointerId;
+        tiltGo(dir);
+        window.addEventListener("pointerup", release);
+        window.addEventListener("pointercancel", release);
+      });
+      btn.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        if (!e.repeat) tiltGo(dir);
+      });
+      btn.addEventListener("keyup", (e) => {
+        if (e.key === "Enter" || e.key === " ") tiltStop();
+      });
+    }
+
+    // A hidden tab throttles intervals to ~1/s — which doesn't stop a held
+    // drive, it re-arms the 200 ms firmware watchdog once a second and the
+    // rover STUTTERS forward while nobody is watching it. Stop everything the
+    // moment the page loses visibility; each stop is a no-op when its input
+    // isn't engaged, so an idle backgrounded page publishes nothing.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) return;
+      if (stickTimer) stopStick();
+      dpadStop(); tiltStop();
     });
 
     // ---- Instructor unlock shortcuts, tried in order of intent strength ----
