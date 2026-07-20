@@ -1493,22 +1493,24 @@
   <div id="robots"></div>
       </section>
 
-      <!-- Code: the ide bundle hubd already serves at /ide/ (blocks-first
-           Python; see CLAUDE.md). Same origin, same broker, so it rides in the
-           shell instead of being a tab you leave for. The frame is created on
-           first visit only — a Blockly + MicroPython-WASM boot is not something
-           to pay for on a dashboard that may never open this panel. -->
+      <!-- Code: the hub's own /ide/ (blocks-first Python; see CLAUDE.md) —
+           the full bundle from a Pi's hubd, or the ESP32 firmware's 2 KB
+           loader shell that pulls the same editor from the ide repo's Pages
+           deploy at runtime. Same origin, same broker either way, so it
+           rides in the shell instead of being a tab you leave for. The frame
+           is created on first visit only — a Blockly + MicroPython-WASM boot
+           is not something to pay for on a dashboard that may never open
+           this panel. -->
       <section class="panel" id="p-code" hidden>
         <div class="panel-head"><h2>Code</h2>
           <span class="hint">snap blocks together, watch the Python appear &#8212; it runs in this tab and drives a real rover</span>
           <span class="spacer"></span>
           <a id="ide-pop" class="link-btn" href="/ide/" target="_blank" rel="noopener">Open in a tab &#8599;</a>
         </div>
-        <!-- Names no cause: the two hubs are missing the editor for unrelated
-             reasons (a Pi with an empty HUB_IDE_DIR; an ESP32 hub, which never
-             carries the bundle at all — it is 619 KB and the chip has 4 MB).
-             Naming a Pi env var here read as a misconfiguration to a student on
-             a rover that is working exactly as designed. -->
+        <!-- Names no cause: hubs 404 this for unrelated reasons (a Pi with an
+             empty HUB_IDE_DIR; an ESP32 image from before the loader shell).
+             Naming a Pi env var here read as a misconfiguration to a student
+             on a rover that is working exactly as designed. -->
         <div id="ide-host"><p class="hint" id="ide-missing" hidden>No code editor on this hub. Everything else on this dashboard works without it.</p></div>
       </section>
 
@@ -3241,8 +3243,14 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         document.getElementById("ide-missing").hidden = false;
         // The pop-out lives in the panel head, outside #ide-host, so the hint
         // above does not replace it — it would sit there offering a tab onto
-        // the same 404 the frame was just spared. Every ESP32 hub takes this
-        // path by design, so it is the common case, not a misconfiguration.
+        // the same 404 the frame was just spared. Reached by a Pi with an
+        // empty HUB_IDE_DIR or a pre-shell ESP32 image; since 2026-07-20 an
+        // ESP32 hub answers /ide/ with its loader shell (robot repo,
+        // web/ide_shell.html — fetches the editor from the ide repo's Pages
+        // deploy at runtime), so "no editor at all" stopped being that
+        // tier's designed state. Offline it frames the shell's own "needs
+        // the internet" note instead of this hint — the probe can't tell
+        // those apart, and shouldn't: the shell's message names the remedy.
         document.getElementById("ide-pop").hidden = true;
         return;
       }

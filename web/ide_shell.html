@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- The ESP32-hub loader shell — served by the hub-role firmware at /ide/
+     (better-robotics/robot vendors this file; tools/sync-ide-shell.sh).
+
+     WHY THIS EXISTS: the full bundle (619 KB gzipped) was dropped from the
+     firmware so two A/B OTA slots fit its 4 MB flash, and a student can't
+     just open the GitHub
+     Pages copy instead — an https page may not open ws:// (mixed content),
+     and a hub has no CA-signed cert for an mDNS name, so wss:// can never
+     exist. But mixed-content blocking keys on the DOCUMENT's scheme, not on
+     where its subresources come from: an http:// page may load https://
+     scripts (upgrade direction) AND open ws:// sockets. So the chip serves
+     only this stub; the student's browser — which has the TLS stack and cert
+     store the firmware lacks — fetches the real app from Pages and runs it
+     under this http origin, where ws://<hub>:9001 is still allowed.
+
+     WHY document.write AND NOT A MARKUP COPY: app.js expects index.html's
+     exact DOM, and firmware updates ride rare OTA pushes while Pages updates
+     every push — a copied markup skeleton would drift into a broken editor.
+     Fetching index.html live and document.write()-ing it keeps markup and
+     app atomically consistent (they ship together on Pages), executes the
+     scripts in parser order (the UMD-before-AMD ordering index.html needs),
+     and document.open() preserves this page's URL — so location.hostname
+     still names the hub and app.js auto-connects, same as when hubd serves
+     the real thing. The injected <base> is what points every relative
+     subresource at Pages instead of the chip.
+
+     Offline is the designed failure: an island hub with no uplink shows the
+     message below instead of an editor — the dashboard's Code panel frames
+     this page, so the message is what the student sees there. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ide — better-robotics</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<style>
+  /* Matches the dashboard's inset panel it gets framed into — a white flash
+     inside a dark iframe reads as a crash. */
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+         background: #2a3037; color: #e6e8ea;
+         font: 0.95rem/1.5 -apple-system, system-ui, sans-serif; }
+  p { max-width: 34rem; padding: 0 1.25rem; text-align: center; }
+  button { font: inherit; padding: 0.4rem 1rem; }
+</style>
+</head>
+<body>
+<p id="msg">Loading the code editor…</p>
+<script>
+(async () => {
+  const BASE = "https://better-robotics.github.io/ide/";
+  const fail = (why) => {
+    document.getElementById("msg").innerHTML =
+      "The code editor loads from the internet, and this hub can’t reach it right now" +
+      " (" + why + "). Everything else on the dashboard works without it. " +
+      "<br><br><button onclick=\"location.reload()\">Try again</button>";
+  };
+  try {
+    const r = await fetch(BASE, { signal: AbortSignal.timeout(15000) });
+    if (!r.ok) return fail("HTTP " + r.status);
+    let html = await r.text();
+    html = html.replace(/<head[^>]*>/i, (m) => m + '<base href="' + BASE + '">');
+    // Belt-and-braces: if index.html's <head> ever stops matching, a doctype-
+    // side injection still lands the base tag (parser hoists it into head).
+    if (!html.includes("<base")) html = html.replace(/^\s*<!doctype[^>]*>/i, (m) => m + '<base href="' + BASE + '">');
+    document.open();
+    document.write(html);
+    document.close();
+  } catch (e) {
+    fail(e.name === "TimeoutError" ? "timed out" : "no route");
+  }
+})();
+</script>
+</body>
+</html>

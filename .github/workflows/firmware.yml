@@ -51,6 +51,15 @@ jobs:
           path: .hub
       - name: The vendored dashboard is byte-identical to hub's canonical copy
         run: HUB_REPO="$PWD/.hub" tools/sync-dashboard.sh --check
+      # Same seam again for the IDE loader shell: canonical in
+      # better-robotics/ide (beside the app whose CORS/markup contract it
+      # leans on), vendored here as web/ide_shell.html, served at /ide/.
+      - uses: actions/checkout@v4
+        with:
+          repository: better-robotics/ide
+          path: .ide
+      - name: The vendored IDE shell is byte-identical to ide's canonical copy
+        run: IDE_REPO="$PWD/.ide" tools/sync-ide-shell.sh --check
       # Same seam, the other shared surface: the captive probe handlers must
       # register exactly the probe paths in hub's CONTRACT.md § Captive
       # onboarding and serve each genuine-success body byte-for-byte. Catches a

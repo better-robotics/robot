@@ -239,11 +239,11 @@ static esp_err_t ws_handler(httpd_req_t *req)
 /* The real dashboard.html (mqtt.js inlined), embedded so the ESP32 serves the
  * whole UI itself — no Pi, no separate web host. Browser loads it at "/"
  * (served mode → connects ws to "/" = the bridge above). Compiled in as a
- * byte array from the generated src/dashboard_html.c (tools/embed_dashboard.py,
+ * byte array from the generated src/dashboard_html.c (tools/embed_web.py,
  * driven by platformio.ini pre-build) rather than an objcopy .S embed, which
  * PlatformIO's build doesn't wire into the link.
  *
- * The array is GZIPPED (see embed_dashboard.py) and shipped straight from
+ * The array is GZIPPED (see embed_web.py) and shipped straight from
  * flash — the browser inflates, the chip never does. dashboard_html_len is
  * therefore the compressed length. */
 extern const unsigned char dashboard_html[];
@@ -261,10 +261,40 @@ static esp_err_t page_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* No /ide/ here — the block IDE is a Pi-hub feature (2026-07-16). This board
- * serves the dashboard only; the dashboard probes GET /ide/, gets the 404 the
- * catch-all gives it, and renders its "no editor on this hub" hint. See
- * CLAUDE.md § "The block IDE is not on this firmware" for why. */
+/* /ide/ is back — as ~2 KB, not the 619 KB bundle that left 2026-07-16 to fit
+ * A/B OTA. web/ide_shell.html (vendored from better-robotics/ide, embedded the
+ * same way as the dashboard above) fetches the full editor from the ide repo's
+ * GitHub Pages deploy AT RUNTIME and document.write()s it under this http://
+ * origin: mixed-content blocking keys on the document's scheme, not on where
+ * its subresources come from, so the page may load https:// assets AND open
+ * ws://<this-board>:9001 — the combination neither the embedded bundle (flash)
+ * nor a direct Pages visit (https can't open ws://) could offer. The student's
+ * browser brings the TLS stack and cert store this firmware deliberately
+ * lacks. Online-only by design: with no uplink the shell shows "the editor
+ * needs the internet" — the dashboard frames /ide/ in its Code panel, so that
+ * message is what a student on an island hub sees there. */
+extern const unsigned char ide_shell_html[];
+extern const unsigned int  ide_shell_html_len;
+
+static esp_err_t ide_shell_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_send(req, (const char *)ide_shell_html, ide_shell_html_len);
+    return ESP_OK;
+}
+
+/* /ide -> /ide/: a typed address should land. (The dashboard's probe and
+ * frame both ask for /ide/ exactly; the shell's <base> injection makes the
+ * trailing slash irrelevant for asset resolution, so this is courtesy, not
+ * correctness.) */
+static esp_err_t ide_redirect_handler(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "301 Moved Permanently");
+    httpd_resp_set_hdr(req, "Location", "/ide/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
 
 /* The dashboard polls /fleet for the uplink pill + rover-setup locator. On the
  * Pi that's hubd; here the same httpd answers it so the real page works
@@ -402,9 +432,16 @@ void start_ws_mqtt_bridge(void)
     if (page_srv) {
         httpd_uri_t page = { .uri = "/", .method = HTTP_GET, .handler = page_handler };
         httpd_uri_t fleet = { .uri = "/fleet", .method = HTTP_GET, .handler = fleet_handler };
+        /* Both exact paths — the shell is ONE file, so the /ide/?* wildcard
+         * (and the uri_match_fn it required) stays gone. Counted against
+         * wifi_portal.c's max_uri_handlers — see its ledger comment. */
+        httpd_uri_t ide = { .uri = "/ide/", .method = HTTP_GET, .handler = ide_shell_handler };
+        httpd_uri_t ide_r = { .uri = "/ide", .method = HTTP_GET, .handler = ide_redirect_handler };
         httpd_register_uri_handler(page_srv, &page);
         httpd_register_uri_handler(page_srv, &fleet);
-        ESP_LOGI(TAG, "dashboard at / on :80 (this board's AP address)");
+        httpd_register_uri_handler(page_srv, &ide);
+        httpd_register_uri_handler(page_srv, &ide_r);
+        ESP_LOGI(TAG, "dashboard at / on :80 (this board's AP address); ide shell at /ide/");
     }
 
     /* Instance 2 — the WS<->TCP bridge, on :9001. */

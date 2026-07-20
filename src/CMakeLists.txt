@@ -2,14 +2,16 @@
 # is the esp-mqtt client + motor drive; the hub role is the on-chip broker + WS
 # bridge (mosquitto + mdns come from idf_component.yml, which auto-adds their
 # REQUIRES). esp_http_server + lwip are the hub role's httpd/bridge deps.
-# dashboard_html.c is GENERATED (tools/embed_dashboard.py, run pre-build via
-# platformio.ini) — the hub role's embedded dashboard as a plain byte array.
-# We compile it as a normal source instead of an objcopy/.S embed because
+# dashboard_html.c and ide_shell_html.c are GENERATED (tools/embed_web.py, run
+# pre-build via platformio.ini) — the hub role's embedded pages as plain byte
+# arrays: the full dashboard, and the ~2 KB IDE loader shell served at /ide/.
+# We compile them as normal sources instead of an objcopy/.S embed because
 # PlatformIO's SCons build doesn't wire a generated .S into the link. The
-# generator writes it from web/dashboard.html (VENDORED, canonical in
-# better-robotics/hub; resync via tools/sync-dashboard.sh).
+# generator writes them from web/ (VENDORED: dashboard.html canonical in
+# better-robotics/hub, ide_shell.html in better-robotics/ide; resync via
+# tools/sync-dashboard.sh / tools/sync-ide-shell.sh).
 idf_component_register(SRCS "main.c" "rover_role.c" "hub_role.c" "ws_mqtt_bridge.c"
-                             "wifi_portal.c" "dns_server.c" "camera.c" "dashboard_html.c"
+                             "wifi_portal.c" "dns_server.c" "camera.c" "dashboard_html.c" "ide_shell_html.c"
                              "device_log.c" "ota_update.c" "provisioning_util.c" "rover_config.c" "captive_nat.c"
                        INCLUDE_DIRS "."
                        REQUIRES nvs_flash esp_wifi esp_netif esp_event esp_timer

@@ -1169,13 +1169,14 @@ void wifi_portal_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = 80;
     cfg.ctrl_port = 32768;
-    /* 5 (was 3, was 7): this handle also serves the dashboard + IDE once
-     * start_ws_mqtt_bridge registers onto it, and the chip-wide LWIP pool
-     * (24, sdkconfig LWIP_MAX_SOCKETS) is shared with mosquitto/rovers/DNS/
-     * mDNS — a 7 budget let one IDE page load starve the broker's accept
-     * loop (2026-07-13), while 3 made Chrome's keep-alive connections 503
-     * the page's own /wifi/status poll (Duke bench 2026-07-14). The IDE
-     * bundle is built to load within this (ide-v7 script concat). */
+    /* 5 (was 3, was 7): this handle also serves the dashboard + the IDE
+     * shell once start_ws_mqtt_bridge registers onto it, and the chip-wide
+     * LWIP pool (24, sdkconfig LWIP_MAX_SOCKETS) is shared with mosquitto/
+     * rovers/DNS/mDNS — a 7 budget let one embedded-IDE page load starve the
+     * broker's accept loop (2026-07-13), while 3 made Chrome's keep-alive
+     * connections 503 the page's own /wifi/status poll (Duke bench
+     * 2026-07-14). The IDE shell keeps this safe by construction: ONE request
+     * hits this chip, every asset after it goes to GitHub Pages. */
     cfg.max_open_sockets = 5;
     /* True peak on THIS shared handle:
      *   /wifi{,/scan,/save,/connect,/forget,/role×2,/status,/instructor}
@@ -1183,17 +1184,18 @@ void wifi_portal_start(void)
      *   + the 4 captive-portal probe paths below
      *   = 17 registered right after this function returns.
      * start_ws_mqtt_bridge then drops / (-1) and adds / (dashboard) + /fleet
-     * (+2) — its ws_root/ws_mqtt live on a SEPARATE httpd (ws_srv), so they
-     * don't count here — ota_update_start adds POST /ota + OPTIONS /ota (+2,
-     * the preflight the dashboard's cross-origin push needs), and
-     * device_log_serve adds GET /log (+1)
-     * = 21 peak. +1 headroom over that measured peak, not a round-number guess.
+     * + /ide/ + /ide (+4) — its ws_root/ws_mqtt live on a SEPARATE httpd
+     * (ws_srv), so they don't count here — ota_update_start adds POST /ota +
+     * OPTIONS /ota (+2, the preflight the dashboard's cross-origin push
+     * needs), and device_log_serve adds GET /log (+1)
+     * = 24 peak. +1 headroom over that measured peak, not a round-number guess.
      * This is a COUNTED budget: adding a route without bumping it silently
      * costs the last one registered (/wifi/instructor took it from 18 to 19 on
      * 2026-07-16, which would have left zero headroom at 19; dropping the IDE's
      * /ide/?* wildcard took it back to 18; /ota, its preflight and /log took it
-     * to 21; /success.txt (Firefox probe) took it to 22 on 2026-07-19). */
-    cfg.max_uri_handlers = 23;
+     * to 21; /success.txt (Firefox probe) took it to 22 on 2026-07-19; the IDE
+     * loader shell's /ide/ + /ide took it to 24 on 2026-07-20). */
+    cfg.max_uri_handlers = 25;
     cfg.lru_purge_enable = true;
     /* No uri_match_fn: every route here is an exact path. The wildcard matcher
      * was here only for the bridge's /ide/?* route, which left with the IDE

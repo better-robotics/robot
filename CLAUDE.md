@@ -78,34 +78,37 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   platformio.ini) gates at medium+. Flashable `.bin` trios upload as 7-day
   artifacts — the upload runs *before* check, whose cold-idedata configure
   wipes the build dir in CI.
-- **Dashboard embed (hub role):** PlatformIO's SCons build does **not** wire an
+- **Web embeds (hub role):** PlatformIO's SCons build does **not** wire an
   objcopy/`.S` embed into the link — `EMBED_TXTFILES`, `target_add_binary_data`,
   and `board_build.embed_txtfiles` all fail (missing `.S`, or generated-but-not-linked).
-  So `tools/embed_dashboard.py` (a **pre-build** `extra_scripts` hook; uses
+  So `tools/embed_web.py` (a **pre-build** `extra_scripts` hook; uses
   `$PROJECT_DIR`, not `__file__`, which SCons doesn't define) generates
-  `src/dashboard_html.c` — the dashboard as a plain byte array — from
-  `web/dashboard.html`, compiled as an ordinary source. `web/dashboard.html` is a
-  VENDORED copy (canonical in the `hub` monorepo); `tools/sync-dashboard.sh`
-  resyncs it and `--check` gates drift. `src/dashboard_html.c` is gitignored.
-- **The block IDE is not on this firmware — it is a Pi-hub feature** (2026-07-16).
-  The ESP32 hub role serves the dashboard and nothing else; `better-robotics/ide`
-  is served only by `hub/pi`'s hubd at `/ide/`. The bundle used to be embedded
-  here the same way the dashboard is (`tools/embed_ide.py` → `src/ide_bundle.c`,
-  a `/ide/?*` wildcard route), and it cost **619,632 bytes** — 32% of the image,
-  more than every line of C in the firmware put together. Dropping it is what
-  made A/B OTA fit on a 4 MB part; before, two slots could not hold two copies.
-  **The reason it can't be lazy-loaded from the `ide` repo instead:** the bundle
-  is an MQTT client that opens `ws://<hub>:9001`, and a page served over HTTPS
-  from GitHub Pages cannot open a `ws://` socket (mixed content) — the hub has no
-  CA-signed cert for an mDNS name, so it can never offer `wss://`. Anything the
-  browser talks to over `ws://` must be same-origin with the page, which
-  structurally obliges whoever serves the broker to serve the app. Having the
-  chip fetch-and-cache it instead would mean adding `esp_http_client` + mbedTLS +
-  a cert bundle (~100 KB and a cert-rotation liability) to a firmware that today
-  has **no TLS client at all**, and would still need a flash partition to cache
-  into. `dashboard.html` already degrades for this: it probes `GET /ide/` and
-  renders a "no editor on this hub" hint on 404 — a state it had for the Pi's
-  empty-`HUB_IDE_DIR` case, which an ESP32 hub now always hits.
+  `src/dashboard_html.c` + `src/ide_shell_html.c` — each page as a plain
+  gzipped byte array — from `web/`, compiled as ordinary sources. Both web
+  files are VENDORED copies (`dashboard.html` canonical in the `hub` monorepo,
+  `ide_shell.html` in `better-robotics/ide`); `tools/sync-dashboard.sh` /
+  `tools/sync-ide-shell.sh` resync them and `--check` gates drift (both run
+  in CI). The generated `.c` files are gitignored.
+- **The IDE is served as a 2 KB loader shell, never the bundle** (2026-07-20;
+  the embedded bundle left 2026-07-16). The full bundle cost **619,632
+  bytes** — 32% of the image, more than every line of C in the firmware put
+  together — and dropping it is what made A/B OTA fit on a 4 MB part; that
+  constraint stands. What replaced it: `/ide/` (exact route + `/ide`
+  redirect, `ws_mqtt_bridge.c`) serves `web/ide_shell.html`, which fetches
+  the full editor from `ide`'s GitHub Pages deploy **at runtime in the
+  student's browser** and `document.write`s it under the board's `http://`
+  origin. That threads the constraint the 2026-07-16 removal note thought
+  was structural: mixed-content blocking keys on the *document's* scheme,
+  not its subresources' — an `http://` page may load `https://` scripts AND
+  open `ws://<hub>:9001`, so serving the broker no longer obliges serving
+  the app, only a stub. (A direct Pages visit still can't drive a hub —
+  `https` may not open `ws://`, and a hub with only an mDNS name can never
+  offer `wss://`.) The browser supplies the TLS stack and cert store, so the
+  chip-side fetch-and-cache option (~100 KB of mbedTLS client + cert
+  rotation) stays rejected, and the firmware still has **no TLS client at
+  all**. Online-only by design: with no uplink the shell renders "the editor
+  needs the internet" inside the dashboard's Code panel — the Pi hub remains
+  the offline-complete tier, serving the full bundle from `HUB_IDE_DIR`.
 - **Custom `partitions.csv`** — see the file itself for the live layout and why
   each offset is what it is. The image is ~1.3 MB per board since the IDE left
   and `-Os` landed.
