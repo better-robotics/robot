@@ -95,7 +95,7 @@ publishes · `▼` board obeys:
 | topic | | payload |
 |---|---|---|
 | `sys` | ▲ 2 s | `{"uptime_ms":…,"free_heap":…,"hw":"esp32cam","board":"rover-XXXX","ip":…,"cam":…,"rssi_dbm":…}` — `rssi_dbm` only while the STA uplink is associated |
-| `pwm` | ▼ | `{"left_motor":180,"right_motor":-180,"duration_ms":200}` — signed ±255/wheel; a watchdog coasts to a stop `duration_ms` after the last command |
+| `pwm` | ▼ | `{"left_motor":180,"right_motor":-180,"duration_ms":200}` — signed ±255/wheel, positive = forward; *left* = the robot's own left, standing behind it facing forward; a watchdog coasts to a stop `duration_ms` after the last command |
 | `cmd/config` | ▼ | assign: `name` `hub` (pin; `""` clears) `pins` (L298N wiring) — no password field; optional `target` board-id addresses one of N |
 | `cmd/identify` | ▼ | blink the LED ~6 s — find the physical board |
 | `cmd/reprovision` | ▼ | remote reboot |
@@ -105,7 +105,14 @@ HTTP on the board itself: `/` state-routing landing · `/wifi` settings ·
 `:9001` MQTT-over-WebSocket bridge; the ESP32-CAM streams MJPEG at `:81/stream`.
 
 Motor pins default to the L298N kit (`ENA=25 IN1=26 IN2=27 · ENB=14 IN3=12
-IN4=13`) and are re-wireable from the dashboard for a custom chassis.
+IN4=13`; C3 SuperMini: `ENA=6 IN1=0 IN2=1 · ENB=5 IN3=3 IN4=4`) and are
+re-wireable from the dashboard for a custom chassis. **Wiring convention:** the
+**left** wheel — the robot's left, standing behind it — plugs into the L298N's
+**OUT1/OUT2** (channel A); firmware pin names match the silkscreen 1:1. If a
+rover mirrors its turns while forward/reverse work, the motor plugs are
+swapped: confirm with one wheel at a time
+(`{"left_motor":150,"right_motor":0,"duration_ms":1500}` must spin the left
+wheel forward) and swap the plugs rather than remapping pins.
 
 ## Identity & recovery
 
