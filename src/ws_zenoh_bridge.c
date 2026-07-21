@@ -163,28 +163,49 @@ static bool ownership_ok(client_t *c, const char *key, cJSON *val) {
     return false;
 }
 
-/* Ownership never hits the wire, so a change is pushed straight to every
- * connected dashboard (a second dashboard couldn't learn it via on_sample). */
-static void broadcast_owner(const char *id, const char *owner) {
-    char buf[80];
-    snprintf(buf, sizeof buf, "{\"op\":\"owner\",\"id\":\"%s\",\"owner\":\"%s\"}", id, owner);
-    for (int i = 0; i < MAX_CLIENTS; i++)
-        if (s_clients[i].in_use) ws_send_json(&s_clients[i], buf);
+/* The owner clientId is a BEARER token — presenting it is what proves ownership
+ * at the gate — so it must never leave the adapter. Each client is told only
+ * whether a rover is "mine", "held" (by someone else), or "free", never *who*
+ * holds it. A broadcast owner token would let any dashboard copy it off its own
+ * socket and impersonate the owner; a per-recipient verdict can't be replayed. */
+static const char *owner_state_for(const rover_t *rv, const client_t *c) {
+    if (!rv->owner[0]) return "free";
+    return !strcmp(rv->owner, c->client_id) ? "mine" : "held";
 }
 
-/* A joining dashboard gets the whole owner map at once (paint locks immediately)
- * — the WS equivalent of the estop join-time query. */
+/* Ownership never hits the wire, so a change is pushed straight to every
+ * connected dashboard (a second dashboard couldn't learn it via on_sample) —
+ * as a per-recipient verdict, not the token. */
+static void broadcast_owner(int slot) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        client_t *c = &s_clients[i];
+        if (!c->in_use) continue;
+        char buf[80];
+        snprintf(buf, sizeof buf, "{\"op\":\"owner\",\"id\":\"%s\",\"state\":\"%s\"}",
+                 s_rovers[slot].id, owner_state_for(&s_rovers[slot], c));
+        ws_send_json(c, buf);
+    }
+}
+
+/* A joining dashboard gets its whole ownership view at once (paint locks
+ * immediately) — the ids it owns and the ids held by others, never the tokens. */
 static void send_owners(client_t *c) {
     char buf[512];
-    int n = snprintf(buf, sizeof buf, "{\"op\":\"owners\",\"map\":{");
+    int n = snprintf(buf, sizeof buf, "{\"op\":\"owners\",\"mine\":[");
     bool first = true;
     for (int i = 0; i < MAX_ROVERS && n < (int)sizeof buf - 48; i++) {
-        if (!s_rovers[i].id[0] || !s_rovers[i].owner[0]) continue;
-        n += snprintf(buf + n, sizeof buf - n, "%s\"%s\":\"%s\"",
-                      first ? "" : ",", s_rovers[i].id, s_rovers[i].owner);
+        if (!s_rovers[i].id[0] || !s_rovers[i].owner[0] || strcmp(s_rovers[i].owner, c->client_id)) continue;
+        n += snprintf(buf + n, sizeof buf - n, "%s\"%s\"", first ? "" : ",", s_rovers[i].id);
         first = false;
     }
-    snprintf(buf + n, sizeof buf - n, "}}");
+    n += snprintf(buf + n, sizeof buf - n, "],\"held\":[");
+    first = true;
+    for (int i = 0; i < MAX_ROVERS && n < (int)sizeof buf - 48; i++) {
+        if (!s_rovers[i].id[0] || !s_rovers[i].owner[0] || !strcmp(s_rovers[i].owner, c->client_id)) continue;
+        n += snprintf(buf + n, sizeof buf - n, "%s\"%s\"", first ? "" : ",", s_rovers[i].id);
+        first = false;
+    }
+    snprintf(buf + n, sizeof buf - n, "]}");
     ws_send_json(c, buf);
 }
 
@@ -368,7 +389,7 @@ static void handle_op(client_t *c, const char *text, size_t len) {
             if (s >= 0 && esp_timer_get_time() < s_rovers[s].claimable_until_us) {
                 snprintf(s_rovers[s].owner, IDLEN, "%s", c->client_id);
                 s_rovers[s].claimable_until_us = 0;   /* window consumed */
-                broadcast_owner(idj->valuestring, c->client_id);
+                broadcast_owner(s);
                 ESP_LOGI(TAG, "claim %s", idj->valuestring);
             } else {
                 ws_send_json(c, "{\"op\":\"error\",\"reason\":\"press the rover's BOOT button first\"}");
@@ -379,7 +400,7 @@ static void handle_op(client_t *c, const char *text, size_t len) {
             int s = cJSON_IsString(idj) ? rover_slot(idj->valuestring, false) : -1;
             if (s >= 0 && (c->authed || !strcmp(s_rovers[s].owner, c->client_id))) {
                 s_rovers[s].owner[0] = 0;
-                broadcast_owner(idj->valuestring, "");
+                broadcast_owner(s);
                 ESP_LOGI(TAG, "release %s", idj->valuestring);
             }
         }
