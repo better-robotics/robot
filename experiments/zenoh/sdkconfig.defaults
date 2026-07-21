@@ -1,0 +1,4 @@
+# zenoh-pico's z_open + session setup overflow the 3584-byte default main stack.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+# Headroom for the TCP/IP + zenoh read/lease tasks under load.
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
