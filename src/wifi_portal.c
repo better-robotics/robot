@@ -92,13 +92,6 @@ static const char HEAD[] =
 "padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -12px rgba(0,0,0,.6)}"
 ".card h2{font-size:20px;font-weight:700;letter-spacing:-.015em;margin:0 0 6px}"
 ".s{color:var(--ink-muted);font-size:13px}"
-/* An address a student has to READ OFF THE SCREEN and retype into Safari —
- * /welcome can offer no link for it (see WELCOME_BODY). So it gets the ink the
- * surrounding .s does not, a tabular face so 1/l and 0/O can't be confused, and
- * user-select so a long-press can copy it instead. Inline-block keeps the
- * long-press target from collapsing between wrapped lines. */
-".addr{display:inline-block;color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"
-"font-variant-numeric:tabular-nums;-webkit-user-select:all;user-select:all;word-break:break-all}"
 /* Control vocabulary — the base is the neutral tile, tiers layer on. A bare
  * <button> used to be primary blue here (button{background:var(--accent)}),
  * which is why "Scan for networks" shouted louder than anything it sat beside. */
@@ -965,10 +958,9 @@ static const char WELCOME_BODY[] =
 "</div>"
 /* Post-Accept the device is released (captive_accepted, uplink-independent), so
  * the OS trusts the Wi-Fi and target=_blank opens the phone's REAL browser —
- * even offline, still connected to the board. The IP is a copyable fallback. */
+ * even offline, still connected to the board. */
 "<div class=card id=after hidden><h2>You&#8217;re set</h2>"
-"<a class=\"btn btn-primary\" id=dashgo2 target=_blank rel=noopener hidden>Open the dashboard</a>"
-"<p class=s id=dashnote2 hidden>Opens <b class=addr id=dashaddr2></b> in your browser.</p></div>"
+"<a class=\"btn btn-primary\" id=dashgo2 target=_blank rel=noopener hidden>Open the dashboard</a></div>"
 "</main>"
 "<script>";
 /* welcome_get() sends "const AP_BASE='http://a.b.c.d';" here, then this. */
@@ -976,10 +968,9 @@ static const char WELCOME_POST[] =
 "let lede=document.getElementById('lede'),go=document.getElementById('go'),"
 "v=document.getElementById('venue-go');"
 "function tier(el,p){el.classList.toggle('btn-primary',p)}"
-/* AP_BASE is this board's own literal IP — the dashboard address a student may
- * have to read and type into Safari, since dash is a bare "/" in the common case
- * (hub_role.c) and a .local name a phone on this AP may not resolve. A dash
- * already 'http...' (a hub-joined board's remote dashboard) passes through. */
+/* AP_BASE is this board's own literal IP — dash is a bare "/" in the common
+ * case (hub_role.c), and a .local name a phone on this AP may not resolve. A
+ * dash already 'http...' (a hub-joined board's remote dashboard) passes through. */
 "function abs(u){return u&&u.indexOf('http')==0?u:AP_BASE+(u||'/')}"
 /* ?done=1 is the post-Accept view. Accept REACHES it by a real navigation
  * (location.href), never a DOM swap: the OS re-runs its captive probe only on a
@@ -991,9 +982,8 @@ static const char WELCOME_POST[] =
 "document.getElementById('before').hidden=true;"
 "document.getElementById('after').hidden=false;"
 "fetch('/wifi/status').then(r=>r.json()).then(j=>{"
-"let h=!j.dash,g=document.getElementById('dashgo2');g.hidden=h;g.href=abs(j.dash);"
-"document.getElementById('dashaddr2').textContent=abs(j.dash);"
-"document.getElementById('dashnote2').hidden=h}).catch(()=>{})"
+"let g=document.getElementById('dashgo2');g.hidden=!j.dash;g.href=abs(j.dash)"
+"}).catch(()=>{})"
 "}else{refresh()}"
 /* Poll for the ONE state that changes what's offered — a venue portal.
  * Everything else is the same greeting + Accept; Wi-Fi and settings live on the
