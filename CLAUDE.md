@@ -8,30 +8,30 @@ the AP drops while joined to a hub 2026-07-15 — see below):
 - **`board_run`** (`hub_role.c`, the norm): every board comes up **APSTA** — its
   own open `robot-<id>` AP *and* an STA uplink — and **drops the AP for as long
   as it is joined to a hub** (one network in the room: the hub's). It's an
-  `esp-mqtt` client that drives an L298N from `robots/<id>/pwm` and takes its name
-  + pins post-join, dialing whichever broker is reachable: a discovered `hub-*`'s
-  (classroom) or its **own on-chip broker** at `127.0.0.1` (home/island). One
-  image reaches either — both are raw-TCP brokers on :1883 (CONTRACT.md §
-  Discovery & isolation).
+  `zenoh-pico` client that drives an L298N from `robots/<id>/pwm` and takes its name
+  + pins post-join, dialing whichever hub's Zenoh endpoint is reachable: a discovered
+  `hub-*`'s (classroom) or its **own on-chip Zenoh session** at `127.0.0.1`
+  (home/island). One image reaches either — both are Zenoh peer-listen endpoints on
+  `tcp/…:7447` (CONTRACT.md § Discovery & isolation).
 - **`hub_role_run`** (`hub_role.c`): the *whole* on-chip hub — AP+STA+NAPT +
-  Mosquitto broker + WS bridge + served dashboard — as a **dedicated** tier-2 hub
+  a Zenoh peer-listen session + WS-JSON adapter + served dashboard — as a **dedicated** tier-2 hub
   (`role_pref=HUB`, `hub-*` AP, no drive). Folded in from `better-robotics/hub/esp32`.
   The island path reuses these same services against a `robot-<id>` AP.
 
-`src/main.c` dispatches on `role_pref`; `hub_role.c` owns the Wi-Fi + broker
+`src/main.c` dispatches on `role_pref`; `hub_role.c` owns the Wi-Fi + Zenoh hub
 (`board_run` + `hub_role_run`), `robot_role.c` is the **drive client**
 (`robot_client_run` + motors, no Wi-Fi of its own). **The ESP hub's contract
 sources — `dashboard.html`, CONTRACT — stay canonical in the `hub` monorepo**;
 this repo vendors `web/dashboard.html` (drift-checked, `tools/sync-dashboard.sh`).
 
-**Transport: MQTT, ported from zenoh-pico 2026-07-09.** MQTT won the bake-off
-(hub-zenoh archived); the deciding factor for *this* firmware was auth —
-zenoh-pico has no usrpwd, and esp-mqtt authenticates with username/password
-natively. That capability turned out to gate only one identity in the end:
-the classroom's real boundary is its own Wi-Fi, not a login (confirmed
-2026-07-13) — every robot and browser gets open read+write, and `operator`
-is the sole credential, scoped to `fleet/estop` alone (CONTRACT.md § Discovery
-& isolation). See git history for the zenoh-era firmware.
+**Transport: Zenoh (zenoh-pico), cut over from esp-mqtt.** The firmware speaks
+zenoh-pico to the hub's Zenoh endpoint — no MQTT broker, no `:1883`. zenoh-pico
+has **no usrpwd** (it declares `Z_CONFIG_USER/PASSWORD_KEY` but no transport code
+consumes them), which is *why* auth is app-layer here rather than per-session: the
+classroom's real boundary is its own Wi-Fi, not a login (confirmed 2026-07-13) —
+every robot and browser gets open read+write, and `operator` is the sole
+credential, scoped to `fleet/estop` alone and enforced in the WS-JSON adapter
+(CONTRACT.md § Discovery & isolation). See git history for the esp-mqtt-era firmware.
 
 **Naming** (repo renamed `robot`→`robot` 2026-07-04): the repo covers any MCU node
 role; robots are *role-named* — `robot-XXXX` is today's only role (a future camera
@@ -40,9 +40,13 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
 (`robot-`, `namePrefix`) to say robot — role vocabulary is product surface and stays.
 
 ## Build
-- **PlatformIO + ESP-IDF** — `pio run -e <env> [-t upload]`. esp-mqtt is in-tree
-  with ESP-IDF; the **hub role** adds two managed components (`src/idf_component.yml`:
-  `espressif/mosquitto` = the on-chip broker, `espressif/mdns`). Unified image
+- **PlatformIO + ESP-IDF** — `pio run -e <env> [-t upload]`. The Zenoh transport is
+  a `lib_deps` git pin (`zenoh-pico`, platformio.ini); the **hub role** adds
+  `espressif/mdns` as a managed component (`src/idf_component.yml`, advertises
+  `hub.local`). (`espressif/mosquitto` — the on-chip MQTT broker — was dropped
+  from that manifest in the cutover; the hub backbone is the Zenoh peer-listen
+  session now.)
+  Unified image
   build-verified 2026-07-09 on both `esp32dev` (xtensa, 48% flash) and
   `esp32c3-supermini` (riscv, 51%) — ~1.5 MB of the 3 MB factory partition.
 - Envs: `esp32dev` (classic ESP32-D0WD devkit, CP2102, BOOT=GPIO0),
@@ -52,7 +56,7 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   re-entry is the `reprovision` topic; LED=GPIO33 rear red, active-low),
   `robot-l298n` (extends esp32dev). Each passes `-DROBOT_NAME='"unassigned"'`
   (the pool name, no credential attached) as a *fallback* only — a robot's
-  name is assigned post-join over MQTT (`robots/<id>/cmd/config` → NVS) from
+  name is assigned post-join over Zenoh (`robots/<id>/cmd/config` → NVS) from
   the dashboard's "Assign a robot" panel, so boards flash identically and get
   named at the hub.
 - **"Done" on firmware = the serial boot banner, not a green build.** After
@@ -68,9 +72,8 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   log — `pio device monitor`, or drive it over serial and grep `dns-server` /
   `wifi-portal`.
 - Platform pinned **`espressif32@6.13.0`** (ships **IDF 5.5.3**, not 5.1 as an
-  earlier note claimed) for reproducible builds — the old `<7.x` constraint was
-  zenoh-pico's; the pin is now just stability (and 5.5.x is what the mosquitto
-  component resolves against).
+  earlier note claimed) for reproducible builds — the pin is stability, and 5.5.3
+  is the IDF that pinned `zenoh-pico` 1.9.0 and the managed components build against.
 - **CI** (`.github/workflows/firmware.yml`, verified green 2026-07-14): on push,
   all three board images build from a clean clone (the `wifi_creds.example.h`
   stand-in covers the one gitignored seam), `pio test -e
@@ -94,13 +97,13 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   bytes** — 32% of the image, more than every line of C in the firmware put
   together — and dropping it is what made A/B OTA fit on a 4 MB part; that
   constraint stands. What replaced it: `/ide/` (exact route + `/ide`
-  redirect, `ws_mqtt_bridge.c`) serves `web/ide_shell.html`, which fetches
+  redirect, `ws_zenoh_bridge.c`) serves `web/ide_shell.html`, which fetches
   the full editor from `ide`'s GitHub Pages deploy **at runtime in the
   student's browser** and `document.write`s it under the board's `http://`
   origin. That threads the constraint the 2026-07-16 removal note thought
   was structural: mixed-content blocking keys on the *document's* scheme,
   not its subresources' — an `http://` page may load `https://` scripts AND
-  open `ws://<hub>:9001`, so serving the broker no longer obliges serving
+  open `ws://<hub>:9001`, so serving the hub no longer obliges serving
   the app, only a stub. (A direct Pages visit still can't drive a hub —
   `https` may not open `ws://`, and a hub with only an mDNS name can never
   offer `wss://`.) The browser supplies the TLS stack and cert store, so the
@@ -115,9 +118,9 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
 - **Wi-Fi OTA (`src/ota_update.c`, `POST /ota`)** — the fleet updates over the
   classroom Wi-Fi; USB is now only for a board's FIRST flash and for the one
   repartition onto the A/B table. Registers onto the portal's shared `:80` the
-  way `ws_mqtt_bridge.c` does, called from BOTH boot roles, gated by HTTP Basic
+  way `ws_zenoh_bridge.c` does, called from BOTH boot roles, gated by HTTP Basic
   on the `operator` identity (`board_operator_pass_ok`, `hub_role.c` — the
-  same secret as the broker's session auth, so there is nothing to rotate
+  same secret the operator gate uses, so there is nothing to rotate
   twice). Push with `tools/ota-push.py --host robot-<id>.local <bin>`,
   `OPERATOR_PASS` in the env.
   - **Rollback is the bootloader's, and it is why the table is `ota_0`+`ota_1`
@@ -126,7 +129,7 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
     **30 s** of survival. That delay IS the design: marking immediately would
     catch only an image that dies before serving, while the failure that
     actually strands a board is the one that boots, comes up, then panics once
-    the drive loop or MQTT session starts — a reboot cycle marked valid on every
+    the drive loop or Zenoh session starts — a reboot cycle marked valid on every
     pass. The cost is that a power cut inside the window reads as a crash and
     reverts to the previous image, which is the safe direction to be wrong in.
   - **It cannot catch a bad image that boots fine.** Rollback tests "did it come
@@ -146,7 +149,7 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
     describe what is on the chip.
   - **Reusing one credential means every surface that spends it must be able to
     set it.** The config panel's operator-password field was `role=='hub'`
-    only — correct while `connect_cb` was its lone reader, since only a hub runs
+    only — correct while `connect_cb` was its lone reader, since only a hub ran
     a broker, and on a robot the control did nothing. `/ota` runs on EVERY board
     and checks that same password, so hub-gating the field left a robot's OTA
     endpoint behind a password its own panel would not let you set: it stayed
@@ -163,17 +166,17 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
 `role_pref` (NVS key `role`, § Identity) picks the path and calls it (neither
 returns):
 ```
-app_main ─► role_pref == HUB → hub_role_run()   (tier 2: dedicated hub-* + broker + NAT; no drive)
+app_main ─► role_pref == HUB → hub_role_run()   (tier 2: dedicated hub-* + Zenoh + NAT; no drive)
             else             → board_run(self_broker_ok = role==AUTO)
                                  APSTA at boot: own OPEN robot-<id> AP + STA,
-                                 loops: join hub-* → AP DOWN, drive its broker;
-                                 else AUTO → local broker, drive 127.0.0.1 (island);
+                                 loops: join hub-* → AP DOWN, drive its Zenoh hub;
+                                 else AUTO → local Zenoh hub, drive 127.0.0.1 (island);
                                  else ROBOT-pinned → rescan, never island.
                                  (AP down + no hub → restart, never a live switch)
 ```
 **APSTA at boot; STA-only while a hub client** (2026-07-09, amended 2026-07-15;
 § Status & design history). The board is APSTA from line one, so home↔classroom is
-a **runtime re-point** of the broker URI, not a boot role — the old
+a **runtime re-point** of the hub locator, not a boot role — the old
 `role_boot_as_hub`/`RTC_NOINIT` claim-by-reboot is **deleted** (it only ever
 existed to dodge a live STA→APSTA switch; it also caused two HW bugs — the
 `RTC_DATA` wipe loop and the pi-watch stack panic). The one mode change that
@@ -183,7 +186,7 @@ never a live switch**: a board whose AP is down and whose hub is gone does a cle
 `esp_restart` and comes up APSTA (the yield idiom, pointed the other way), so
 STA→APSTA still never happens live. **Islands, not attraction:** a
 self-broker board's AP is `robot-<id>`, *not* `hub-*`, so nothing joins it. A
-shared broker (central control) is opt-in via an explicit hub (a Pi, or a board
+shared hub (central control) is opt-in via an explicit hub (a Pi, or a board
 pinned to `role_pref=HUB`). An island board yields to any **`hub-*`** via a
 **clean restart** (board_run re-runs, discovers the hub, joins it) — safe against
 peer islands, which advertise `robot-<id>` not `hub-*`, so it also self-heals a
@@ -211,7 +214,7 @@ mangles `robot-3210`→`robot-3211`, i.e. into another board's plausible id.)
 
 The AP keeps `http://robot.local/` reachable for the #17 config panel ("set your
 home Wi-Fi" = the home switch) **in the island case, which is the only case that
-needs it** — a hub-joined board takes its name and pins over MQTT
+needs it** — a hub-joined board takes its name and pins over Zenoh
 (`cmd/config`), and its panel stays reachable at `robot-<id>.local` on the hub's
 LAN. Per-board beacons in a classroom were the named cost; `hub#3`'s mitigation
 ("drop the beacon when cleanly joined to a hub") **shipped 2026-07-15** — see
@@ -219,7 +222,7 @@ LAN. Per-board beacons in a classroom were the named cost; `hub#3`'s mitigation
 *weakest* third.
 
 ### Robot role
-One radio: Wi-Fi STA + esp-mqtt (BLE removed 2026-07-09 — see below).
+One radio: Wi-Fi STA + zenoh-pico (BLE removed 2026-07-09 — see below).
 Boot is a pure function of NVS; no stored state is ever a dead end. **Nothing
 stored is fully operable**: no ssid → scan-join the strongest *open* `hub-*`
 network (the classroom AP convention is the onboarding channel); no locator →
@@ -237,17 +240,19 @@ only its own stored network (half-stale config isn't trusted by halves).
 
 ```
 boot ──► [dispatcher: role_pref] ──► robot role ──► Wi-Fi STA: discover open hub-*, else stored ssid
-         → mqtt connect(stored locator, or mqtt://<gateway>:1883) — no auth, as <name>
+         → zenoh connect(tcp/<gateway>:7447; board_run still hands an mqtt://-shaped
+           locator, converted host-only) — no auth, as <name>
          → LED on; publish robots/<name>/sys every 2s
-         → subscribe robots/<name>/{pwm, cmd/config, cmd/reprovision}
-  │ can't join (30s) · no CONNACK in 10s (broker unreachable — no MQTT auth
-  │ to reject) · ~20s dead session · button · reprovision message
+         → subscribe robots/<name>/{pwm, cmd/config, cmd/reprovision} + fleet/estop
+  │ can't join (30s) · z_open fails (hub unreachable — no auth to reject) ·
+  │ dead session (3 failed 2s publishes) · button · reprovision message
   ▼
-esp_restart() → retry the whole path   ← pre-hub power-on just loops here,
-                                         rescanning, until the hub appears
+return to board_run → re-scan/re-open   ← pre-hub power-on just loops here,
+                                          rescanning, until the hub appears
 ```
-esp-mqtt **auto-reconnects**, so a brief hub outage self-heals in place without a
-reboot; only a sustained (~20 s) dead session forces a restart.
+zenoh-pico does **not** auto-reconnect the way esp-mqtt did — a dead session stays
+dead — so the self-heal is one level up: `robot_client_run` returns to `board_run`
+on a dead session (3 failed publishes), which re-scans and re-opens without a reboot.
 
 **BLE removed (2026-07-09, #11).** Post-join config replaced BLE onboarding, so
 the offline provisioning window (NimBLE + Improv + the `hubcfg` characteristic)
@@ -259,17 +264,20 @@ flag, and "one radio path per boot" all went with it — there's one path now.
 **BOOT button (GPIO0, hold ~1 s):** reboot — force a rescan / recover a wedged
 robot. **Remote twin:** publish anything to `robots/<id>/cmd/reprovision` — the
 ESP32-CAM's only re-entry besides join failure (no button). **LED:** on = reached
-the broker (a visible "live and drivable" signal; was the provisioning-window LED).
+the hub (a live Zenoh session — a visible "live and drivable" signal; was the
+provisioning-window LED).
 
-**Broker discovery = the DHCP gateway** — on the hub's own AP the gateway IS the
-hub, so `mqtt://<gateway>:1883` reaches the broker with no name lookup and no
-hardcoded IP (the one address the Pi and ESP32 hubs don't share). A stored
-locator overrides. No multicast — campus Wi-Fi filters it and isolates clients.
+**Hub discovery = the DHCP gateway** — on the hub's own AP the gateway IS the
+hub, so its Zenoh endpoint `tcp/<gateway>:7447` reaches the hub with no name lookup
+and no hardcoded IP (the one address the Pi and ESP32 hubs don't share; `board_run`
+hands an `mqtt://`-shaped locator that `robot_role.c` converts host-only to the
+Zenoh port). A stored locator overrides. No multicast — campus Wi-Fi filters it and
+isolates clients.
 
 ## Identity
 Two ids, split by job (CONTRACT.md § Discovery & isolation):
 - **Topic id == the name, and it's an address, not a credential** (confirmed
-  2026-07-13). The robot connects with **no MQTT auth at all** and publishes
+  2026-07-13). The robot connects with **no auth at all** and publishes
   under `robots/<name>/*` — every hub admits every name; the hub's own Wi-Fi
   is the real boundary, not a per-robot login. Compile-time `unassigned`
   (`-DROBOT_NAME`) is the fallback — a first-class pool name (2026-07-10; was
@@ -285,17 +293,17 @@ Two ids, split by job (CONTRACT.md § Discovery & isolation):
   unrecognized → `AUTO`, so stale/garbage NVS never wedges an unknown role.
 
 ## Hardware-earned traps (2026-07-04, ESP32-C3 + Pi hub)
-- **~~zenoh-pico has no usrpwd~~ → RESOLVED by the MQTT port (2026-07-09), then
-  the identity model it enabled was itself RETIRED (2026-07-13).** This was
-  the deciding scar: zenoh-pico declares `Z_CONFIG_USER/PASSWORD_KEY` but no
-  transport code consumes them, so a per-robot MCU identity was impossible (a
-  usrpwd router rejected the session in ~200 ms) — esp-mqtt's native
-  username/password support is why the robot shipped on MQTT, not Zenoh.
-  That capability turned out to matter for exactly one identity: the classroom
-  redesign (2026-07-13) dropped per-robot credentials entirely — a robot's
-  name is a topic address, not something MQTT auth gates — and kept
-  username/password for `operator` alone, gating only `fleet/estop`. The
-  robot itself now connects with no MQTT auth at all (`robot_role.c`).
+- **zenoh-pico has no usrpwd → auth is app-layer, not per-session.** zenoh-pico
+  declares `Z_CONFIG_USER/PASSWORD_KEY` but no transport code consumes them, so
+  there is no per-session credential to gate a robot on — and that is *why* the
+  one gated identity (`operator`) is enforced at the app layer (the WS-JSON
+  adapter's `fleet/estop` gate, `board_operator_pass_ok`) rather than at connect
+  time. It costs nothing the classroom wanted: the redesign (confirmed 2026-07-13)
+  makes a robot's name a topic address, not something auth gates — every robot
+  connects with **no auth at all** (`robot_role.c`), and the hub's Wi-Fi is the
+  real boundary. (History: an earlier esp-mqtt port added per-session
+  username/password; it gated exactly one identity, so the Zenoh cutover lost
+  nothing by moving that gate up a layer. See git log.)
 - **WPA2 join fails against the Pi's brcmfmac AP** — 4-way handshake timeout
   (`run → init (0xf00)` loop) despite correct PSK; open AP joins in ~6 s. C3 client
   vs NM/wpa_supplicant AP interop, unresolved — investigate before shipping a
@@ -303,20 +311,27 @@ Two ids, split by job (CONTRACT.md § Discovery & isolation):
 - *(Retired 2026-07-09 with the BLE removal: the "never `esp_restart()` in GATT
   write context" scar — no GATT context can recur now that NimBLE is gone.)*
 
-## esp-mqtt API notes (ESP-IDF 5.5)
-- Config: `esp_mqtt_client_config_t{ .broker.address.uri = "mqtt://<ip>:1883",
-  .credentials.username, .credentials.authentication.password,
-  .session.keepalive }`.
-- `esp_mqtt_client_init` → `esp_mqtt_client_register_event(cli, ESP_EVENT_ANY_ID,
-  cb, NULL)` → `esp_mqtt_client_start`. The client owns its own task; no manual
-  read/lease tasks (that was zenoh).
-- Auth + reachability both surface as **`MQTT_EVENT_CONNECTED`** — a rejected
-  password never reaches it (disconnects first), so "no CONNECT in 10 s" covers
-  both unreachable-broker and bad-credential in one gate.
-- Publish `esp_mqtt_client_publish(cli, topic, payload, 0, qos, retain)` (len 0 =
-  strlen); telemetry is qos 0, no retain. Subscribe in `MQTT_EVENT_CONNECTED`,
-  re-fires on every reconnect automatically.
-- Before `esp_restart()` just restart — the OS tears the client down.
+## zenoh-pico API notes (ESP-IDF 5.5)
+- Config: `z_config_default` → `zp_config_insert(Z_CONFIG_MODE_KEY, "client")`
+  (the robot) or `"peer"` (the hub) → `zp_config_insert(Z_CONFIG_CONNECT_KEY,
+  "tcp/<ip>:7447")` (robot) / `Z_CONFIG_LISTEN_KEY, "tcp/0.0.0.0:7447"` (hub).
+  No credentials — zenoh-pico has no usrpwd (§ Hardware-earned traps).
+- `z_open` with `auto_start_read_task=false` + `auto_start_lease_task=false`, then
+  **explicitly** `zp_start_read_task` + `zp_start_lease_task`: the auto-start
+  options don't run them under esp-idf, and without the read task the board
+  publishes but never RECEIVES a pwm (subs + queryables go silent).
+- **`z_open` success == connected** — there is no separate CONNECTED event to wait
+  on, so a failed `z_open` (hub unreachable) is the reachability gate the old 10 s
+  CONNECT wait used to be. No auth means nothing to reject.
+- Publish `z_put`; telemetry is fire-and-forget. Subscribe per-declaration
+  (`z_declare_subscriber`, one per channel — routing is by subscriber, not by
+  topic-suffix matching). `fleet/estop` is a **queryable** on the hub
+  (`z_declare_queryable`, `ws_zenoh_bridge.c`): a (re)joining robot answers the
+  e-stop latch with a join-time `z_get`, replacing the MQTT retained message.
+- **No auto-reconnect**: a dead session stays dead. Fully tear it down before
+  returning — `undeclare` the subs, `z_drop` the session, `zp_stop_read_task` +
+  `zp_stop_lease_task` — or a half-torn session leaks its read/lease tasks and the
+  socket. The self-heal is `board_run` re-opening, not an in-place reconnect.
 
 ## Verification
 Verify on a **non-isolated network** (phone hotspot + laptop `hubd` as the router).
@@ -347,7 +362,7 @@ chosen-against:
   flag), existed only to dodge a live STA→APSTA radio switch, and caused two
   hardware bugs (the `RTC_DATA` wipe reboot-loop; the pi-watch stack panic).
   Always-APSTA removed the switch, so both died: home↔classroom is a runtime
-  re-point of the broker URI, and the room's topology is explicit (a hub exists
+  re-point of the hub locator, and the room's topology is explicit (a hub exists
   or it doesn't), never emergent. Don't re-propose coordination between boards.
 - **Per-board-AP-vs-shared-hub dichotomy dissolved (hub#3, closed 2026-07-10)** —
   always-APSTA runs both topologies, split by hub presence.
@@ -364,7 +379,7 @@ chosen-against:
   password-less door into the classroom network (*not* an escalation — the hub's
   AP is open too — but it made "connect to the hub" a suggestion rather than a
   fact). **Chosen-against: dropping the AP in the `BOARD_NET_REMOTE` case too**
-  (stored home network + stored broker). Same redundancy argument, but the
+  (stored home network + stored hub locator). Same redundancy argument, but the
   classroom is where the cost concentrates and the model is taught; at home one
   or two boards cost nothing and the AP is the recovery channel. Narrow the
   change to the case that earned it.
@@ -385,7 +400,7 @@ chosen-against:
     board was caught rendering the FULL dashboard inside iOS's sandboxed
     Captive Network Assistant sheet — whose `localStorage` never reaches real
     Safari, silently losing any sign-in made there. Fixed: probes now 302 to
-    `/welcome`, a page `ws_mqtt_bridge.c`/`landing_get` never touch.
+    `/welcome`, a page `ws_zenoh_bridge.c`/`landing_get` never touch.
   - **Chosen-against #2 — per-source-IP accept tracking.** The first
     Accept-flip cut (port of `hub/pi/src/bin/hubd.rs`'s design) keyed
     `captive_accepted()` by `httpd_req_to_sockfd`+`getpeername`. Live-tested:
@@ -479,11 +494,12 @@ chosen-against:
     once on that phone.
   - The WS-bridge socket leak this whole investigation surfaced along the way
     (a departing station's dashboard bridge never got reclaimed, and enough
-    silent leaks wedged the whole board) is `ws_mqtt_bridge.c`'s own
-    chosen-against — see that file's `ws_bridge_reap_all`.
+    silent leaks wedged the whole board) is `ws_zenoh_bridge.c`'s own
+    chosen-against — see that file's `ws_zenoh_reap_all`.
   - On a locked-down device, or an OS that never fires the probe or reads
     DHCP 114, all of this is a no-op: it still just visits `/wifi` manually.
 
 History ladder (details: git log): v2 zenoh + BLE provisioning → v3/v4 MQTT port
-+ motor drive → v5 BLE removed → v6 unified always-APSTA image.
++ motor drive → v5 BLE removed → v6 unified always-APSTA image → v7 Zenoh
+transport (esp-mqtt→zenoh-pico cutover).
 (`DESIGN-unified.md` folded into this section + README, 2026-07-10.)

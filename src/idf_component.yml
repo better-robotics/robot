@@ -1,8 +1,9 @@
 ## Managed dependencies for the HUB ROLE of the unified image.
-## espressif/mosquitto = the on-chip MQTT broker (mosq_broker.h); espressif/mdns
-## advertises hub.local. The robot role uses neither — they cost flash only in
-## the one image that also carries the hub role. The component manager auto-adds
-## these to the src component's REQUIRES.
+## espressif/mdns advertises hub.local / robot-<id>.local. The robot role does not
+## use it — it costs flash only in the one image that also carries the hub role.
+## The component manager auto-adds it to the src component's REQUIRES.
+## (espressif/mosquitto — the on-chip MQTT broker — was dropped in the Zenoh
+## cutover: the hub role runs a zenoh-pico peer-listen session now, not a broker.)
 ##
 ## EVERY version here is pinned, and this manifest is the ONLY place that can do
 ## it. dependencies.lock would be the natural pin and cannot be: PlatformIO
@@ -20,8 +21,6 @@
 ## firmware.yml's provenance argument claims the image already has.
 ## Bump these deliberately, in their own commit, never incidentally.
 dependencies:
-  ## The on-chip MQTT broker (mosq_broker.h) — the hub role's reason to exist.
-  espressif/mosquitto: "==2.0.20~8"
   ## Advertises hub.local / robot-<id>.local.
   espressif/mdns: "==1.11.3"
   ## Camera (esp32cam board only). TARGET-GATED: esp32-camera compiles only on

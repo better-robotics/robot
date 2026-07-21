@@ -1,24 +1,24 @@
 # robot
 
-One ESP32 image, both ends of the wire. Every board is a **robot** — an
-[`esp-mqtt`](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/protocols/mqtt.html)
-drive client — and any board can become **the whole hub** (open Wi-Fi AP + MQTT
-broker + dashboard) the moment a room needs one. Runtime decisions, never
-builds: boards flash identically and get named later. The contract and the
-Raspberry Pi hub live at [`better-robotics/hub`](https://github.com/better-robotics/hub).
+One ESP32 image, both ends of the wire. Every board is a **robot** — a
+[`zenoh-pico`](https://zenoh.io/) drive client — and any board can become **the
+whole hub** (open Wi-Fi AP + Zenoh endpoint + dashboard) the moment a room needs
+one. Runtime decisions, never builds: boards flash identically and get named
+later. The contract and the Raspberry Pi hub live at
+[`better-robotics/hub`](https://github.com/better-robotics/hub).
 
 ## How a board decides what to be
 
 ```
 power on
    │
-   ├── sees an open hub-… ────────▶ joins it · drives off its broker ·
+   ├── sees an open hub-… ────────▶ joins it · drives off its Zenoh hub ·
    │                                 shuts its OWN network off — one
    │                                 network in the room, the hub's
    │                                 (ESP32 hub-XXXX, or Pi hub-pi-…; a stored
    │                                  hub pin narrows this to ONE exact hub)
    │
-   └── sees none ─────────────────▶ becomes its own hub — AP + broker +
+   └── sees none ─────────────────▶ becomes its own hub — AP + Zenoh +
                                      dashboard at http://robot.local
                                      (stored home Wi-Fi = internet uplink;
                                       drives fine with none)
@@ -34,7 +34,7 @@ A board comes up as **AP + station at once**, then follows the room:
   now*, and holds the **Wi-Fi & role settings** (network scanner, home Wi-Fi,
   robot/hub/auto switch).
 - **Joined to a hub** it shuts that network down. The hub is the one place to
-  connect: its Wi-Fi, its dashboard, its broker. A robot on a hub is just a
+  connect: its Wi-Fi, its dashboard, its Zenoh session. A robot on a hub is just a
   robot — it isn't also a network to get lost in, and it isn't spending the
   hub's airtime advertising itself. Its settings page follows it, at
   `http://robot-XXXX.local` on the hub's network.
@@ -79,7 +79,7 @@ or pio     hub, or      anyone on the hub's match id to   hub pin ·   until tol
   this board"*. Re-check their Wi-Fi and name afterwards — the new table
   reclaims a slice of the config area, so stored settings may not survive.
 - **Zero-touch join**: no stored network → scan, join the strongest open
-  `hub-…`, dial its gateway at `mqtt://<gateway>:1883`. Publishing in seconds.
+  `hub-…`, reach its gateway's Zenoh endpoint at `tcp/<gateway>:7447`. Publishing in seconds.
 - **Assignment is remote** (dashboard → `cmd/config` → NVS): no per-device
   setup step, no Bluetooth. The **hub pin** locks a board to one exact hub
   SSID so nobody's rogue `hub-…` can absorb it.
@@ -89,7 +89,7 @@ or pio     hub, or      anyone on the hub's match id to   hub pin ·   until tol
 
 All topics under `robots/<name>/…` — `<name>` is a topic address, not a
 credential: the hub's own Wi-Fi is the real boundary, and every robot/browser
-gets full read+write with no MQTT auth at all (the Pi broker's ACL). `▲` board
+gets full read+write with no auth at all (the hub's Wi-Fi perimeter is the boundary). `▲` board
 publishes · `▼` board obeys:
 
 | topic | | payload |
@@ -102,7 +102,7 @@ publishes · `▼` board obeys:
 
 HTTP on the board itself: `/` state-routing landing · `/wifi` settings ·
 `/wifi/status` live state JSON — plus, when hosting a dashboard, `/fleet` and a
-`:9001` MQTT-over-WebSocket bridge; the ESP32-CAM streams MJPEG at `:81/stream`.
+`:9001` WS-JSON adapter (browser ↔ the hub's Zenoh session); the ESP32-CAM streams MJPEG at `:81/stream`.
 
 Motor pins default to the L298N kit (`ENA=25 IN1=26 IN2=27 · ENB=14 IN3=12
 IN4=13`; C3 SuperMini: `ENA=6 IN1=0 IN2=1 · ENB=5 IN3=3 IN4=4`) and are
@@ -124,23 +124,24 @@ notion of team size, only whoever's on the hub's Wi-Fi drives it) and
 the serial-log token; hardware model is metadata, so boards swap without
 identity churn).
 
-Recovery is layered: `esp-mqtt` auto-reconnects through brief outages; a dead
-session (~20 s) re-evaluates the whole decision tree above **without
-rebooting**; the BOOT button (hold ~1 s) forces a reboot/rescan; and
-`cmd/reprovision` is the remote twin (the ESP32-CAM has no button). The onboard
-LED = "reached the broker"; a ~6 s blink = someone pressed **Blink**.
+Recovery is layered: zenoh-pico does **not** auto-reconnect in place — a dead
+session (~20 s of failed publishes) returns to the boot loop, which re-evaluates
+the whole decision tree above **without rebooting**; the BOOT button (hold ~1 s)
+forces a reboot/rescan; and `cmd/reprovision` is the remote twin (the ESP32-CAM
+has no button). The onboard LED = "reached the hub"; a ~6 s blink = someone
+pressed **Blink**.
 
 ## Layout
 
 ```
 src/
 ├── main.c               boot dispatcher: role_pref → board_run | hub_role_run
-├── hub_role.c           Wi-Fi + broker services — the board (AP until a hub takes
+├── hub_role.c           Wi-Fi + Zenoh hub services — the board (AP until a hub takes
 │                        over), tier-2 hub, discovery + hub-watch (islands yield
 │                        to real hubs), NAT
-├── robot_role.c         drive client — esp-mqtt, motors + watchdog, cmd/* handlers
+├── robot_role.c         drive client — zenoh-pico, motors + watchdog, cmd/* handlers
 ├── wifi_portal.c        the board's :80 — landing, Wi-Fi & role settings, /wifi/status
-├── ws_mqtt_bridge.c     :9001 WebSocket↔MQTT bridge + serves the embedded dashboard
+├── ws_zenoh_bridge.c    :9001 WS-JSON adapter (browser ↔ Zenoh) + serves the embedded dashboard
 ├── camera.c             ESP32-CAM MJPEG (:81)
 ├── robot_config.c       NVS — network, name identity, motor pins, boot role, hub pin
 └── provisioning_util.c  pure helpers: robot id, locator, hub admission (unit-tested)
@@ -152,10 +153,10 @@ test/test_util/          Unity tests for the pure helpers
 ## Build & test
 
 ```sh
-pio run -e esp32c3-supermini -t upload   # espressif32@6.13.0 pinned; esp-mqtt is in-tree
+pio run -e esp32c3-supermini -t upload   # espressif32@6.13.0 pinned; zenoh-pico via lib_deps
 pio test -e native                       # Unity: locator, hub admission, id format
 pio device monitor                       # 115200 baud
 ```
 
-The hub role adds two managed components: `espressif/mosquitto` (the on-chip
-broker) and `espressif/mdns`.
+The Zenoh transport is a `lib_deps` git pin (`zenoh-pico`); the hub role adds
+`espressif/mdns` as a managed component (advertises `hub.local`).
