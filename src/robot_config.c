@@ -6,6 +6,8 @@
 #include "esp_log.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "driver/gpio.h"                       /* GPIO_IS_VALID_OUTPUT_GPIO */
+#include "esp_private/esp_gpio_reserve.h"      /* flash/PSRAM bus pins — see motor_pin_ok */
 #include "provisioning_util.h"
 #include "roles.h"   /* HUB_SSID_PREFIX — hub-pin plausibility check */
 
@@ -136,10 +138,20 @@ bool robot_config_load_motor_pins(int pins[6]) {
     return ok;
 }
 
+bool robot_config_motor_pin_ok(int pin) {
+    if (pin < 0 || pin > SOC_GPIO_PIN_COUNT - 1 || !GPIO_IS_VALID_OUTPUT_GPIO(pin)) {
+        return false;   /* nonexistent on this target, or input-only */
+    }
+    /* esp_private/: no API-stability promise, but it is the one runtime source
+     * of which pins the flash/PSRAM drivers actually claimed on this module —
+     * re-verify the include on an IDF bump. */
+    return !esp_gpio_is_reserved(BIT64(pin));
+}
+
 esp_err_t robot_config_set_motor_pins(const int pins[6]) {
     uint8_t raw[6];
     for (int i = 0; i < 6; i++) {
-        if (pins[i] < 0 || pins[i] > 33) return ESP_ERR_INVALID_ARG;  // 34-39 are input-only
+        if (!robot_config_motor_pin_ok(pins[i])) return ESP_ERR_INVALID_ARG;
         raw[i] = (uint8_t)pins[i];
     }
     nvs_handle_t h; esp_err_t e = nvs_open(NS, NVS_READWRITE, &h);

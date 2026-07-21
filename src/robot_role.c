@@ -251,6 +251,20 @@ static void motor_init(void) {
     ESP_LOGI(TAG, "motors disabled on the camera board (pins + LEDC belong to the OV3660)");
     return;
 #endif
+    /* BEFORE the first pin touch: gpio_config on a flash/PSRAM-bus pin returns
+     * ESP_OK while re-muxing the bus out from under the cache — the board dies
+     * on the next cache miss, before the "graceful" error path below ever runs
+     * (S3 with the classic-ESP32 defaults 26/27, 2026-07-21). The driver can't
+     * report what it doesn't survive, so validity is checked, not attempted. */
+    const int all[6] = { s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4 };
+    for (int i = 0; i < 6; i++) {
+        if (!robot_config_motor_pin_ok(all[i])) {
+            ESP_LOGE(TAG, "motor pin %d is not drivable on this chip (nonexistent, "
+                          "input-only, or flash/PSRAM bus) — motors disabled, re-config to fix",
+                     all[i]);
+            return;
+        }
+    }
     gpio_config_t dirs = {
         .pin_bit_mask = (1ULL << s_pin_in1) | (1ULL << s_pin_in2) |
                         (1ULL << s_pin_in3) | (1ULL << s_pin_in4),
@@ -411,7 +425,8 @@ static void config_apply(const char *json, int len) {
 
     /* Optional {"pins":{ena,in1,in2,enb,in3,in4}} — a student's chassis wiring.
      * Seed with current pins so a partial object only overrides what it names;
-     * set_motor_pins rejects out-of-range and won't persist a boot-loop pin. */
+     * set_motor_pins rejects any pin robot_config_motor_pin_ok rejects, so a
+     * boot-loop pin can never persist. */
     const cJSON *pins = cJSON_GetObjectItemCaseSensitive(root, "pins");
     if (cJSON_IsObject(pins)) {
         int p[6] = { s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4 };
@@ -426,7 +441,8 @@ static void config_apply(const char *json, int len) {
                      p[0], p[1], p[2], p[3], p[4], p[5]);
             changed = true;
         } else {
-            ESP_LOGW(TAG, "config: motor pins out of range (0..33), ignored");
+            ESP_LOGW(TAG, "config: a motor pin is not drivable on this chip "
+                          "(nonexistent, input-only, or flash/PSRAM bus), ignored");
         }
     }
 

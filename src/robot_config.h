@@ -36,10 +36,17 @@ esp_err_t robot_config_clear_identity(void);
  * chassis, so the pinout can't be a compile-time constant. Order is fixed:
  * {ena, in1, in2, enb, in3, in4}. load leaves `pins` untouched when nothing is
  * stored, so the caller seeds it with the compile-time defaults first (absent =
- * keep defaults). set REJECTS any pin outside 0..33 (ESP32 output-capable) so a
+ * keep defaults). set REJECTS any pin robot_config_motor_pin_ok rejects, so a
  * bad value can never persist and boot-loop the board. */
 bool robot_config_load_motor_pins(int pins[6]);
 esp_err_t robot_config_set_motor_pins(const int pins[6]);
+/* True iff `pin` is drivable on THIS chip and module: output-capable per the
+ * target's GPIO mask AND not claimed by the flash/PSRAM bus (the drivers
+ * reserve their pins at boot, so an N8R8's octal-PSRAM pins are covered
+ * without a per-module table). gpio_config on a flash-bus pin "succeeds",
+ * re-muxes the bus, and kills the cache — the S3 boot-loop of 2026-07-21, so
+ * callers must check BEFORE the first pin touch, not react after. */
+bool robot_config_motor_pin_ok(int pin);
 
 /* Hub pin (optional, rogue-hub guard): when set, discovery and hub-watch admit
  * ONLY this exact hub SSID (robot_hub_admits) — a pinned board never joins a
