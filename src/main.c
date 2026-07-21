@@ -39,9 +39,13 @@ void app_main(void) {
     }
 
     rover_role_pref_t role = rover_config_load_role_pref();
+#ifdef FORCE_ROLE_HUB
+    role = ROLE_HUB;   /* bench validation only (-DFORCE_ROLE_HUB): pin this board to
+                        * the dedicated-hub path without needing the config panel */
+#endif
     if (role == ROLE_HUB) {
         ESP_LOGI(TAG, "role: hub (role_pref, tier 2) — dedicated instructor hub, no drive");
-        hub_role_run();     /* never returns (blocks in the broker) */
+        hub_role_run();     /* never returns (blocks serving the zenoh fabric) */
     }
     ESP_LOGI(TAG, "role: board%s — APSTA at boot (own AP until a hub takes over; "
                   "local broker when no hub)",

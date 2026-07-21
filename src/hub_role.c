@@ -43,7 +43,7 @@
 #include "lwip/ip4_addr.h"       /* IP4_ADDR — relocating the board AP off 192.168.4.0/24 */
 #include "lwip/sockets.h"        /* the uplink probe below speaks raw HTTP, like the Pi's */
 #include "lwip/netdb.h"
-#include "mosq_broker.h"
+#include "zenoh-pico.h"          /* the hub's Zenoh backbone (was mosq_broker.h) */
 #include "mdns.h"
 #include "roles.h"
 #include "rover_config.h"        /* rover_config_load — the stored STA uplink */
@@ -67,13 +67,14 @@
 #define AP_MAX_CONN 8                  /* esp32_nat_router's documented ceiling */
 
 #ifndef INSTRUCTOR_PASS
-#define INSTRUCTOR_PASS "change-me"     /* the one gated identity — see connect_cb */
+#define INSTRUCTOR_PASS "change-me"     /* the one gated identity — see board_instructor_pass_ok */
 #endif
 
-/* ws_mqtt_bridge.c — lets browsers reach the broker over MQTT-over-WebSocket */
-void start_ws_mqtt_bridge(void);
-void ws_bridge_reap_all(void);   /* force-close every open bridge — a departing
-                                   * station's own bridge slot otherwise leaks */
+/* ws_zenoh_bridge.c — the WS-JSON adapter: browsers reach the hub's Zenoh session
+ * over a WebSocket (replaces the MQTT-over-WebSocket byte-pump bridge). */
+void start_ws_zenoh_bridge(z_owned_session_t *session);
+void ws_zenoh_reap_all(void);    /* force-close every open ws client — a departing
+                                   * station's own slot otherwise leaks */
 
 static const char *TAG = "hub-broker";
 static esp_netif_t *ap_netif;
@@ -274,19 +275,15 @@ int board_status_json(char *buf, size_t len)
         ip, pesc, s_dash, up == BOARD_UPLINK_PORTAL ? puesc : "");
 }
 
-/* Session auth: whole-session accept/reject, the only gate this broker offers
- * (no per-topic ACL — CONTRACT.md § Discovery & isolation). The classroom's
- * real boundary is the hub's own Wi-Fi perimeter, not a login: every board
- * and browser is admitted with no credential at all — a name is a topic
- * address, not a password. The one gated identity is "instructor" — not
- * because this port can enforce a narrower ACL for it (it can't), but so the
- * dashboard's fleet-wide controls (Stop-all, drive-any-robot) need a real
- * password before they light up: deliberate friction on the one set of
- * actions that shouldn't be a stray tap. Get "instructor" right → admitted;
- * anything else, admitted too. (Confirmed 2026-07-13 — the per-robot
- * robot1/robot2/pool credential table this replaced never enforced anything
- * a determined student couldn't already read off a card; it just made every
- * fresh board a manual provisioning step.) */
+/* Auth: the classroom's real boundary is the hub's own Wi-Fi perimeter, not a
+ * login (CONTRACT.md § Discovery & isolation) — every board and browser reaches
+ * the fabric with no credential at all; a name is a topic address, not a
+ * password. The one gated identity is "instructor", and its only power is
+ * engaging/clearing fleet/estop: deliberate friction on the one action that
+ * shouldn't be a stray tap. Under MQTT this was the broker's whole-session
+ * accept (connect_cb); under Zenoh it is enforced per-action in the WS-JSON
+ * adapter (ws_zenoh_bridge gates a fleet/estop write on this same password) —
+ * stronger than a session-wide accept, and the reason connect_cb is gone. */
 /* The instructor credential, in one place: NVS first, compile-time default
  * second. The literal is plaintext in the image and firmware.yml publishes
  * .bins from a PUBLIC repo, so a baked-in secret ships to whoever downloads
@@ -304,22 +301,6 @@ bool board_instructor_pass_ok(const char *given)
     return strcmp(given, want) == 0;
 }
 
-static int connect_cb(const char *client_id, const char *username,
-                      const char *password, int password_len)
-{
-    (void)password_len;
-    const char *cid = client_id ? client_id : "(none)";
-    if (username && strcmp(username, "instructor") == 0) {
-        if (board_instructor_pass_ok(password)) {
-            ESP_LOGI(TAG, "accept %s as instructor", cid);
-            return 0;
-        }
-        ESP_LOGW(TAG, "reject %s: wrong instructor password", cid);
-        return 1;
-    }
-    ESP_LOGI(TAG, "accept %s%s%s", cid, username ? " as " : " (anonymous)", username ? username : "");
-    return 0;
-}
 
 /* AP clients always resolve through THIS board — we hand our own IP out as the
  * DHCP DNS offer EXPLICITLY (wifi_apsta_up, below), the Pi's dnsmasq "polite
@@ -375,7 +356,7 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
         ESP_LOGI(TAG, "a device joined the AP");
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STADISCONNECTED) {
         ESP_LOGI(TAG, "a device left the AP");
-        ws_bridge_reap_all();
+        ws_zenoh_reap_all();
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
         s_gw = e->ip_info.gw;
@@ -877,16 +858,40 @@ static void hub_watch_task(void *arg)
     }
 }
 
-static void broker_task(void *arg)
+/* The hub's Zenoh backbone — a peer-listen session rovers connect to, replacing
+ * the embedded MQTT broker (mosq_broker_run). Opened once; the WS-JSON adapter
+ * (ws_zenoh_bridge) rides the SAME session for the browser edge, and owns the
+ * fleet/estop queryable latch + the instructor auth gate that the broker's
+ * connect_cb used to carry — moved to the app layer, which is where a
+ * per-action e-stop gate belongs (stronger than a whole-session accept). Unlike
+ * mosq_broker_run this does NOT block: the session runs in its read/lease tasks,
+ * so callers that must not return (the dedicated hub) block themselves. */
+static z_owned_session_t s_hub_session;
+static bool s_hub_up = false;
+
+static void start_zenoh_hub(void)
 {
-    (void)arg;
-    struct mosq_broker_config bcfg = {
-        .host = "0.0.0.0", .port = 1883, .tls_cfg = NULL, .handle_connect_cb = connect_cb,
-    };
-    ESP_LOGI(TAG, "starting broker on 0.0.0.0:1883 (raw MQTT; browsers via the :9001 WS bridge)");
-    mosq_broker_run(&bcfg);   /* blocks for the life of the broker */
-    ESP_LOGE(TAG, "broker exited");
-    vTaskDelete(NULL);
+    if (s_hub_up) return;
+    z_owned_config_t cfg;
+    z_config_default(&cfg);
+    zp_config_insert(z_loan_mut(cfg), Z_CONFIG_MODE_KEY, "peer");
+    zp_config_insert(z_loan_mut(cfg), Z_CONFIG_LISTEN_KEY, "tcp/0.0.0.0:7447");
+    z_open_options_t oo;
+    z_open_options_default(&oo);
+    oo.auto_start_read_task = false;
+    oo.auto_start_lease_task = false;
+    if (z_open(&s_hub_session, z_move(cfg), &oo) < 0) {
+        ESP_LOGE(TAG, "zenoh hub open (peer-listen :7447) failed");
+        return;
+    }
+    if (zp_start_read_task(z_loan_mut(s_hub_session), NULL) < 0 ||
+        zp_start_lease_task(z_loan_mut(s_hub_session), NULL) < 0) {
+        ESP_LOGE(TAG, "zenoh hub read/lease task start failed");
+        return;
+    }
+    s_hub_up = true;
+    start_ws_zenoh_bridge(&s_hub_session);   /* :9001 adapter + :80 dashboard + estop latch */
+    ESP_LOGI(TAG, "zenoh hub up: peer-listen tcp/0.0.0.0:7447 + WS-JSON adapter on :9001");
 }
 
 /* ── board_ap_down: a hub client has no AP of its own ─────────────────────────
@@ -1043,12 +1048,13 @@ void board_run(bool self_broker_ok)
              * just gives internet; drive comes from the on-chip broker. */
             ESP_LOGW(TAG, "no hub reachable — self-hubbing (home mode, island)");
             if (!broker_started) {
-                xTaskCreate(broker_task, "broker", 4096, NULL, 5, NULL);
-                start_ws_mqtt_bridge();
+                start_zenoh_hub();   /* peer-listen :7447 + WS-JSON adapter (was broker + WS bridge) */
                 xTaskCreate(hub_watch_task, "hub-watch", 4096, NULL, 4, NULL);
                 broker_started = true;
-                vTaskDelay(pdMS_TO_TICKS(2000));   /* let the broker bind :1883 first */
+                vTaskDelay(pdMS_TO_TICKS(2000));   /* let the listener bind :7447 first */
             }
+            /* rover_client_run converts this mqtt:// locator to tcp/127.0.0.1:7447,
+             * so the island drives itself off its OWN peer-listen session. */
             snprintf(uri, sizeof uri, "mqtt://127.0.0.1:1883");
             /* Only now does dash say "/" — the bridge above owns :80's / from here,
              * so a landing page that reloads on "/" always gets the dashboard. */
@@ -1118,11 +1124,10 @@ void hub_role_run(void)
     s_want_connect = true;
     esp_wifi_connect();
 
-    start_ws_mqtt_bridge();
     board_net_state_set(BOARD_NET_LOCAL, up_ssid, "/");   /* dashboard is here */
-    struct mosq_broker_config bcfg = {
-        .host = "0.0.0.0", .port = 1883, .tls_cfg = NULL, .handle_connect_cb = connect_cb,
-    };
-    ESP_LOGI(TAG, "starting broker on 0.0.0.0:1883 (raw MQTT; browsers via the :9001 WS bridge)");
-    mosq_broker_run(&bcfg);   /* blocks */
+    start_zenoh_hub();        /* peer-listen :7447 + WS-JSON adapter (was broker + WS bridge) */
+    /* A dedicated hub never drives — it just serves the fabric. start_zenoh_hub
+     * returns (the session runs in its read/lease tasks), so block here: this
+     * role, like the broker it replaced, never returns. */
+    for (;;) vTaskDelay(pdMS_TO_TICKS(60000));
 }
