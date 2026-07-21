@@ -14,7 +14,7 @@
 #include "esp_attr.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
-#include "mqtt_client.h"
+#include "zenoh-pico.h"
 #include "cJSON.h"
 #include "rover_config.h"
 #include "provisioning_util.h"   /* rover_format_robot_id + locator validation */
@@ -24,10 +24,11 @@ static const char *TAG = "rover";
 static char s_id[16];
 
 /*
- * The DRIVE CLIENT of the unified image: esp-mqtt + L298N motors, with NO Wi-Fi
+ * The DRIVE CLIENT of the unified image: zenoh-pico + L298N motors, with NO Wi-Fi
  * setup of its own. board_run (hub_role.c) brings the radio up in APSTA and hands
- * this a broker URI — the hub's gateway in a classroom, or mqtt://127.0.0.1:1883
- * when the board is its own island. rover_client_run connects, drives, and
+ * this a locator — still shaped as the old mqtt://gateway URI, which this converts
+ * to tcp/gateway:7447 (the hub's gateway in a classroom, or 127.0.0.1 when the
+ * board is its own island). rover_client_run opens the zenoh session, drives, and
  * returns on a dead session (never reboots — the caller re-evaluates).
  *
  * (BLE provisioning was removed 2026-07-09 — a rover auto-joins the open hub-*
@@ -89,7 +90,7 @@ void rover_button_start(void) {
 #endif
 }
 
-/* ── the esp-mqtt drive client ───────────────────────────────────────────── */
+/* ── the zenoh-pico drive client ─────────────────────────────────────────── */
 
 /* Topic identity — a name, not a credential (confirmed 2026-07-13; CONTRACT.md
  * § Discovery & isolation): the rover publishes under robots/<name>, and every
@@ -103,7 +104,7 @@ void rover_button_start(void) {
  * compile-time default. s_topic_id names the live buffer so publish/subscribe
  * topics follow a reassignment after the next boot. */
 /* Double-buffered so a live rename can't be read half-written. config_apply
- * runs on the mqtt event task; the sys loop reads the name every 2s on
+ * runs on the zenoh read task; the sys loop reads the name every 2s on
  * another. Writing one buffer in place would let that loop snapshot a
  * half-copied name and publish to robots/<garbage>/sys — and the dashboard
  * never expires a card, so one torn read would strand a phantom rover on
@@ -115,9 +116,18 @@ static char s_name_buf[2][33] = { ROVER_NAME };
 static volatile const char *s_topic_id_v = s_name_buf[0];
 #define s_topic_id ((const char *)s_topic_id_v)
 
-static volatile bool s_mqtt_up = false;   /* live session; drives dead-session self-heal */
+static volatile bool s_session_up = false;   /* live zenoh session; drives dead-session self-heal */
 static volatile int64_t s_last_drive_us = INT64_MIN;  /* esp_timer time of the last pwm; hub_watch reads it */
 static volatile bool s_estop = false;     /* fleet/estop latch — non-zero pwm refused while set */
+
+/* The zenoh drive session + its name-scoped subscribers. The estop subscriber is
+ * fleet-wide (never renamed); the four name-scoped ones re-point on a rename. */
+static z_owned_session_t s_session;
+static z_owned_subscriber_t s_sub_pwm, s_sub_config, s_sub_identify, s_sub_reprov, s_sub_estop;
+/* A rename can't undeclare a subscriber from inside that subscriber's own read-task
+ * callback (config_apply runs there) — it would reenter the sub being dropped. So
+ * config_apply only flips this; the sys loop (a different task) re-points the subs. */
+static volatile bool s_rename_pending = false;
 
 int64_t rover_ms_since_drive(void) {
     if (s_last_drive_us == INT64_MIN) return INT64_MAX;   /* no drive command this boot */
@@ -327,7 +337,7 @@ static void estop_apply(const char *json, int len) {
  * every tick (s_topic_id names the live name buffer). It used to snapshot it
  * once before the loop — fine while every rename rebooted, and a silent
  * stale-card bug the moment one didn't. */
-static void config_apply(const char *json, int len, esp_mqtt_client_handle_t cli) {
+static void config_apply(const char *json, int len) {
     cJSON *root = cJSON_ParseWithLength(json, len);
     if (!root) { ESP_LOGW(TAG, "config: unparseable payload"); return; }
     /* Optional "target" board-id: rovers sharing a name all see this topic, so a
@@ -416,23 +426,15 @@ static void config_apply(const char *json, int len, esp_mqtt_client_handle_t cli
 
     cJSON_Delete(root);
 
-    /* A rename is just a change of address: drop the old subscriptions and take
-     * the new ones. Order matters — subscribe BEFORE unsubscribing, so a pwm
-     * command arriving mid-rename lands on one of them rather than neither.
-     * (The reverse order leaves a hole where the rover answers to no topic.)
-     * Doing this needs no reboot, which is the whole point; only pins/flip do. */
-    if (old_name[0] && cli) {
-        char t[64];
-        static const char *chans[] = { "pwm", "cmd/config", "cmd/identify", "cmd/reprovision" };
-        for (size_t i = 0; i < sizeof chans / sizeof *chans; i++) {
-            snprintf(t, sizeof t, "robots/%s/%s", s_topic_id, chans[i]);
-            esp_mqtt_client_subscribe(cli, t, 0);
-        }
-        for (size_t i = 0; i < sizeof chans / sizeof *chans; i++) {
-            snprintf(t, sizeof t, "robots/%s/%s", old_name, chans[i]);
-            esp_mqtt_client_unsubscribe(cli, t);
-        }
-        ESP_LOGW(TAG, "re-subscribed as '%s' — no reboot", s_topic_id);
+    /* A rename is just a change of address: the four name-scoped subscribers must
+     * re-point to the new name. That can't happen HERE — this runs in the read
+     * task's subscriber callback, and undeclaring s_sub_config mid-dispatch would
+     * reenter the very subscriber being dropped. So flag it; the sys loop (a
+     * different task) does the undeclare+declare next tick. Still no reboot, which
+     * is the whole point; only pins/flip do. */
+    if (old_name[0]) {
+        s_rename_pending = true;
+        ESP_LOGW(TAG, "name is now '%s' — subs re-point next tick", s_topic_id);
     }
 
     if (needs_boot) {   /* pins/flip only: motor_init must re-run against NVS */
@@ -455,7 +457,7 @@ static void blink_task(void *p) {
         led_set(i & 1);
         vTaskDelay(pdMS_TO_TICKS(250));
     }
-    led_set(s_mqtt_up);
+    led_set(s_session_up);
     s_blinking = false;
     vTaskDelete(NULL);
 }
@@ -496,73 +498,81 @@ static void reprovision_apply(const char *json, int len) {
     esp_restart();
 }
 
-/* Four subscriptions: robots/<id>/pwm (drive), /cmd/config (post-join name
- * assignment), /cmd/identify (blink to find the physical board), /cmd/reprovision
- * (the BOOT button's remote twin). Routed by topic suffix; topic/data arrive
- * without null terminators. */
-static void mqtt_evt(void *arg, esp_event_base_t base, int32_t id, void *data) {
-    (void)arg; (void)base;
-    esp_mqtt_event_handle_t e = data;
-    switch ((esp_mqtt_event_id_t)id) {
-    case MQTT_EVENT_CONNECTED: {
-        s_mqtt_up = true;
-        led_set(true);          /* reached the broker — visible "live" signal */
-        char t[64];
-        snprintf(t, sizeof t, "robots/%s/pwm", s_topic_id);
-        esp_mqtt_client_subscribe(e->client, t, 0);
-        snprintf(t, sizeof t, "robots/%s/cmd/config", s_topic_id);
-        esp_mqtt_client_subscribe(e->client, t, 0);
-        snprintf(t, sizeof t, "robots/%s/cmd/identify", s_topic_id);
-        esp_mqtt_client_subscribe(e->client, t, 0);
-        snprintf(t, sizeof t, "robots/%s/cmd/reprovision", s_topic_id);
-        esp_mqtt_client_subscribe(e->client, t, 0);
-        /* Resync the e-stop latch from broker state: the retained fleet/estop
-         * (if any) arrives with this subscribe and re-engages. No retained
-         * message = the room is clear (a hub restart forgets an engaged stop
-         * by design — CONTRACT.md § Fleet e-stop), so drop any stale latch
-         * rather than stranding the rover stopped with nothing to clear it. */
-        s_estop = false;
-        esp_mqtt_client_subscribe(e->client, "fleet/estop", 1);
-        ESP_LOGI(TAG, "mqtt connected; subscribed pwm + cmd/{config,identify,reprovision} for %s + fleet/estop", s_topic_id);
-        break;
-    }
-    case MQTT_EVENT_DISCONNECTED:
-        s_mqtt_up = false;
-        led_set(false);                                /* off the broker → not live */
-        motor_stop(NULL);                              /* lose the broker → stop moving */
-        ESP_LOGW(TAG, "mqtt disconnected");
-        break;
-    case MQTT_EVENT_DATA:
-        if (e->topic_len == 11 && memcmp(e->topic, "fleet/estop", 11) == 0) {
-            estop_apply(e->data, e->data_len);
-        } else if (e->topic_len >= 4 && memcmp(e->topic + e->topic_len - 4, "/pwm", 4) == 0) {
-            motor_apply(e->data, e->data_len);
-        } else if (e->topic_len >= 7 && memcmp(e->topic + e->topic_len - 7, "/config", 7) == 0) {
-            config_apply(e->data, e->data_len, e->client);
-        } else if (e->topic_len >= 9 && memcmp(e->topic + e->topic_len - 9, "/identify", 9) == 0) {
-            identify_apply(e->data, e->data_len);
-        } else if (e->topic_len >= 12 && memcmp(e->topic + e->topic_len - 12, "/reprovision", 12) == 0) {
-            reprovision_apply(e->data, e->data_len);
-        } else {
-            /* A future subscription without a branch here must never reboot the board. */
-            ESP_LOGW(TAG, "unhandled message on %.*s — ignoring", e->topic_len, e->topic);
+/* ── zenoh subscriber callbacks — one per channel, run on the read task ───────
+ * Zenoh delivers per-declaration, so routing is by subscriber rather than the
+ * MQTT path's topic-suffix matching. Each hands the raw payload to the same
+ * *_apply routine as before (they take json+len and tolerate no null
+ * terminator). The payload copy is dropped after the synchronous *_apply. */
+static void payload_apply(const z_loaned_sample_t *s, void (*fn)(const char *, int)) {
+    z_owned_string_t v;
+    z_bytes_to_string(z_sample_payload(s), &v);
+    fn(z_string_data(z_string_loan(&v)), (int)z_string_len(z_string_loan(&v)));
+    z_drop(z_move(v));
+}
+static void on_pwm(z_loaned_sample_t *s, void *a)      { (void)a; payload_apply(s, motor_apply); }
+static void on_config(z_loaned_sample_t *s, void *a)   { (void)a; payload_apply(s, config_apply); }
+static void on_identify(z_loaned_sample_t *s, void *a) { (void)a; payload_apply(s, identify_apply); }
+static void on_reprov(z_loaned_sample_t *s, void *a)   { (void)a; payload_apply(s, reprovision_apply); }
+static void on_estop(z_loaned_sample_t *s, void *a)    { (void)a; payload_apply(s, estop_apply); }
+
+/* Declare the four name-scoped subscribers under `name` (0 on success). The
+ * fleet-wide estop sub is separate — it never renames. */
+static int declare_name_subs(const char *name) {
+    struct { const char *suffix; void (*fn)(z_loaned_sample_t *, void *); z_owned_subscriber_t *sub; } ch[] = {
+        { "pwm",             on_pwm,      &s_sub_pwm },
+        { "cmd/config",      on_config,   &s_sub_config },
+        { "cmd/identify",    on_identify, &s_sub_identify },
+        { "cmd/reprovision", on_reprov,   &s_sub_reprov },
+    };
+    char t[64];
+    z_view_keyexpr_t ke;
+    z_owned_closure_sample_t cb;
+    for (size_t i = 0; i < sizeof ch / sizeof *ch; i++) {
+        snprintf(t, sizeof t, "robots/%s/%s", name, ch[i].suffix);
+        z_view_keyexpr_from_str_unchecked(&ke, t);
+        z_closure(&cb, ch[i].fn, NULL, NULL);
+        if (z_declare_subscriber(z_loan(s_session), ch[i].sub, z_loan(ke), z_move(cb), NULL) < 0) {
+            ESP_LOGE(TAG, "declare subscriber %s failed", t);
+            return -1;
         }
-        break;
-    default:
-        /* No MQTT_EVENT_ERROR handling: a rover never claims to be
-         * "instructor", so no hub ever refuses its connection — nothing to
-         * count or fall back from. */
-        break;
     }
+    return 0;
+}
+static void undeclare_name_subs(void) {
+    z_drop(z_move(s_sub_pwm));
+    z_drop(z_move(s_sub_config));
+    z_drop(z_move(s_sub_identify));
+    z_drop(z_move(s_sub_reprov));
 }
 
-/* ── rover_client_run: the MQTT client + motor-drive loop, network-agnostic ───
- * Assumes Wi-Fi/networking is already up and `broker_uri` reaches a broker; sets
- * up identity + motors, connects, then blocks in the publish loop. Its sole
- * caller is board_run (hub_role.c), which brings the radio up in APSTA and passes
- * the right broker: the DHCP gateway when joined to a hub (classroom), or
- * mqtt://127.0.0.1:1883 when the board is its own island (home). Returns (never
- * reboots) when the session is dead — board_run re-evaluates in its loop. */
+/* Join-time e-stop latch resync (CONTRACT.md § Fleet e-stop): after declaring the
+ * live subscriber, query fleet/estop once so a rover that (re)joins mid-emergency
+ * latches from the hub's current state — closing the reconnect race the MQTT
+ * retained message used to close. No hub answer = the room is clear (a hub that
+ * rebooted forgot the latch by design), which is exactly the s_estop=false we
+ * start from — so a silent query is the correct no-op, not a failure. */
+static void on_estop_reply(z_loaned_reply_t *reply, void *a) {
+    (void)a;
+    if (!z_reply_is_ok(reply)) return;
+    payload_apply(z_reply_ok(reply), estop_apply);
+}
+static void estop_query_latch(void) {
+    z_view_keyexpr_t ke;
+    z_view_keyexpr_from_str_unchecked(&ke, "fleet/estop");
+    z_owned_closure_reply_t cb;
+    z_closure(&cb, on_estop_reply, NULL, NULL);
+    z_get_options_t opts;
+    z_get_options_default(&opts);
+    z_get(z_loan(s_session), z_loan(ke), "", z_move(cb), &opts);
+}
+
+/* ── rover_client_run: the zenoh client + motor-drive loop, network-agnostic ──
+ * Assumes Wi-Fi/networking is already up and `broker_uri` names the hub; sets
+ * up identity + motors, opens the zenoh session, then blocks in the publish loop.
+ * Its sole caller is board_run (hub_role.c), which brings the radio up in APSTA
+ * and passes the locator (still mqtt://-shaped): the DHCP gateway when joined to
+ * a hub (classroom), or 127.0.0.1 when the board is its own island (home).
+ * Returns (never reboots) when the session is dead — board_run re-evaluates. */
 void rover_client_run(const char *broker_uri) {
     /* Identity is board-local, no network needed: robot-id from the MAC, name
      * from NVS (a post-join assignment) or the compile-time pool default. */
@@ -572,20 +582,25 @@ void rover_client_run(const char *broker_uri) {
     char cu[33];
     rover_config_load_identity(cu);
     if (cu[0]) snprintf(s_name_buf[0], sizeof s_name_buf[0], "%s", cu);   /* boot: no reader yet */
-    led_set(false);   /* start dark; MQTT CONNECTED lights it */
-    ESP_LOGI(TAG, "rover client: id %s as '%s' → %s", s_id, s_topic_id, broker_uri);
+    led_set(false);   /* start dark; a live zenoh session lights it */
 
-    /* No .credentials: every hub admits every name with no MQTT auth at all
-     * (confirmed 2026-07-13 — CONTRACT.md § Discovery & isolation). MQTT is
-     * still the transport for an unrelated, still-true reason: zenoh-pico
-     * never implemented usrpwd, which mattered when identity WAS a
-     * credential; esp-mqtt was simply the client that worked. Same firmware
-     * reaches either hub: both are raw-TCP brokers on :1883, and a rover
-     * never needs the WebSocket transport (that's the browser's constraint). */
-    esp_mqtt_client_config_t mcfg = {
-        .broker.address.uri = broker_uri,
-        .session.keepalive = 15,
-    };
+    /* The caller still passes an mqtt:// locator (the DHCP gateway, or 127.0.0.1
+     * for an island) — that seam is board_run's, unchanged. The wire is Zenoh now,
+     * so reach the SAME host on Zenoh's TCP port: mqtt://host:1883 -> tcp/host:7447.
+     * Host-only parse; the port is ours. A name is still an address, not a login —
+     * no credentials, the hub's Wi-Fi is the boundary (CONTRACT.md § Discovery). */
+    char locator[52];
+    {
+        const char *h = broker_uri;
+        if (strncmp(h, "mqtt://", 7) == 0) h += 7;
+        else { const char *sep = strstr(h, "://"); if (sep) h = sep + 3; }
+        char host[40];
+        size_t hl = strcspn(h, ":/");
+        if (hl >= sizeof host) hl = sizeof host - 1;
+        memcpy(host, h, hl); host[hl] = 0;
+        snprintf(locator, sizeof locator, "tcp/%s:7447", host);
+    }
+    ESP_LOGI(TAG, "rover client: id %s as '%s' → %s", s_id, s_topic_id, locator);
     {   /* pins default to the macros; NVS overrides when a chassis was configured */
         int pins[6] = { s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4 };
         if (rover_config_load_motor_pins(pins)) {
@@ -594,26 +609,59 @@ void rover_client_run(const char *broker_uri) {
             ESP_LOGI(TAG, "motor pins from NVS");
         }
     }
-    motor_init();   /* ready before CONNECTED can deliver a pwm command */
-    esp_mqtt_client_handle_t cli = esp_mqtt_client_init(&mcfg);
-    if (!cli) { ESP_LOGE(TAG, "mqtt init failed"); return; }
-    esp_mqtt_client_register_event(cli, ESP_EVENT_ANY_ID, mqtt_evt, NULL);
-    esp_mqtt_client_start(cli);
+    motor_init();   /* ready before a pwm command can arrive */
 
-    /* First connect gates everything: it proves reachability (there's no
-     * credential left to be rejected). No connect in 10 s → dead → caller
-     * retries. MUST stop+destroy on this exit: a returned-but-alive client
-     * keeps auto-reconnecting forever — each pass leaked one zombie, its
-     * DISCONNECTED events flipped the shared s_mqtt_up under the NEXT
-     * session (20 s flap), and the heap bled until the board crashed off the
-     * air (bench 2026-07-12, rover-e348/b79c). */
-    for (int i = 0; i < 40 && !s_mqtt_up; i++) vTaskDelay(pdMS_TO_TICKS(250));
-    if (!s_mqtt_up) {
-        ESP_LOGE(TAG, "broker unreachable");
-        esp_mqtt_client_stop(cli);
-        esp_mqtt_client_destroy(cli);
+    /* brcmfmac hub APs (the Pi) drop a power-saving STA right after assoc, so the
+     * rover keeps its radio awake — the one Wi-Fi setting the drive client owns. */
+    esp_wifi_set_ps(WIFI_PS_NONE);
+
+    /* Zenoh client to the hub. Read + lease tasks are started EXPLICITLY: the
+     * auto_start options don't run them under esp-idf, and without the read task
+     * the rover would publish but never RECEIVE a pwm (subs + queryables go
+     * silent). z_open success == connected — there is no separate CONNECTED
+     * event to wait on, so it gates reachability the way the 10 s wait used to. */
+    z_owned_config_t zcfg;
+    z_config_default(&zcfg);
+    zp_config_insert(z_loan_mut(zcfg), Z_CONFIG_MODE_KEY, "client");
+    zp_config_insert(z_loan_mut(zcfg), Z_CONFIG_CONNECT_KEY, locator);
+    z_open_options_t oo;
+    z_open_options_default(&oo);
+    oo.auto_start_read_task = false;
+    oo.auto_start_lease_task = false;
+    if (z_open(&s_session, z_move(zcfg), &oo) < 0) {
+        ESP_LOGE(TAG, "zenoh open failed → %s (hub reachable?)", locator);
         return;
     }
+    if (zp_start_read_task(z_loan_mut(s_session), NULL) < 0 ||
+        zp_start_lease_task(z_loan_mut(s_session), NULL) < 0) {
+        ESP_LOGE(TAG, "read/lease task start failed");
+        z_drop(z_move(s_session));
+        return;
+    }
+    s_session_up = true;
+    led_set(true);   /* reached the hub — visible "live" signal */
+
+    /* Name-scoped subs, then the fleet-wide estop sub, then the join-time latch
+     * get (§ Fleet e-stop). s_estop starts clear; the query re-engages it iff a
+     * hub answers with an engaged latch. */
+    s_estop = false;
+    if (declare_name_subs(s_topic_id) < 0) {
+        s_session_up = false;
+        led_set(false);
+        zp_stop_read_task(z_loan_mut(s_session));
+        zp_stop_lease_task(z_loan_mut(s_session));
+        z_drop(z_move(s_session));
+        return;
+    }
+    {
+        z_view_keyexpr_t ke;
+        z_view_keyexpr_from_str_unchecked(&ke, "fleet/estop");
+        z_owned_closure_sample_t cb;
+        z_closure(&cb, on_estop, NULL, NULL);
+        z_declare_subscriber(z_loan(s_session), &s_sub_estop, z_loan(ke), z_move(cb), NULL);
+    }
+    estop_query_latch();
+    ESP_LOGI(TAG, "zenoh up; subscribed pwm+cmd/{config,identify,reprovision}+fleet/estop for %s", s_topic_id);
 
     /* Rebuilt EVERY tick, not once here: a live rename (config_apply) moves
      * the name under this loop, and a topic snapshotted before the loop would
@@ -624,10 +672,18 @@ void rover_client_run(const char *broker_uri) {
     ESP_LOGI(TAG, "publishing robots/%s/sys every 2 s", s_topic_id);
 
     char buf[320];   /* worst-case sys payload with "pins"+rssi is ~250 — keep headroom */
-    int down = 0;   /* consecutive 2 s ticks with no live session — dead → return */
+    int fails = 0;   /* consecutive publish failures — a dead session returns to the caller */
     for (;;) {
-        if (s_mqtt_up) {
-            down = 0;
+        /* A rename queued by config_apply (it runs in a subscriber callback and
+         * can't re-point the subs it is dispatching) is applied HERE, on this
+         * task — the deferred half of the no-reboot rename. */
+        if (s_rename_pending) {
+            undeclare_name_subs();
+            if (declare_name_subs(s_topic_id) == 0)
+                ESP_LOGW(TAG, "re-subscribed as '%s' — no reboot", s_topic_id);
+            s_rename_pending = false;
+        }
+        {
             snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);   /* follows a rename */
             int64_t up_ms = esp_timer_get_time() / 1000;
             uint32_t heap = esp_get_free_heap_size();
@@ -699,19 +755,32 @@ void rover_client_run(const char *broker_uri) {
              * Messages drawer already shows, live, off the wire it was published
              * on. A publish that FAILS is still a warning, because that is an
              * event. */
-            if (esp_mqtt_client_publish(cli, key, buf, 0, 0, 0) >= 0)
+            z_view_keyexpr_t ke;
+            z_view_keyexpr_from_str_unchecked(&ke, key);
+            z_owned_bytes_t payload;
+            z_bytes_copy_from_str(&payload, buf);
+            if (z_put(z_loan(s_session), z_loan(ke), z_move(payload), NULL) == 0) {
+                fails = 0;
                 ESP_LOGD(TAG, "pub %s", buf);
-            else
-                ESP_LOGW(TAG, "publish enqueue failed");
-        } else if (++down >= 10) {
-            /* esp-mqtt auto-reconnects, so a brief outage self-heals; only a
-             * sustained dead session (~20 s) returns to the caller. */
-            ESP_LOGE(TAG, "20 s with no broker — session dead");
-            esp_mqtt_client_stop(cli);
-            esp_mqtt_client_destroy(cli);
-            return;
-        } else {
-            ESP_LOGW(TAG, "waiting for reconnect (%d/10)", down);
+            } else if (++fails >= 3) {
+                /* zenoh-pico does not auto-reconnect the way esp-mqtt did: a dead
+                 * session stays dead. Tear down and return to board_run, which
+                 * re-scans and re-opens — the self-heal moves one level up, and
+                 * the same must-fully-destroy discipline applies (a half-torn
+                 * session leaks its read/lease tasks and the socket). */
+                ESP_LOGE(TAG, "publish failing — session dead, returning");
+                s_session_up = false;
+                led_set(false);
+                motor_stop(NULL);                              /* lose the hub → stop moving */
+                undeclare_name_subs();
+                z_drop(z_move(s_sub_estop));
+                zp_stop_read_task(z_loan_mut(s_session));
+                zp_stop_lease_task(z_loan_mut(s_session));
+                z_drop(z_move(s_session));
+                return;
+            } else {
+                ESP_LOGW(TAG, "publish failed (%d/3)", fails);
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
