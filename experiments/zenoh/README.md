@@ -16,6 +16,21 @@ working recipe.
   in **peer mode with a TCP listen endpoint** (`Z_FEATURE_UNICAST_PEER`), so
   rovers connect straight to it. Subscribes `robots/**` (uplink) and publishes
   `robots/<id>/pwm` (downlink) — no Pi, no `zenohd`.
+- **`hub-ws/hub.c`** — the ESP hub **plus the browser edge**: the same peer-listen
+  hub with the **WS-JSON adapter** the dashboard needs (a WebSocket on `:9001`
+  mapping `{op:pub|sub|get|auth}` JSON onto the hub's local zenoh session). This
+  is the sibling of `../../src/ws_mqtt_bridge.c` — same `httpd`/WS termination and
+  bounded slot pool — but the byte-pump-to-broker is replaced by op parsing,
+  because Zenoh has no on-chip broker socket to pipe to. Adds an instructor
+  auth gate on `fleet/estop` writes and a `**`-subscriber that fans samples out
+  to matching clients. Needs `CONFIG_HTTPD_WS_SUPPORT=y` (compile-gated off by
+  default). Closes the last architectural gate in `hub/zenoh-migration.md`.
+- **`ws-client-rig/main.c`** — an `esp_websocket_client` test rig that stands in
+  for the browser **on real silicon**, so testing never has to join the laptop's
+  Wi-Fi to the hub AP (which drops the user's internet). Joins `hub-f825`, drives
+  the adapter through sub/pub/get/auth, and asserts each leg (heartbeat + rover
+  telemetry fan-out, the auth gate, downlink drive, the `set_led` queryable) on
+  its serial log.
 
 ## Validated on hardware (2026-07-21)
 
@@ -23,8 +38,16 @@ working recipe.
   the `set_led` queryable, and the `fleet/estop` latch all round-trip.
 - **ESP-hub tier**: rover ⟷ `hub.c` (on an ESP32-C3) — telemetry up **and**
   commands down, both directions, no Pi.
+- **Browser edge** (`hub-ws/`): **boot + coexistence verified** on a C3 — the
+  adapter firmware comes up as `hub-f825`, opens its zenoh peer + read/lease
+  tasks, stands up the WS adapter on `:9001` and the page on `:80`, stays
+  healthy (heap ~164 KB), and the rover re-joins its AP. The ESP-specific risk
+  (an `httpd` WS server sharing the chip with zenoh-pico's own tasks/sockets) is
+  retired. The end-to-end round-trip *through* the adapter (via `ws-client-rig/`)
+  is built and staged; run it once the bench USB is stable to close the proof.
 
 Rover firmware: **879 KB** (43% of the A/B OTA slot). Hub: **920 KB** (45%).
+Hub-with-adapter: **997 KB** (49%). Test rig: **954 KB**.
 
 ## The three gotchas the production port MUST carry
 

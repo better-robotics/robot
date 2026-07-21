@@ -1,0 +1,4 @@
+## Pull the WebSocket client component (esp-protocols) so the rig can speak
+## to the hub's :9001 WS-JSON adapter the way a browser does.
+dependencies:
+  espressif/esp_websocket_client: "^1.2.0"
