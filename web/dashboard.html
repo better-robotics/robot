@@ -2022,11 +2022,11 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // two surfaces. A robot-XXXX SSID means an island (a lone robot's own AP),
     // which has no hub name to show.
     let hostLabel = "";
-    // The broker address the hub ITSELF hands out (/fleet's `locator`), not a
-    // string this page assembles. hubd builds it from the port mosquitto is
-    // actually bound to (`mqtt://{host}:{mqtt_port}`, hubd.rs) and prints the
-    // same value as the one to point robots at — so a hub moved off :1883
-    // stays truthful here, where a hardcoded ":1883" would quietly teach a
+    // The Zenoh endpoint the hub ITSELF hands out (/fleet's `locator`), not a
+    // string this page assembles. hubd builds it from the endpoint it's told
+    // (`tcp/{host}:{zenoh_port}`, hubd.rs) and prints the same value as the
+    // one to point robots at — so a hub moved off :7447
+    // stays truthful here, where a hardcoded ":7447" would quietly teach a
     // port nothing listens on. Empty until /fleet answers (and forever on a
     // standalone copy, which has no hubd to ask) — Settings falls back to the
     // contract default there.
@@ -2741,8 +2741,8 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       for (const [b, rec] of boards) if (rec.seenAt < cutoff) boards.delete(b);
       // topicSeen was the one Map here that never evicted, and it retains a
       // full payload string per entry. Robot names are student-supplied with no
-      // registry (sendClaim publishes any name anonymously, and robots/# is
-      // open rw), so `mosquitto_pub -t robots/$RANDOM/sys` in a loop grows the
+      // registry (sendClaim publishes any name anonymously, and robots/** is
+      // open rw), so any client publishing robots/$RANDOM/sys in a loop grows the
       // projector tab's heap without bound. Even benignly, the "semester-long
       // projector tab" this eviction block exists for accumulates every name
       // ever seen × 6 channels. Same cutoff, same loop, one line.
@@ -2770,15 +2770,15 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         renderSettings();
     }, 2000);
 
-    // Anonymous mqtt.js connection — Mosquitto's ACL grants every connection,
-    // no MQTT username/password at all, full read+write on robots/# and
-    // pair/# (mosquitto-acl.example.conf's top-level rule). This is now
-    // sufficient for every non-operator interaction: driving, claiming an
-    // unassigned board, reading the fleet. Only fleet/estop stays gated to
-    // the "operator" credential (driveClient below), so this client's
-    // subscription still doubles as the public "no login needed" fleet view
-    // hubd's old /fleet endpoint used to serve.
-    const wsPort = "9001"; // fixed convention, same host — see mosquitto.example.conf
+    // Anonymous WS-JSON connection — the ws-adapter admits every client, no
+    // password at all, full read+write on robots/** and pair/** (the open
+    // posture; CONTRACT.md § Discovery & isolation). This is now sufficient for
+    // every non-operator interaction: driving, claiming an unassigned board,
+    // reading the fleet. Only fleet/estop stays gated to the "operator"
+    // credential (driveClient below), so this client's subscription still
+    // doubles as the public "no login needed" fleet view hubd's old /fleet
+    // endpoint used to serve.
+    const wsPort = "9001"; // fixed convention, same host — the ws-adapter's WS port
     let publicClient = null;
     // Feed the robot cards from any /sys message, whichever client carried it.
     function ingestSys(topic, payload) {
@@ -3008,12 +3008,12 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // hide mechanism): this is a teaching surface, not an onboarding flow, so
     // the actual pub/sub traffic is shown, not abstracted away.
     //
-    // No hubd relay (2026-07-08): the browser is a direct mqtt.js client of
-    // Mosquitto, authenticated with its own MQTT username+password, scoped by
-    // mosquitto-acl.example.conf — not by application code in this page.
-    // "Code" input is `username:password` (operator's username is always
-    // "operator"; a robot's username is always its own name) — see
-    // classroom.example.json5.
+    // No hubd relay (2026-07-08): the browser is a WS-JSON client of the
+    // ws-adapter beside zenohd — scoping is the Wi-Fi perimeter plus the
+    // adapter's operator gate, not application code in this page. The "Code"
+    // input is the operator password (the one gated identity — engage/clear
+    // fleet/estop); everything else is open, so a name is an address, not a
+    // credential (CONTRACT.md § Discovery & isolation).
     let driveClient = null, myScope = null, target = null, targetBoard = null, lastSend = 0;
     const MAX_LOG = 60;
     // The bus's pulse, over a SLIDING window. Ingest TIMESTAMPS, not a count:
@@ -3729,13 +3729,12 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // The robot endpoint is the hub's OWN answer (/fleet's locator — the very
       // string hubd tells robots to point at), so it is a read, not a guess.
       // src for the fallback, used only when no hubd is behind the page:
-      // pi/deploy/mosquitto.conf (`listener 1883` / `protocol mqtt`) +
-      // CONTRACT.md § Discovery & isolation.
+      // CONTRACT.md § Discovery & isolation (the Zenoh endpoint, tcp/<host>:7447).
       // wsPort, not a literal "9001" — the connect call and this row must read
       // the same const or Settings will one day teach a stale port.
-      wrap.append(panelHead("Broker"), list([
-        [["This page", "MQTT over WebSocket"], `ws://${brokerHost}:${wsPort}`],
-        [["Robots", "MQTT over TCP"], brokerLocator || `mqtt://${brokerHost}:1883`],
+      wrap.append(panelHead("Transport"), list([
+        [["This page", "WS-JSON (WebSocket)"], `ws://${brokerHost}:${wsPort}`],
+        [["Robots", "Zenoh over TCP"], brokerLocator || `tcp/${brokerHost}:7447`],
         ["Auth", "none"],
       ]));
 
@@ -3749,8 +3748,8 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // Live: rebuilt on the 2 s tick, so signing in flips the fleet/estop grant
       // below in place — which is the whole reason the operator delta needs no
       // prose.
-      // src: pi/mosquitto-acl.example.conf + CONTRACT.md § Discovery &
-      // isolation (the identity/scope table). YOUR grants, not a matrix of
+      // src: CONTRACT.md § Discovery & isolation (the identity/scope table).
+      // YOUR grants, not a matrix of
       // every identity: the page knows who you are.
       // pair/# is the one row with no client in this repo — the hub grants it,
       // nothing it serves speaks it. It is NOT dead: workbench signals
