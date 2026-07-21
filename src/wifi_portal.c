@@ -1153,15 +1153,19 @@ void wifi_portal_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = 80;
     cfg.ctrl_port = 32768;
-    /* 5 (was 3, was 7): this handle also serves the dashboard + the IDE
-     * shell once start_ws_zenoh_bridge registers onto it, and the chip-wide
-     * LWIP pool (24, sdkconfig LWIP_MAX_SOCKETS) is shared with mosquitto/
-     * robots/DNS/mDNS — a 7 budget let one embedded-IDE page load starve the
-     * broker's accept loop (2026-07-13), while 3 made Chrome's keep-alive
+    /* 6 (was 5, was 3, was 7): this handle also serves the dashboard + the
+     * IDE shell once start_ws_zenoh_bridge registers onto it, and the
+     * chip-wide LWIP pool (32, sdkconfig LWIP_MAX_SOCKETS) is shared with
+     * robots/DNS/mDNS — a 7 budget let one embedded-IDE page load starve
+     * mosquitto's accept loop (2026-07-13), while 3 made Chrome's keep-alive
      * connections 503 the page's own /wifi/status poll (Duke bench
-     * 2026-07-14). The IDE shell keeps this safe by construction: ONE request
-     * hits this chip, every asset after it goes to GitHub Pages. */
-    cfg.max_open_sockets = 5;
+     * 2026-07-14). Both scars were measured against a 24-socket pool with the
+     * broker competing in it; the broker died with the Zenoh cutover and the
+     * pool grew to 32 (2026-07-21), so the ceiling eased to 6 — the 5 budget
+     * still LRU-purged a parallel connection mid-page-load. The IDE shell
+     * keeps this safe by construction: ONE request hits this chip, every
+     * asset after it goes to GitHub Pages. */
+    cfg.max_open_sockets = 6;
     /* True peak on THIS shared handle:
      *   /wifi{,/scan,/save,/connect,/forget,/role×2,/status,/operator}
      *   + / + /welcome + /captive/ack + /captive-portal-api

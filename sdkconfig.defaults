@@ -13,12 +13,34 @@ CONFIG_LWIP_IPV4_NAPT=y
 # WebSocket server support for the hub role's WS<->TCP bridge (browser MQTT-over-WS).
 CONFIG_HTTPD_WS_SUPPORT=y
 
-# Each browser bridge session costs 3 sockets (WS + broker TCP + mosquitto's
-# accepted end) on top of an ~12-socket baseline (two httpds, broker, robot
-# client, DNS forwarder, mDNS, uplink probe; the camera board adds one more
-# httpd). 16 let three sessions' worth of churn exhaust the pool and wedge
-# every listener until reboot; 24 keeps the full worst case under the ceiling.
-CONFIG_LWIP_MAX_SOCKETS=24
+# Socket pool. The mosquitto-era budget (3 sockets per browser session: WS +
+# broker TCP + the broker's accepted end) died with the Zenoh cutover — a WS
+# session now costs ONE socket, but the hub's zenoh peer-listener accepts a
+# TCP connection per robot. Full classroom peak: 8 robots + 6 WS dashboards
+# (ws_zenoh_bridge MAX_CLIENTS) + 6 :80 page sockets (wifi_portal) + the
+# ~6-listener baseline (two httpds, zenoh :7447, DNS forwarder, mDNS, uplink
+# probe; the camera board adds one more httpd) ≈ 27. 16 once let three
+# sessions' churn exhaust the pool and wedge every listener until reboot —
+# the failure this ceiling exists to keep far away.
+CONFIG_LWIP_MAX_SOCKETS=32
+
+# Serving the ~117 KB gzipped dashboard was capped by lwIP's stock windows,
+# not the radio: SND_BUF/WND at the 5760 default keep only 4 MSS-sized
+# segments in flight, ~0.3-0.6 MB/s at Wi-Fi RTTs — seconds per page load
+# while the link idles. 16×MSS send / 8×MSS receive lifts the in-flight cap
+# where it binds (the chip mostly SENDS pages; receive matters for OTA push).
+# Cost is heap, per busy socket, allocated on demand — a page load can hold
+# ~17 KB of send buffer while in flight, which the hub's ~6 concurrent-HTTP
+# worst case affords. RECVMBOX is pointer-sized per entry; 6 dropped bursts
+# on the floor (each drop a retransmit round-trip).
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=23040
+CONFIG_LWIP_TCP_WND_DEFAULT=11520
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=16
+
+# Hot lwIP paths in IRAM: ~10% more TCP throughput for ~13 KB of IRAM.
+# Cheap next to the buffer bump above, but it is the first thing to drop if a
+# board's IRAM segment ever overflows at link.
+CONFIG_LWIP_IRAM_OPTIMIZATION=y
 
 # 4 MB flash. The real table is partitions.csv (ota_0 + ota_1), passed by
 # platformio.ini's board_build.partitions — PlatformIO generates partitions.bin

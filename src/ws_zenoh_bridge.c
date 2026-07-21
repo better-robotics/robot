@@ -40,7 +40,10 @@
 #include "wifi_portal.h"    /* share the board's always-on :80 */
 
 #define WS_PORT      9001
-#define MAX_CLIENTS  3       /* same LWIP-socket budget rationale as ws_mqtt_bridge.c's MAX_BRIDGES */
+#define MAX_CLIENTS  6       /* a WS session costs ONE socket here (the MQTT era's 3-per-session
+                              * — WS + broker TCP + mosquitto's accepted end — died with the
+                              * broker), so the classroom can afford more concurrent dashboards.
+                              * Budgeted against CONFIG_LWIP_MAX_SOCKETS=32, see sdkconfig.defaults. */
 #define MAX_SUBS     6       /* per-client key filters — dashboard uses ~2 (a robots wildcard + fleet/estop) */
 #define KEYLEN       48
 #define MAX_ROBOTS   16      /* per-owner claim table (hub#10) — a classroom's worth of names */
@@ -468,20 +471,35 @@ static esp_err_t ws_handler(httpd_req_t *req) {
  * /fleet locator, which now advertises the Zenoh endpoint. */
 extern const unsigned char dashboard_html[];
 extern const unsigned int  dashboard_html_len;
+extern const char          dashboard_html_etag[];
 extern const unsigned char ide_shell_html[];
 extern const unsigned int  ide_shell_html_len;
+extern const char          ide_shell_html_etag[];
 
-static esp_err_t page_handler(httpd_req_t *req) {
+/* Embedded pages change only on OTA, so revalidation is nearly always a hit:
+ * ETag + no-cache turns a reload into a header-sized 304 instead of a
+ * full-blob transfer over the classroom radio. strstr, not strcmp — a browser
+ * may send `W/"…"` or a comma list; a truncated or absent header just means
+ * we serve the 200. Same scheme the Pi's hubd carries. */
+static esp_err_t send_embedded_page(httpd_req_t *req, const unsigned char *body,
+                                    unsigned int len, const char *etag) {
+    httpd_resp_set_hdr(req, "ETag", etag);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    char inm[64];
+    if (httpd_req_get_hdr_value_str(req, "If-None-Match", inm, sizeof inm) == ESP_OK
+        && strstr(inm, etag) != NULL) {
+        httpd_resp_set_status(req, "304 Not Modified");
+        return httpd_resp_send(req, NULL, 0);
+    }
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_send(req, (const char *)dashboard_html, dashboard_html_len);
-    return ESP_OK;
+    return httpd_resp_send(req, (const char *)body, len);
+}
+static esp_err_t page_handler(httpd_req_t *req) {
+    return send_embedded_page(req, dashboard_html, dashboard_html_len, dashboard_html_etag);
 }
 static esp_err_t ide_shell_handler(httpd_req_t *req) {
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_send(req, (const char *)ide_shell_html, ide_shell_html_len);
-    return ESP_OK;
+    return send_embedded_page(req, ide_shell_html, ide_shell_html_len, ide_shell_html_etag);
 }
 static esp_err_t ide_redirect_handler(httpd_req_t *req) {
     httpd_resp_set_status(req, "301 Moved Permanently");
@@ -540,7 +558,10 @@ void start_ws_zenoh_bridge(z_owned_session_t *session) {
         httpd_unregister_uri_handler(page_srv, "/", HTTP_GET);
     } else {
         httpd_config_t pc = HTTPD_DEFAULT_CONFIG();
-        pc.server_port = 80; pc.ctrl_port = 32768; pc.max_open_sockets = 3; pc.lru_purge_enable = true;
+        /* 6, not 3: a browser opens parallel connections (speculative second
+         * socket, iframe, /fleet poll) and anything past the cap gets LRU-
+         * purged MID-LOAD — which reads as a stalled page, not a busy hub. */
+        pc.server_port = 80; pc.ctrl_port = 32768; pc.max_open_sockets = 6; pc.lru_purge_enable = true;
         if (httpd_start(&page_srv, &pc) != ESP_OK) { ESP_LOGE(TAG, "page httpd (:80) failed"); page_srv = NULL; }
     }
     if (page_srv) {
