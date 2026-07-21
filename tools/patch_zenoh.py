@@ -45,10 +45,15 @@ Import("env")  # noqa: F821  (injected by PlatformIO/SCons)
 
 REL = os.path.join("zenoh-pico", "src", "system", "espidf", "system.c")
 
-# Each patch: (marker unique to the applied form, pristine anchor, replacement).
+# Each patch: (marker unique to the applied form, marker unique to upstream's
+# own equivalent fix, pristine anchor, replacement). zenoh-pico main carries
+# both fixes natively since 2026-07-21 (#1270) -- the upstream marker makes this
+# hook a verified no-op there, while a 1.9.0 checkout still gets patched and an
+# unrecognized rewrite still fails loud.
 PATCHES = [
     (
         "monotonic deadline into the equivalent realtime deadline",
+        "Convert the remaining monotonic duration",
         """z_result_t _z_condvar_wait_until(_z_condvar_t *cv, _z_mutex_t *m, const z_clock_t *abstime) {
     int error = pthread_cond_timedwait(cv, m, abstime);
 
@@ -95,6 +100,7 @@ PATCHES = [
     ),
     (
         "intentionally NOT pthread_condattr_setclock",
+        "conversion is handled in _z_condvar_wait_until",
         """z_result_t _z_condvar_init(_z_condvar_t *cv) {
     pthread_condattr_t attr;
     pthread_condattr_init(&attr);
@@ -126,9 +132,13 @@ else:
     with open(path, "r") as f:
         src = f.read()
     applied = []
-    for marker, anchor, replacement in PATCHES:
+    upstream = 0
+    for marker, upstream_marker, anchor, replacement in PATCHES:
         if marker in src:
             continue  # already patched this checkout
+        if upstream_marker in src:
+            upstream += 1  # this checkout ships its own fix -- nothing to patch
+            continue
         if anchor not in src:
             raise SystemExit(
                 "patch_zenoh: FAILED to find an anchor in %s -- zenoh-pico changed. "
@@ -141,3 +151,5 @@ else:
         with open(path, "w") as f:
             f.write(src)
         print("patch_zenoh: applied ESP-IDF condvar monotonic/realtime fix (%d hunk(s))" % len(applied))
+    elif upstream:
+        print("patch_zenoh: upstream checkout carries its own clock fix (%d hunk(s)) -- nothing to patch" % upstream)
