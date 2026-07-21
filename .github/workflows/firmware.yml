@@ -218,12 +218,103 @@ jobs:
             --title "Firmware from main" \
             --notes "Images built from ${GITHUB_SHA} by run ${GITHUB_RUN_ID}. The flasher at better-robotics.github.io deploys from this release."
 
-      # No cross-repo redeploy trigger on purpose. A repo's built-in token can't
-      # dispatch another repo, so an immediate nudge would need a PAT/App secret
-      # here — and a pipeline whose freshness depends on a manually-set,
-      # expiring credential has a silent failure mode by construction (the
-      # SITE_DEPLOY_TOKEN this replaced was never set, and the site served
-      # 15-commit-stale firmware green for a day, 2026-07-17). The flasher
-      # converges with no secret at all: deploy.yml polls this rolling tag on a
-      # short schedule, and shows students client-side when it is briefly behind
-      # (flash.js), so residual lag is bounded AND visible, never silent.
+      # The release is a downloadable-artifact channel (grab a .bin and flash by
+      # hand, the way sdflash streams a Pi image) and the provenance the flasher's
+      # stamp links to. It no longer FEEDS the flasher: the `pages` job below
+      # serves the images straight from this run's build, so the served site can't
+      # lag the release. The cross-repo poll that once could — and did, 15-commit
+      # stale and green, 2026-07-17 — is gone with the repo boundary it crossed.
+
+  # Serve the flasher at better-robotics.github.io/robot/ from the SAME run that
+  # built the images. web/site/ is the whole static site (the flash landing page +
+  # the esptool module); this run's images are laid out beside it the way flash.js
+  # addresses them, so the page and the bytes it writes are always one commit.
+  # This is what moving the flasher into robot buys — no rolling-tag poll, no
+  # cross-repo fetch, no release round-trip; the apex is now a thin landing page
+  # that links here.
+  pages:
+    needs: [build, native-tests, dashboard-drift]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # Pages allows one deploy at a time; never interrupt one mid-flight.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect the built images
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: firmware-*
+
+      - name: Assemble the site — flasher + this run's images
+        run: |
+          set -eu
+          shopt -s nullglob
+          images=(dist/firmware-*/firmware.bin)
+          if [ ${#images[@]} -ne 3 ]; then
+            echo "::error::expected 3 built images, found ${#images[@]} — refusing to deploy a flasher missing a board"
+            exit 1
+          fi
+          mkdir -p _site
+          cp -R web/site/. _site/
+          emit() {  # <pio env> <board dir the page addresses>
+            mkdir -p "_site/flash/bin/$2"
+            for part in bootloader partitions firmware; do
+              cp "dist/firmware-$1/$part.bin" "_site/flash/bin/$2/$part.bin"
+            done
+          }
+          emit esp32dev          robot-esp32dev
+          emit esp32cam          robot-esp32cam
+          emit esp32c3-supermini robot-c3
+          # The manifest is the flasher's provenance source (flash.js): it stamps
+          # the commit and links `release` — the rolling tag the publish job cuts
+          # from this same commit — as the place these exact bytes can be
+          # downloaded and diffed against a board dump.
+          cat > _site/flash/bin/manifest.json <<EOF
+          {
+            "source": "better-robotics/robot",
+            "commit": "$(git rev-parse --short HEAD)",
+            "release": "firmware-latest",
+            "refreshed": "$(date -u +%F)",
+            "built_by": "robot firmware.yml run ${GITHUB_RUN_ID}",
+            "images": ["robot-esp32dev", "robot-esp32cam", "robot-c3"]
+          }
+          EOF
+          find _site -name '.DS_Store' -delete
+          echo "site contents:"; find _site -maxdepth 3 -type f | sort
+
+      # The positive control the publish job runs over the release, re-run on the
+      # bytes about to be SERVED — the guard belongs at every boundary the bytes
+      # cross. A build carrying real credentials would not contain the example
+      # placeholder; refuse to deploy it. (Absence checks read clean on a silent
+      # miss, which is how this class of bug hides — prove the placeholder present.)
+      - name: Refuse to serve an image not built from the example credentials
+        run: |
+          set -u
+          fail=0
+          for f in _site/flash/bin/*/firmware.bin; do
+            if LC_ALL=C grep -qa 'your-venue-wifi' "$f"; then
+              echo "ok: $f"
+            else
+              echo "::error::$f lacks the placeholder SSID — refusing to deploy"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

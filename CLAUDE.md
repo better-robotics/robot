@@ -92,6 +92,16 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   `ide_shell.html` in `better-robotics/ide`); `tools/sync-dashboard.sh` /
   `tools/sync-ide-shell.sh` resync them and `--check` gates drift (both run
   in CI). The generated `.c` files are gitignored.
+- **`web/site/` is served, not embedded** — the whole GitHub Pages site at
+  [`better-robotics.github.io/robot/`](https://better-robotics.github.io/robot/):
+  the browser flasher (Web Serial + vendored esptool-js) that writes a blank
+  ESP32 with this repo's firmware. It moved here from `better-robotics.github.io`
+  on 2026-07-21 so the flasher rides the same commit as the images it flashes —
+  `firmware.yml`'s `pages` job lays this run's `.bin` trios under
+  `web/site/flash/bin/<board>/` and deploys in the same run, no cross-repo poll or
+  release fetch (that boundary is what generated the old stale-firmware failure
+  mode). Nothing here is embedded in the firmware; the org apex is now a thin
+  landing page that links here.
 - **The IDE is served as a 2 KB loader shell, never the bundle** (2026-07-20;
   the embedded bundle left 2026-07-16). The full bundle cost **619,632
   bytes** — 32% of the image, more than every line of C in the firmware put

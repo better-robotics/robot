@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Flash a blank ESP32 into the brain of a Better Robotics robot from the browser — no toolchain. After the first write, the board serves everything itself: Wi-Fi, dashboard, settings.">
+  <meta name="theme-color" content="#1a1d20">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <title>Better Robotics</title>
+  <style>
+    /* Canonical token source for the family — hub/dashboard.html mirrors
+       this. Dark-only, single app shell: topbar + one card. */
+    :root {
+      color-scheme: dark;
+      --bg: #1a1d20;
+      --surface: #212529;
+      --ink: #e9ecef;
+      --ink-muted: #adb5bd;
+      --border-subtle:  rgba(255,255,255,0.06);
+      --border-default: rgba(255,255,255,0.10);
+      --line: var(--border-default);
+      --accent: #00539B;
+      --accent-text: #0577B1;   /* 3.45:1 on --bg — large-text/logotype only, never small body text */
+      --accent-ink: #ffffff;
+      --link: color-mix(in srgb, #0577B1 70%, white);
+      --brand-heading: var(--accent-text);
+      --focus: var(--accent-text);
+      --success: #30a46c;
+      --warn: #e89923;
+      --danger-text: #ff453a;
+      --radius: 8px;
+    }
+    * { margin: 0; box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { height: 100%; }
+    body {
+      font-family: system-ui, -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      font-size: 15px; line-height: 1.5;
+      background: var(--bg); color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+    }
+    .app { display: flex; flex-direction: column; min-height: 100dvh; }
+
+    .topbar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 0 20px; height: 52px; flex-shrink: 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .topbar-title { font-size: 17px; letter-spacing: -0.01em; font-weight: 400; }
+    .topbar-title .logo-accent { font-weight: 700; color: var(--brand-heading); }
+    .topbar-title .logo-base { color: color-mix(in srgb, var(--ink) 75%, transparent); }
+    .topbar-title a { color: inherit; text-decoration: none; }
+
+    /* Footer = the developer shelf: firmware provenance (filled by flash.js
+       into #fl-version) and the source link — metadata, out of the task flow. */
+    .footbar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 0 20px; min-height: 44px; flex-shrink: 0;
+      border-top: 1px solid var(--line);
+      font-size: 12px; color: var(--ink-muted);
+    }
+    /* The base footer link is a plain underlined link, so a link written into
+       #fl-version is in-system by construction. This rule used to carry
+       `margin-left: auto` and `text-decoration: none` — shelf layout and
+       de-emphasis that only the right-hand Source link wants — so any new link
+       here would render shoved right and, at the same colour as the text beside
+       it, indistinguishable from it. Those two move to .foot-shelf, which is
+       what actually wants them. */
+    .footbar a {
+      padding: 6px 4px; border-radius: 4px;
+      color: var(--ink-muted);
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .footbar .foot-shelf {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-left: auto; text-decoration: none;
+    }
+    .footbar a:hover, .footbar a:focus-visible { color: var(--ink); }
+    .footbar a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .footbar svg { width: 14px; height: 14px; fill: currentColor; }
+
+    main { flex: 1; display: grid; place-items: center; padding: 24px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius);
+      width: 100%; max-width: 30rem;
+      padding: 36px 32px 28px;
+      text-align: center;
+    }
+    .ident { font-size: 13px; color: var(--ink-muted); }
+    h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 2px 0 6px; color: var(--brand-heading); }
+    .sub { font-size: 14px; color: var(--ink-muted); max-width: 24rem; margin: 0 auto 20px; }
+
+    /* The journey map: plug in → flash → drive. Carries the process so the
+       subtitle can stay one line. The badge holds the stage's object icon
+       (USB/bolt/wifi); the sequence number rides in the label text ("1 · Plug
+       in") — real text, so it reads and announces without counter tricks.
+       Badges reuse the Flash button's pairing (--accent + --accent-ink). */
+    .steps {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 10px;
+      margin: 0 0 22px; padding: 0; list-style: none;
+      font-size: 12.5px; color: var(--ink-muted);
+    }
+    .steps li + li { border-left: 1px solid var(--border-subtle); }
+    .steps .step-icon {
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 6px; width: 2rem; height: 2rem; border-radius: 50%;
+      background: var(--accent); color: var(--accent-ink);
+    }
+    .steps .step-icon svg { width: 18px; height: 18px; fill: currentColor; }
+    .steps strong { display: block; font-size: 14px; font-weight: 600; color: var(--ink); }
+
+    /* Phones can't flash (Web Serial is desktop-only) but they're where the
+       link is first opened — the journey map must still read. Three ~90px
+       columns wrap every label, so below 480px each stage becomes a row:
+       badge left, label + caption right. The card's desktop padding also
+       eats a third of a 320px viewport — ease it. */
+    @media (max-width: 480px) {
+      main { padding: 16px; }
+      .card { padding: 24px 20px 20px; }
+      .steps { grid-template-columns: 1fr; gap: 0; }
+      .steps li {
+        display: grid; grid-template-columns: 2rem 1fr; column-gap: 12px;
+        align-items: center; text-align: left; padding: 8px 0;
+      }
+      .steps li + li { border-left: 0; border-top: 1px solid var(--border-subtle); }
+      .steps .step-icon { grid-row: 1 / 3; margin: 0; }
+    }
+
+    /* Flasher widget (mounted by flash/flash.js). One path: the flash button
+       takes the row, and yields only as much of it as a quiet outlined button
+       needs when something is held (Disconnect / Stop logs) — an exit, never a
+       rival. It sits beside rather than under because a centered borderless
+       label under a filled button reads as that button's caption, not as a
+       control. Auto-width, not a half: while logs stream the primary is
+       disabled, and an even split would hand half the row to a dead control.
+       Wraps rather than overflows: the labels are held whole (see below), so on
+       a viewport too narrow for both the exit drops to its own line — stacked
+       like before, but still outlined, so it never decays back into a caption. */
+    .fl-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+    #fl-go, #fl-mon {
+      font: inherit; min-height: 44px; border-radius: 10px; cursor: pointer;
+      /* Sharing a row means either can be squeezed to its min-content width, and
+         min-content for "Flash ESP32-CAM" is a hyphen break — a button labelled
+         "Flash ESP32-" over "CAM". The labels are short; keep them whole and let
+         the row size to them. */
+      white-space: nowrap;
+      transition: filter 0.15s, background 0.15s, color 0.15s, transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    #fl-go {
+      flex: 1 1 auto; font-weight: 500; padding: 10px 16px;
+      color: var(--accent-ink); background: var(--accent); border: none;
+    }
+    #fl-go:not(:disabled):hover { filter: brightness(1.08); }
+    #fl-go:not(:disabled):active { transform: scale(0.98); }
+    #fl-mon {
+      flex: 0 0 auto; padding: 6px 14px; font-size: 13px;
+      color: var(--ink-muted); background: transparent;
+      border: 1px solid var(--border-default);   /* the outline is what claims "control" — see .fl-actions */
+    }
+    #fl-mon:not(:disabled):hover { color: var(--ink); background: var(--border-subtle); border-color: var(--ink-muted); }
+    #fl-go:disabled, #fl-mon:disabled { opacity: 0.4; cursor: not-allowed; }
+    #fl-go:focus-visible, #fl-mon:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    /* Board picker — a classic-ESP32 die is shared by two boards (plain devkit,
+       AI-Thinker CAM) whose firmware images swap pin ownership, and chip
+       detection can't tell them apart. Shown after Connect only for that chip;
+       it gates the Flash button — deliberately no default, a silent guess
+       flashes the wrong firmware. The radio dot carries the selected state;
+       the accent border is reinforcement, never the only cue. */
+    .fl-pick { margin: 0.75rem 0 0; padding: 0; border: 0; text-align: left; }
+    .fl-pick legend { padding: 0; font-size: 13px; color: var(--ink-muted); }
+    .fl-pick label {
+      display: flex; align-items: center; gap: 10px; min-height: 44px;
+      margin-top: 6px; padding: 6px 12px; cursor: pointer; font-size: 14px;
+      background: var(--bg); border: 1px solid var(--border-subtle); border-radius: var(--radius);
+    }
+    .fl-pick label:hover { border-color: var(--border-default); }
+    .fl-pick label:has(input:checked) { border-color: var(--accent-text); }
+    .fl-pick label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .fl-pick input { width: 16px; height: 16px; margin: 0; flex-shrink: 0; accent-color: var(--accent); }
+    .fl-pick .fl-pick-hint { margin-left: auto; font-size: 12.5px; color: var(--ink-muted); text-align: right; }
+    /* Two stacked live regions, one polite and one assertive (why: flash.js).
+       Both have to stay rendered to keep announcing, so they can't carry the
+       reserved line themselves — the wrapper holds it and each region collapses
+       to nothing while empty, leaving whichever one is speaking in the slot. */
+    .fl-status-wrap { font-size: 13px; min-height: 1.2em; margin: 0.75rem 0 0; }
+    /* Before first use both are empty and the reserved line is pure gap — drop it
+       so the help link stays in the button group's orbit on the idle card. */
+    .fl-status-wrap:not(:has(p:not(:empty))) { min-height: 0; margin-top: 0; }
+    .fl-status { text-align: left; color: var(--ink-muted); }
+    .fl-status.fl-ok { color: var(--success); }
+    .fl-status.fl-err { color: var(--danger-text); }
+    .fl-status.fl-warn { color: var(--warn); }
+    .fl-bar { height: 6px; border-radius: 3px; background: var(--border-subtle); margin-top: 0.6rem; overflow: hidden; }
+    .fl-bar > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s linear; }
+    /* Log lives behind a disclosure — esptool chatter is diagnostic, not the
+       task. Status + progress carry the flow; the log opens on demand or on
+       error (native details/summary: keyboard-operable for free). */
+    .fl-details { text-align: left; margin-top: 0.75rem; }
+    .fl-details summary {
+      width: fit-content; cursor: pointer; font-size: 13px; color: var(--ink-muted);
+      padding: 4px 2px; border-radius: 4px;   /* keeps the default ::marker — the "expandable" cue */
+    }
+    .fl-details summary:hover { color: var(--ink); }
+    .fl-details summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .fl-log {
+      text-align: left; margin: 0.4rem 0 0; max-height: 11rem; overflow-y: auto;
+      background: var(--bg); border: 1px solid var(--border-subtle); border-radius: var(--radius);
+      padding: 0.5rem 0.7rem; font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px; line-height: 1.5; color: var(--ink-muted); white-space: pre-wrap;
+      overflow-wrap: anywhere;   /* break only what can't fit — break-all split MACs and chip names mid-token */
+    }
+    .fl-unsupported { text-align: left; color: var(--warn); font-size: 13px; margin-top: 1rem; }
+
+    /* Post-flash next steps — the success state points at the criterion (a
+       robot you can drive), not the mechanism (bytes written). */
+    .fl-next {
+      text-align: left; margin-top: 1rem; padding: 14px 16px;
+      background: var(--bg); border: 1px solid var(--border-subtle); border-radius: var(--radius);
+    }
+    .fl-next-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    /* Numbers as accent badges — the Flash button's pairing (--accent +
+       --accent-ink), because --accent-text is large-text-only. Counters in
+       ::before stay real text, so screen readers still announce them. */
+    .fl-next-steps { margin: 0; padding: 0; list-style: none; counter-reset: step; font-size: 14px; }
+    .fl-next-steps li { counter-increment: step; position: relative; padding-left: 1.9rem; margin: 0.45rem 0; }
+    .fl-next-steps li::before {
+      content: counter(step);
+      position: absolute; left: 0; top: 0.15em;
+      width: 1.3rem; height: 1.3rem; border-radius: 50%;
+      background: var(--accent); color: var(--accent-ink);
+      font-size: 11px; font-weight: 600; line-height: 1.3rem; text-align: center;
+    }
+    .fl-next-note { font-size: 12.5px; color: var(--ink-muted); margin-top: 8px; }
+
+    /* Driver / BOOT-button help, behind a native popover (Esc + light-dismiss,
+       no JS). The trigger reads as a link, sized to a comfortable hit area. */
+    .fl-help { margin-top: 14px; }
+    .fl-help button {
+      background: none; border: none; cursor: pointer; padding: 6px 4px;
+      font: inherit; font-size: 13px; color: var(--link);
+      text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px;
+      border-radius: 4px;
+    }
+    .fl-help button:hover { text-decoration-style: solid; }
+    .fl-help button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .help-popover {
+      margin: auto;   /* re-assert the UA popover centering that the * reset strips */
+      max-width: 24rem; padding: 14px 16px; text-align: left;
+      background: var(--surface); color: var(--ink);
+      border: 1px solid var(--border-default); border-radius: var(--radius);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2);
+      font-size: 13px; line-height: 1.55;
+    }
+    .help-popover a { color: var(--link); }
+    .help-popover strong { display: block; margin-top: 8px; }
+    .help-popover strong:first-child { margin-top: 0; }
+
+    /* The other path, folded into the card as one inline link — the Workbench,
+       a live in-browser BLE dev environment. Not a section: the flash flow *is*
+       this page, and the on-board story is told by the copy above; this just
+       ways-finds for the builder who'd rather work in the browser. Dotted
+       underline mirrors the "Board not showing up?" help link — one grammar for
+       the card's calm secondary links. */
+    .dev-link { margin-top: 16px; font-size: 13px; }
+    .dev-link a {
+      color: var(--link); padding: 4px; border-radius: 4px;
+      text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px;
+    }
+    .dev-link a:hover { color: var(--ink); text-decoration-style: solid; }
+    .dev-link a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+      #fl-go:active { transform: none; }
+    }
+
+    /* Windows High Contrast strips author backgrounds — the progress fill would
+       vanish. Re-assert it with system colors so progress stays visible. */
+    @media (forced-colors: active) {
+      .fl-bar { border: 1px solid CanvasText; }
+      .fl-bar > span { background: Highlight; }
+      .fl-next-steps li::before, .steps .step-icon { border: 1px solid CanvasText; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-title"><a href="/" aria-label="Better Robotics — home"><span class="logo-accent">Better</span><span class="logo-base">Robotics</span></a></div>
+    </header>
+    <main>
+      <section class="card">
+        <p class="ident">A classroom hub and its robots</p>
+        <h1>Turn an ESP32 into a robot's brain</h1>
+        <p class="sub">Flash it once — then the board runs itself: its own Wi-Fi and dashboard, offline, no app.</p>
+
+        <ol class="steps">
+          <li>
+            <span class="step-icon"><svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 13.2V3.4M8 11.5 4.9 9.9V7.6M8 9.9l3.1-1.6V6.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M8 1.2 6.7 3.8h2.6Z"/>
+              <circle cx="4.9" cy="6.2" r="1.15"/>
+              <path d="M10 4.2h2.2v2.2H10Z"/>
+              <circle cx="8" cy="13.4" r="1.5"/>
+            </svg></span>
+            <strong>1 · Plug in</strong><span>An ESP32 or C3, over USB</span>
+          </li>
+          <li>
+            <span class="step-icon"><svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M9.7 1.03a.75.75 0 0 1 .49.85L9.28 6.5h3.47a.75.75 0 0 1 .57 1.24l-6.5 7.5a.75.75 0 0 1-1.3-.66l.91-4.58H2.95a.75.75 0 0 1-.57-1.24l6.45-7.5a.75.75 0 0 1 .87-.23Z"/>
+            </svg></span>
+            <strong>2 · Flash</strong><span>Chip auto-detected</span>
+          </li>
+          <li>
+            <span class="step-icon"><svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3.76 7.76a6 6 0 0 1 8.48 0M5.53 9.53a3.5 3.5 0 0 1 4.94 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              <circle cx="8" cy="11.8" r="1.4"/>
+            </svg></span>
+            <strong>3 · Drive</strong><span>Board hosts its own hub</span>
+          </li>
+        </ol>
+
+        <!-- mountFlasher() replaces this subtree; <noscript> is what's left when
+             it never runs, so the card can't render a finished-looking page with
+             no way to act on it. -->
+        <div id="flasher"><noscript>
+          <p class="fl-unsupported">This page writes the firmware from the browser
+            itself, so it needs JavaScript. Turn it on, or flash from the command line.</p>
+        </noscript></div>
+
+        <!-- Static (outside the flasher subtree mountFlasher replaces), so the
+             Workbench door survives even if the flasher never mounts — JS off,
+             or a browser without Web Serial. -->
+        <p class="dev-link"><a href="/workbench/">Developer? Open the Workbench&nbsp;→</a></p>
+      </section>
+    </main>
+    <footer class="footbar">
+      <p id="fl-version" hidden></p>
+      <a class="foot-shelf" href="https://github.com/better-robotics">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+        </svg>Source</a>
+    </footer>
+  </div>
+
+  <script type="module" src="flash/boot.js"></script>
+</body>
+</html>
