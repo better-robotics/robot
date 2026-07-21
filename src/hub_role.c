@@ -981,10 +981,13 @@ void board_run(bool self_broker_ok)
     ota_update_start();
     device_log_serve();   /* GET /log on the same handle — see device_log.h */
 
-    /* Camera (esp32cam only; a no-op elsewhere). After Wi-Fi so it fits in what
-     * memory is left, and after the portal so :80 is already claimed — the camera
-     * takes :81. Init failure is non-fatal; sys advertises the stream only if it's
-     * actually up (camera_running). */
+    /* Camera (esp32cam / esp32s3cam only; a no-op elsewhere). After Wi-Fi so it fits
+     * in what memory is left, and after the portal so :80 is already claimed — the
+     * camera takes :81. This only PROBES the sensor and starts the :81 listener; the
+     * capture pipeline is spun up lazily per /stream client and torn down when idle,
+     * so an unwatched camera doesn't steal this core's dashboard-serving budget (see
+     * camera.c). Probe failure is non-fatal; sys advertises the stream only if a
+     * sensor was actually found (camera_running). */
     camera_start();
 
     bool broker_started = false;

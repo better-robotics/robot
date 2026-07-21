@@ -120,11 +120,13 @@ bool board_wifi_redial(const char *ssid, const char *pass);
  * bad credentials are never saved and rebooted into. */
 const char *board_wifi_try_join(const char *ssid, const char *pass);
 
-/* Camera (camera.c). Inits the OV2640 and serves MJPEG at :81/stream — a no-op
- * unless built with HAS_CAMERA (the esp32cam board). Call after Wi-Fi is up
- * (connection-first: camera fits in what memory is left, or fails loudly).
- * camera_running() reports whether init succeeded, so sys telemetry advertises
- * the stream only when it's actually live. */
+/* Camera (camera.c). Probes the sensor and serves MJPEG at :81/stream — a no-op
+ * unless built with HAS_CAMERA (the esp32cam / esp32s3cam boards). Call after Wi-Fi
+ * is up (connection-first: camera fits in what memory is left, or fails loudly). The
+ * capture pipeline is LAZY — spun up per /stream client and released when idle — so an
+ * unwatched camera costs a hub-role board nothing. camera_running() reports whether a
+ * sensor was found at the boot probe (i.e. is the stream offerable), so sys telemetry
+ * advertises the camera whenever the hardware is present. */
 void camera_start(void);
 bool camera_running(void);
 

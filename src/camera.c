@@ -19,11 +19,12 @@
 #include <stdio.h>
 #include "esp_camera.h"
 #include "esp_http_server.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "camera";
-static bool s_running = false;
 
 /* OV2640 pin map — board-specific, selected by a build flag. The data/clock lines
  * are physically wired on the module, so the wrong map ISN'T a compile error, it's
@@ -78,10 +79,152 @@ static const char *STREAM_CT  = "multipart/x-mixed-replace;boundary=" PART_BOUND
 static const char *STREAM_SEP = "\r\n--" PART_BOUNDARY "\r\n";
 static const char *STREAM_HDR = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
+/* The capture pipeline (sensor clocked + framebuffers + cam_task) is EXPENSIVE to
+ * hold idle: with fb_count=2 / GRAB_LATEST the driver DMAs frames NON-STOP whether
+ * or not anyone is watching, and on this board's non-DMA PSRAM path (the S3-CAM's
+ * OV3660, the AI-Thinker's cache-workaround rev) every frame costs a CPU memcpy. On
+ * a camera board that is ALSO the hub — serving the dashboard + WS-JSON bridge on
+ * the same core and the same single radio — that idle cost lands as a slow dashboard
+ * and dropped WS sockets (the C3-SuperMini, camera_start() a no-op, never pays it).
+ * So the camera is LAZY: presence-probed once at boot so sys.cam stays truthful, then
+ * torn down until a /stream client asks for it, and torn down again a short grace
+ * after the last one leaves. Nothing captures while nobody is watching. */
+static bool s_present = false;   /* a sensor was detected at boot — advertise the capability (sys.cam) */
+static bool s_active  = false;   /* capture pipeline currently up (guarded by s_lock) */
+static int  s_viewers = 0;       /* live /stream clients (guarded by s_lock) */
+static SemaphoreHandle_t s_lock;
+static esp_timer_handle_t s_idle;
+/* Keep the sensor warm this long after the last viewer leaves: the dashboard <img>
+ * reconnects on any transient socket error, and paying a full re-init (worst case the
+ * 3× cold-boot retry below) on every blip would thrash. */
+#define CAM_IDLE_GRACE_US (5 * 1000 * 1000)
+
+static camera_config_t make_cfg(void)
+{
+    camera_config_t cfg = {
+        .pin_pwdn = PWDN_GPIO, .pin_reset = RESET_GPIO, .pin_xclk = XCLK_GPIO,
+        .pin_sccb_sda = SIOD_GPIO, .pin_sccb_scl = SIOC_GPIO,
+        .pin_d7 = Y9_GPIO, .pin_d6 = Y8_GPIO, .pin_d5 = Y7_GPIO, .pin_d4 = Y6_GPIO,
+        .pin_d3 = Y5_GPIO, .pin_d2 = Y4_GPIO, .pin_d1 = Y3_GPIO, .pin_d0 = Y2_GPIO,
+        .pin_vsync = VSYNC_GPIO, .pin_href = HREF_GPIO, .pin_pclk = PCLK_GPIO,
+        .xclk_freq_hz = 20000000,
+        .ledc_timer = LEDC_TIMER_0, .ledc_channel = LEDC_CHANNEL_0,
+        .pixel_format = PIXFORMAT_JPEG,
+        .grab_mode = CAMERA_GRAB_LATEST,  /* freshest frame */
+        .fb_location = CAMERA_FB_IN_PSRAM,
+        /* QVGA @ q=18 — the config proven on this exact board in workbench
+         * (firmware/esp32_robot_idf/main/camera.c). This ESP32 rev runs the PSRAM
+         * cache workaround, so the camera can't DMA into PSRAM ("PSRAM DMA mode
+         * disabled") and captures via internal line buffers; VGA/low-q overruns
+         * them and corrupts the JPEG (NO-SOI → fb_get NULL → 0-byte stream). QVGA
+         * @ q=18 keeps frames ~5-15 KB, well within the non-DMA path. */
+        .frame_size = FRAMESIZE_QVGA,     /* 320x240 */
+        .jpeg_quality = 18,               /* 0-63, HIGHER = more compression = smaller/stabler */
+        .fb_count = 2,                    /* double-buffer: capture N+1 while the pump sends N */
+    };
+    return cfg;
+}
+
+/* Bring the capture pipeline up. Caller holds s_lock; idempotent while active. The
+ * SCCB probe on this board can return a garbage sensor PID on a cold boot
+ * (ESP_ERR_NOT_SUPPORTED with all three OV drivers enabled) — same marginal-supply
+ * signature as the PSRAM 0xffffffff reads, and it clears on a later attempt once the
+ * rails settle. Retry the whole init, not just the frame buffer. */
+static esp_err_t cam_up_locked(void)
+{
+    if (s_active) return ESP_OK;
+    camera_config_t cfg = make_cfg();
+    esp_err_t e = ESP_FAIL;
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        e = esp_camera_init(&cfg);
+        if (e == ESP_ERR_NO_MEM) {
+            /* PSRAM absent or dead (this board's has read back 0xffffffff under
+             * marginal power) — the driver has no DRAM fallback of its own, and
+             * QVGA @ q=18 JPEG frames (~5-15 KB ×2) fit internal RAM fine. */
+            ESP_LOGW(TAG, "PSRAM frame buffer failed — retrying in internal RAM");
+            cfg.fb_location = CAMERA_FB_IN_DRAM;
+            e = esp_camera_init(&cfg);
+        }
+        if (e == ESP_OK) break;
+        ESP_LOGW(TAG, "esp_camera_init attempt %d/3 failed: %s", attempt, esp_err_to_name(e));
+        esp_camera_deinit();   /* harmless INVALID_STATE if init never got that far */
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    if (e != ESP_OK) return e;
+
+    /* Sensor tweaks from workbench's working setup: vflip per how the module is
+     * mounted; awb_gain OFF keeps white-balance auto but stops the per-frame gain
+     * hunting that also destabilizes the encoder. */
+    sensor_t *s = esp_camera_sensor_get();
+    if (s) {
+#if defined(CAM_PINS_FREENOVE_S3)
+        s->set_vflip(s, 0);   /* Freenove mounts the module upright */
+#else
+        s->set_vflip(s, 1);   /* the AI-Thinker mounts it upside-down */
+#endif
+        s->set_hmirror(s, 0);
+        s->set_brightness(s, 1);
+        s->set_saturation(s, 1);
+        s->set_awb_gain(s, 0);
+    }
+    s_active = true;
+    return ESP_OK;
+}
+
+/* Tear the pipeline down — stops the cam_task, disables the capture DMA, and frees
+ * the framebuffers, so an unwatched camera costs nothing. Caller holds s_lock. */
+static void cam_down_locked(void)
+{
+    if (!s_active) return;
+    esp_camera_deinit();
+    s_active = false;
+}
+
+/* Fires CAM_IDLE_GRACE_US after the last viewer leaves; releases the camera unless a
+ * new viewer arrived in the meantime (which stops this timer). */
+static void cam_idle_cb(void *arg)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_viewers == 0) {
+        cam_down_locked();
+        ESP_LOGI(TAG, "no viewers — camera released");
+    }
+    xSemaphoreGive(s_lock);
+}
+
+/* A /stream client arrived: cancel any pending teardown, bring the pipeline up if
+ * it's down, count the viewer. Returns the init result (ESP_OK once capturing). */
+static esp_err_t viewer_enter(void)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    esp_timer_stop(s_idle);   /* harmless if not armed */
+    esp_err_t e = cam_up_locked();
+    if (e == ESP_OK) s_viewers++;
+    xSemaphoreGive(s_lock);
+    return e;
+}
+
+/* A /stream client left: drop the count, and arm the grace-teardown when it hits 0. */
+static void viewer_exit(void)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_viewers > 0) s_viewers--;
+    if (s_viewers == 0) esp_timer_start_once(s_idle, CAM_IDLE_GRACE_US);
+    xSemaphoreGive(s_lock);
+}
+
 /* One long-lived request that pushes frames until the client (the dashboard <img>)
- * closes the tab — httpd_resp_send_chunk returns non-OK when the socket drops. */
+ * closes the tab — httpd_resp_send_chunk returns non-OK when the socket drops. The
+ * camera is spun up on entry and released (after a grace) on exit, so it only ever
+ * captures while this handler is live. */
 static esp_err_t stream_handler(httpd_req_t *req)
 {
+    if (viewer_enter() != ESP_OK) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_sendstr(req, "camera unavailable");
+        return ESP_FAIL;
+    }
     httpd_resp_set_type(req, STREAM_CT);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     char part[80];
@@ -97,6 +240,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
         if (res != ESP_OK) break;   /* client closed the stream */
         vTaskDelay(pdMS_TO_TICKS(STREAM_FRAME_GAP_MS));   /* pace to ~15 fps — frees drive airtime */
     }
+    viewer_exit();   /* last one out arms the grace-teardown; the sensor stops capturing */
     return res;
 }
 
@@ -143,72 +287,34 @@ static esp_err_t root_handler(httpd_req_t *req)
 
 void camera_start(void)
 {
-    camera_config_t cfg = {
-        .pin_pwdn = PWDN_GPIO, .pin_reset = RESET_GPIO, .pin_xclk = XCLK_GPIO,
-        .pin_sccb_sda = SIOD_GPIO, .pin_sccb_scl = SIOC_GPIO,
-        .pin_d7 = Y9_GPIO, .pin_d6 = Y8_GPIO, .pin_d5 = Y7_GPIO, .pin_d4 = Y6_GPIO,
-        .pin_d3 = Y5_GPIO, .pin_d2 = Y4_GPIO, .pin_d1 = Y3_GPIO, .pin_d0 = Y2_GPIO,
-        .pin_vsync = VSYNC_GPIO, .pin_href = HREF_GPIO, .pin_pclk = PCLK_GPIO,
-        .xclk_freq_hz = 20000000,
-        .ledc_timer = LEDC_TIMER_0, .ledc_channel = LEDC_CHANNEL_0,
-        .pixel_format = PIXFORMAT_JPEG,
-        .grab_mode = CAMERA_GRAB_LATEST,  /* freshest frame */
-        .fb_location = CAMERA_FB_IN_PSRAM,
-        /* QVGA @ q=18 — the config proven on this exact board in workbench
-         * (firmware/esp32_robot_idf/main/camera.c). This ESP32 rev runs the PSRAM
-         * cache workaround, so the camera can't DMA into PSRAM ("PSRAM DMA mode
-         * disabled") and captures via internal line buffers; VGA/low-q overruns
-         * them and corrupts the JPEG (NO-SOI → fb_get NULL → 0-byte stream). QVGA
-         * @ q=18 keeps frames ~5-15 KB, well within the non-DMA path. */
-        .frame_size = FRAMESIZE_QVGA,     /* 320x240 */
-        .jpeg_quality = 18,               /* 0-63, HIGHER = more compression = smaller/stabler */
-        .fb_count = 2,                    /* double-buffer: capture N+1 while the pump sends N */
-    };
-    /* The SCCB probe on this board can return a garbage sensor PID on a cold
-     * boot (ESP_ERR_NOT_SUPPORTED with all three OV drivers enabled) — same
-     * marginal-supply signature as the PSRAM 0xffffffff reads, and it clears
-     * on a later attempt once the rails settle. Retry the whole init, not
-     * just the frame buffer. */
-    esp_err_t e = ESP_FAIL;
-    for (int attempt = 1; attempt <= 3; attempt++) {
-        e = esp_camera_init(&cfg);
-        if (e == ESP_ERR_NO_MEM) {
-            /* PSRAM absent or dead (this board's has read back 0xffffffff under
-             * marginal power) — the driver has no DRAM fallback of its own, and
-             * QVGA @ q=18 JPEG frames (~5-15 KB ×2) fit internal RAM fine. */
-            ESP_LOGW(TAG, "PSRAM frame buffer failed — retrying in internal RAM");
-            cfg.fb_location = CAMERA_FB_IN_DRAM;
-            e = esp_camera_init(&cfg);
-        }
-        if (e == ESP_OK) break;
-        ESP_LOGW(TAG, "esp_camera_init attempt %d/3 failed: %s", attempt, esp_err_to_name(e));
-        esp_camera_deinit();   /* harmless INVALID_STATE if init never got that far */
-        vTaskDelay(pdMS_TO_TICKS(1000));
+    s_lock = xSemaphoreCreateMutex();
+    const esp_timer_create_args_t ta = { .callback = cam_idle_cb, .name = "cam_idle" };
+    esp_timer_create(&ta, &s_idle);
+
+    /* Boot presence probe: bring the pipeline up ONCE to confirm a sensor is really
+     * on the bus (so sys.cam reflects hardware, not just the build flag), then release
+     * it — capture runs only while a client is watching (see viewer_enter). Doing the
+     * probe here also front-loads the cold-boot 3× retry so the first viewer doesn't
+     * pay it. */
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    esp_err_t e = cam_up_locked();
+    if (e == ESP_OK) {
+        s_present = true;
+        cam_down_locked();   /* don't hold an unwatched camera — that idle cost is the bug */
     }
-    if (e != ESP_OK) {
-        /* Connection-first: a camera that can't fit its buffers must not take the
-         * board down — log loudly and run without it (sys.cam stays false). */
-        ESP_LOGE(TAG, "esp_camera_init failed: %s — running without a camera", esp_err_to_name(e));
+    xSemaphoreGive(s_lock);
+    if (!s_present) {
+        /* Connection-first: a board whose camera won't come up must not go down with
+         * it — log loudly, scan the SCCB bus for a root cause, run without a camera
+         * (sys.cam stays false, so the dashboard simply omits the video). */
+        ESP_LOGE(TAG, "no camera: %s — running without one", esp_err_to_name(e));
         sccb_postmortem();
         return;
     }
 
-    /* Sensor tweaks from workbench's working setup: vflip because the AI-Thinker
-     * mounts the module upside-down; awb_gain OFF keeps white-balance auto but stops
-     * the per-frame gain hunting that also destabilizes the encoder. */
-    sensor_t *s = esp_camera_sensor_get();
-    if (s) {
-#if defined(CAM_PINS_FREENOVE_S3)
-        s->set_vflip(s, 0);   /* Freenove mounts the module upright */
-#else
-        s->set_vflip(s, 1);   /* the AI-Thinker mounts it upside-down */
-#endif
-        s->set_hmirror(s, 0);
-        s->set_brightness(s, 1);
-        s->set_saturation(s, 1);
-        s->set_awb_gain(s, 0);
-    }
-
+    /* The :81 httpd stays listening even while the sensor is torn down — it's cheap
+     * (one idle listener) and it's what catches the first /stream request to spin the
+     * camera back up on demand. */
     httpd_config_t hc = HTTPD_DEFAULT_CONFIG();
     hc.server_port = 81;
     hc.ctrl_port = 32770;             /* distinct from portal :80 (32768) + WS :9001 (32769) */
@@ -223,11 +329,13 @@ void camera_start(void)
     httpd_uri_t u_root   = { .uri = "/",       .method = HTTP_GET, .handler = root_handler };
     httpd_register_uri_handler(srv, &u_stream);
     httpd_register_uri_handler(srv, &u_root);
-    s_running = true;
-    ESP_LOGI(TAG, "camera up — MJPEG at http://<robot>:81/stream (QVGA)");
+    ESP_LOGI(TAG, "camera ready — MJPEG at http://<robot>:81/stream (QVGA, on demand)");
 }
 
-bool camera_running(void) { return s_running; }
+/* Reports the camera as PRESENT (probed at boot), not as currently capturing — sys.cam
+ * advertises the capability so the dashboard offers the stream, and opening it is what
+ * brings the sensor up. */
+bool camera_running(void) { return s_present; }
 
 #else  /* every non-camera board: link a no-op so board_run can call it unconditionally */
 void camera_start(void) {}
