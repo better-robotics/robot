@@ -14,10 +14,11 @@
 // chip; see the Pi note on the page (built from the hub repo).
 import { ESPLoader, Transport } from "./vendor/esptool-bundle.js";
 
-// Flash offsets are chip-specific: the ESP32 second-stage bootloader lives at
-// 0x1000, but the RISC-V parts (C3/S3/C6…) put it at 0x0. Partition table and
-// app are the same across both. Sourced from each build's flasher_args.json /
-// PlatformIO layout — see flash/README.md.
+// Flash offsets are chip-specific: the original ESP32 (and S2) second-stage
+// bootloader lives at 0x1000, but the newer parts (C3/S3/C6…) put it at 0x0 — the
+// S3 is Xtensa like the classic chip, so this is a silicon-generation split, not a
+// core one. Partition table and app are the same across both. Sourced from each
+// build's flasher_args.json / PlatformIO layout — see flash/README.md.
 // One unified image per chip — it boots as a robot and carries the on-chip hub
 // role in the same binary. We detect the chip on connect (esptool reports
 // CHIP_NAME) and key by that exact string. (The standalone hub-esp32 image was
@@ -44,9 +45,17 @@ const IMAGES = {
     ],
   },
   "ESP32-C3": {
-    parts: [["bin/robot-c3/bootloader.bin", 0x0],             // risc-v: bootloader at 0x0
-            ["bin/robot-c3/partitions.bin", 0x8000],
-            ["bin/robot-c3/firmware.bin",   0x10000]],
+    parts: [["bin/robot-esp32c3/bootloader.bin", 0x0],             // risc-v: bootloader at 0x0
+            ["bin/robot-esp32c3/partitions.bin", 0x8000],
+            ["bin/robot-esp32c3/firmware.bin",   0x10000]],
+  },
+  // One S3 board in the fleet (the Freenove S3-CAM), so the chip name alone is
+  // unambiguous — no variant question like the classic ESP32's. Bootloader at 0x0
+  // (the S3, like the C3, isn't an original-ESP32 0x1000 part).
+  "ESP32-S3": {
+    parts: [["bin/robot-esp32s3cam/bootloader.bin", 0x0],
+            ["bin/robot-esp32s3cam/partitions.bin", 0x8000],
+            ["bin/robot-esp32s3cam/firmware.bin",   0x10000]],
   },
 };
 const SUPPORTED = Object.keys(IMAGES).join(", ");
@@ -126,7 +135,9 @@ export function mountFlasher(root) {
       Boards with a CP2102 USB chip (most classic ESP32 devkits, the ESP32-CAM's
       CAM-MB adapter) need the one-time
       <a href="https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers" target="_blank" rel="noopener">Silicon Labs driver</a>.
-      ESP32-C3 and S3 boards have native USB — no driver.
+      The ESP32-C3 has native USB — no driver. The ESP32-S3 CAM uses a CH343 (WCH)
+      chip, built into current macOS and Windows; only an older OS needs the
+      <a href="https://www.wch-ic.com/downloads/CH343SER_ZIP.html" target="_blank" rel="noopener">WCH driver</a>.
       <strong>Connecting stalls</strong>
       Hold the board's BOOT button while clicking, release once it connects.
     </div>` : `<p class="fl-unsupported">This browser can't flash or read

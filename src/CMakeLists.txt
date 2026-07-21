@@ -14,6 +14,7 @@
 idf_component_register(SRCS "main.c" "robot_role.c" "hub_role.c" "ws_zenoh_bridge.c"
                              "wifi_portal.c" "dns_server.c" "camera.c" "dashboard_html.c" "ide_shell_html.c"
                              "device_log.c" "ota_update.c" "provisioning_util.c" "robot_config.c" "captive_nat.c"
+                             "ws2812.c"
                        INCLUDE_DIRS "."
                        REQUIRES nvs_flash esp_wifi esp_netif esp_event esp_timer
                                 driver mqtt json esp_http_server lwip

@@ -25,6 +25,29 @@
 static const char *TAG = "camera";
 static bool s_running = false;
 
+/* OV2640 pin map — board-specific, selected by a build flag. The data/clock lines
+ * are physically wired on the module, so the wrong map ISN'T a compile error, it's
+ * a camera that silently never inits (fb_get NULL). Only the SCCB pair is probeable
+ * (sccb_postmortem), which is why the map is pinned per board, not auto-detected. */
+#if defined(CAM_PINS_FREENOVE_S3)
+/* Freenove ESP32-S3-WROOM CAM — the vendor's documented layout for this board. */
+#define PWDN_GPIO   -1
+#define RESET_GPIO  -1
+#define XCLK_GPIO   15
+#define SIOD_GPIO    4
+#define SIOC_GPIO    5
+#define Y9_GPIO     16
+#define Y8_GPIO     17
+#define Y7_GPIO     18
+#define Y6_GPIO     12
+#define Y5_GPIO     10
+#define Y4_GPIO      8
+#define Y3_GPIO      9
+#define Y2_GPIO     11
+#define VSYNC_GPIO   6
+#define HREF_GPIO    7
+#define PCLK_GPIO   13
+#else
 /* AI-Thinker ESP32-CAM (OV2640) pin map — the canonical layout for this board. */
 #define PWDN_GPIO   32
 #define RESET_GPIO  -1
@@ -42,6 +65,7 @@ static bool s_running = false;
 #define VSYNC_GPIO  25
 #define HREF_GPIO   23
 #define PCLK_GPIO   22
+#endif
 
 /* ~15 fps ceiling (see stream_handler): an uncapped QVGA feed runs at the
  * sensor's ~25 fps and its frames share the 2.4 GHz radio with the robot's drive
@@ -174,7 +198,11 @@ void camera_start(void)
      * the per-frame gain hunting that also destabilizes the encoder. */
     sensor_t *s = esp_camera_sensor_get();
     if (s) {
-        s->set_vflip(s, 1);
+#if defined(CAM_PINS_FREENOVE_S3)
+        s->set_vflip(s, 0);   /* Freenove mounts the module upright */
+#else
+        s->set_vflip(s, 1);   /* the AI-Thinker mounts it upside-down */
+#endif
         s->set_hmirror(s, 0);
         s->set_brightness(s, 1);
         s->set_saturation(s, 1);

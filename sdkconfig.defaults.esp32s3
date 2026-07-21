@@ -1,0 +1,27 @@
+# Applied to every esp32s3-TARGET build (esp32s3cam). IDF loads
+# sdkconfig.defaults.<target> AFTER sdkconfig.defaults — same per-target mechanism
+# sdkconfig.defaults.esp32 uses; see that file's header for why the generated
+# per-env sdkconfig.* can't carry this durably. The C3/classic targets never read
+# this file.
+
+# 8 MB flash. Overrides the 4 MB fallback in sdkconfig.defaults (a choice symbol:
+# the later =y wins). partitions.csv is still the real table — this is idf.py's
+# fallback and the size esptool stamps in the image header / probes on the chip.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+# Octal (OPI) PSRAM — the N8R8 module's 8 MB SPIRAM, where the camera frame buffers
+# live (camera.c -> CAMERA_FB_IN_PSRAM). Unlike the classic ESP32 rev with the cache
+# workaround, the S3 DMAs straight into PSRAM, so there is no non-DMA line-buffer
+# ceiling on frame size here. IGNORE_NOTFOUND keeps a board with a dead PSRAM chip
+# booting (camera.c then falls back to internal RAM for QVGA).
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+
+# Full 240 MHz — same reasoning as sdkconfig.defaults.esp32: the hub role (zenoh
+# executor + WS-JSON bridge + per-sample cJSON fan-out) is the heavy workload, and
+# the S3 tops out at 240.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240

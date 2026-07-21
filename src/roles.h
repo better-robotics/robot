@@ -128,4 +128,14 @@ const char *board_wifi_try_join(const char *ssid, const char *pass);
 void camera_start(void);
 bool camera_running(void);
 
+/* Addressable RGB LED (ws2812.c). Only compiled on boards whose onboard LED is a
+ * WS2812 pixel rather than a plain GPIO (LED_WS2812_GPIO set in build_flags — the
+ * Freenove S3 CAM). robot_role.c's led_set() drives it through these so the
+ * connected-indicator and identify-blink work unchanged; the classic boards keep
+ * the gpio_set_level path. */
+#ifdef LED_WS2812_GPIO
+void ws2812_init(int gpio);
+void ws2812_set_rgb(uint8_t r, uint8_t g, uint8_t b);
+#endif
+
 #endif

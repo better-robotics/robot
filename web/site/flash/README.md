@@ -67,12 +67,15 @@ when the ESP32 hub folded into the robot firmware.
 |--------|------|--------------|
 | `robot-esp32dev` | ESP32 (picker: DevKit) | `pio run -e esp32dev` → `.pio/build/esp32dev/{bootloader,partitions,firmware}.bin` |
 | `robot-esp32cam` | ESP32 (picker: ESP32-CAM) | `pio run -e esp32cam` → same layout |
-| `robot-c3` | ESP32-C3 | `pio run -e esp32c3-supermini` → same layout |
+| `robot-esp32c3` | ESP32-C3 | `pio run -e esp32c3-supermini` → same layout |
+| `robot-esp32s3cam` | ESP32-S3 | `pio run -e esp32s3cam` → same layout |
 
 ## Flash offsets (in `flash.js` `IMAGES`)
 
-Chip-specific — the ESP32 second-stage bootloader is at `0x1000`, but the RISC-V
-parts (C3/S3/C6…) put it at `0x0`. Partition table and app match across both.
+Chip-specific — the original ESP32 (and S2) second-stage bootloader is at
+`0x1000`, but the newer parts (C3/S3/C6…) put it at `0x0` — the S3 is Xtensa like
+the classic chip, so this split isn't about the core, just the silicon
+generation. Partition table and app match across both.
 The ESP32 column covers both `robot-esp32dev` and `robot-esp32cam` (same chip,
 same `partitions.csv`).
 

@@ -55,8 +55,17 @@ static char s_id[16];
  * MQTT CONNECTED/DISCONNECTED events). A student sees it come on when the robot
  * is live and drivable — the feedback the provisioning LED used to give. */
 static void led_set(bool on) {
+#ifdef LED_WS2812_GPIO
+    /* Boards with an addressable RGB instead of a plain LED (Freenove S3 CAM):
+     * same on/off contract, driven as a soft green pixel (low brightness so it
+     * isn't blinding on a desk). Lazy-inits the RMT channel on first call. */
+    static bool inited = false;
+    if (!inited) { ws2812_init(LED_WS2812_GPIO); inited = true; }
+    ws2812_set_rgb(0, on ? 24 : 0, on ? 8 : 0);
+#else
     gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_level(LED_GPIO, LED_ACTIVE_LOW ? !on : on);
+#endif
 }
 
 /* A physical BOOT tap opens a per-owner CLAIM WINDOW (hub#10): presence-proof
@@ -99,11 +108,13 @@ static void button_task(void *p) {
 /* Start the recover button (hold to reboot). Called by board_run (hub_role.c),
  * which owns the Wi-Fi bring-up; this file is just the drive client now. */
 void robot_button_start(void) {
-#ifdef HAS_CAMERA
-    /* GPIO0 (BUTTON_GPIO, the classic BOOT pin) is the camera XCLK on the esp32cam.
-     * The running 20 MHz clock reads as a held button and reboot-loops the board.
-     * The AI-Thinker CAM has no user button anyway — skip it; recover via reflash. */
-    ESP_LOGI(TAG, "recover button disabled (GPIO0 is the camera XCLK on this board)");
+#ifdef CAM_XCLK_ON_BUTTON
+    /* On the AI-Thinker CAM, GPIO0 (BUTTON_GPIO, the classic BOOT pin) is the camera
+     * XCLK: the running 20 MHz clock reads as a held button and reboot-loops the
+     * board, and that board has no user button anyway — skip it, recover via
+     * reflash. The Freenove S3 CAM keeps its button: its XCLK is GPIO15, clear of
+     * BOOT/GPIO0, so the claim/recover press works there like on a plain robot. */
+    ESP_LOGI(TAG, "recover button disabled (its pin is the camera XCLK on this board)");
 #else
     xTaskCreate(button_task, "button", 1280, NULL, 5, NULL);
 #endif

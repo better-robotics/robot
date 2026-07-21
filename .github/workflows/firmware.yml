@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [esp32dev, esp32cam, esp32c3-supermini]
+        env: [esp32dev, esp32cam, esp32c3-supermini, esp32s3cam]
     steps:
       - uses: actions/checkout@v4
 
@@ -162,8 +162,8 @@ jobs:
           set -u
           shopt -s nullglob
           images=(dist/firmware-*/firmware.bin)
-          if [ ${#images[@]} -ne 3 ]; then
-            echo "::error::expected 3 images, found ${#images[@]} — build artifacts missing"
+          if [ ${#images[@]} -ne 4 ]; then
+            echo "::error::expected 4 images, found ${#images[@]} — build artifacts missing"
             exit 1
           fi
           fail=0
@@ -188,7 +188,8 @@ jobs:
           }
           emit esp32dev          robot-esp32dev
           emit esp32cam          robot-esp32cam
-          emit esp32c3-supermini robot-c3
+          emit esp32c3-supermini robot-esp32c3
+          emit esp32s3cam        robot-esp32s3cam
           # `release` travels in the manifest so the page links the artifact it
           # flashed without hardcoding this repo's tag naming — the manifest is
           # the contract between the two, and a tag rename should not need an
@@ -200,7 +201,7 @@ jobs:
             "release": "firmware-latest",
             "refreshed": "$(date -u +%F)",
             "built_by": "robot firmware.yml run ${GITHUB_RUN_ID}",
-            "images": ["robot-esp32dev", "robot-esp32cam", "robot-c3"]
+            "images": ["robot-esp32dev", "robot-esp32cam", "robot-esp32c3", "robot-esp32s3cam"]
           }
           EOF
           ls -l out
@@ -261,8 +262,8 @@ jobs:
           set -eu
           shopt -s nullglob
           images=(dist/firmware-*/firmware.bin)
-          if [ ${#images[@]} -ne 3 ]; then
-            echo "::error::expected 3 built images, found ${#images[@]} — refusing to deploy a flasher missing a board"
+          if [ ${#images[@]} -ne 4 ]; then
+            echo "::error::expected 4 built images, found ${#images[@]} — refusing to deploy a flasher missing a board"
             exit 1
           fi
           mkdir -p _site
@@ -275,7 +276,8 @@ jobs:
           }
           emit esp32dev          robot-esp32dev
           emit esp32cam          robot-esp32cam
-          emit esp32c3-supermini robot-c3
+          emit esp32c3-supermini robot-esp32c3
+          emit esp32s3cam        robot-esp32s3cam
           # The manifest is the flasher's provenance source (flash.js): it stamps
           # the commit and links `release` — the rolling tag the publish job cuts
           # from this same commit — as the place these exact bytes can be
@@ -287,7 +289,7 @@ jobs:
             "release": "firmware-latest",
             "refreshed": "$(date -u +%F)",
             "built_by": "robot firmware.yml run ${GITHUB_RUN_ID}",
-            "images": ["robot-esp32dev", "robot-esp32cam", "robot-c3"]
+            "images": ["robot-esp32dev", "robot-esp32cam", "robot-esp32c3", "robot-esp32s3cam"]
           }
           EOF
           find _site -name '.DS_Store' -delete
