@@ -5,9 +5,9 @@
 
 /* A stored broker locator: mqtt://host:port. (Re-ported 2026-07-10 from the
  * zenoh-era tcp/host:port — the validator survived the MQTT port unported, so
- * rover_config_load wiped every stored mqtt:// locator as "corrupt" and the
+ * robot_config_load wiped every stored mqtt:// locator as "corrupt" and the
  * stored-broker path could never fire.) */
-bool rover_validate_locator(const char *s) {
+bool robot_validate_locator(const char *s) {
     if (!s) return false;
     size_t n = strlen(s);
     if (n == 0 || n > 64) return false;
@@ -30,17 +30,17 @@ bool rover_validate_locator(const char *s) {
     return v >= 1 && v <= 65535;
 }
 
-void rover_format_robot_id(const uint8_t mac[6], char out[16]) {
-    snprintf(out, 16, "rover-%02x%02x", mac[4], mac[5]);
+void robot_format_robot_id(const uint8_t mac[6], char out[16]) {
+    snprintf(out, 16, "robot-%02x%02x", mac[4], mac[5]);
 }
 
-bool rover_hub_admits(const char *ssid, const char *pin) {
+bool robot_hub_admits(const char *ssid, const char *pin) {
     if (!ssid || strncmp(ssid, HUB_SSID_PREFIX, sizeof HUB_SSID_PREFIX - 1) != 0)
         return false;
     return !pin || !pin[0] || strcmp(ssid, pin) == 0;
 }
 
-bool rover_host_is_local(const char *host) {
+bool robot_host_is_local(const char *host) {
     if (!host || !host[0]) return true;         /* no Host → ours (a rebind names a host) */
     bool dotted = false, ip_literal = true;
     for (const char *p = host; *p; p++) {

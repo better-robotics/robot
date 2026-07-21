@@ -1,10 +1,10 @@
 name: firmware
 
-# Guards the unified rover+hub image from a CLEAN clone: all three board images
+# Guards the unified robot+hub image from a CLEAN clone: all three board images
 # build (exercising the seam a local checkout papers over — the gitignored
 # wifi_creds.h), the provisioning-util unit tests pass on the native env, and
 # cppcheck stays clean at medium+ severity.
-# rover-l298n is not in the matrix: it extends esp32dev with only an
+# robot-l298n is not in the matrix: it extends esp32dev with only an
 # upload_port change — same binary.
 on:
   push:
@@ -186,9 +186,9 @@ jobs:
               cp "dist/firmware-$1/$part.bin" "out/$2-$part.bin"
             done
           }
-          emit esp32dev          rover-esp32dev
-          emit esp32cam          rover-esp32cam
-          emit esp32c3-supermini rover-c3
+          emit esp32dev          robot-esp32dev
+          emit esp32cam          robot-esp32cam
+          emit esp32c3-supermini robot-c3
           # `release` travels in the manifest so the page links the artifact it
           # flashed without hardcoding this repo's tag naming — the manifest is
           # the contract between the two, and a tag rename should not need an
@@ -200,7 +200,7 @@ jobs:
             "release": "firmware-latest",
             "refreshed": "$(date -u +%F)",
             "built_by": "robot firmware.yml run ${GITHUB_RUN_ID}",
-            "images": ["rover-esp32dev", "rover-esp32cam", "rover-c3"]
+            "images": ["robot-esp32dev", "robot-esp32cam", "robot-c3"]
           }
           EOF
           ls -l out

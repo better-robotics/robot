@@ -50,7 +50,7 @@ ESP_USB_VIDS = set(VID_NAME)  # includes 0x1a86 (CH340) even with no env mapped
 # board. FT232R and CP2102 adapters are commodity parts that can sit in front of
 # ANY board (2026-07-12: the map above was inverted for weeks and misflashed both
 # bench boards). So we refuse to auto-guess these envs on a VID collision and make
-# the operator flash them by port, instead of silently muting a motor rover.
+# the operator flash them by port, instead of silently muting a motor robot.
 HARDWARE_SPECIFIC = {"esp32cam"}
 
 

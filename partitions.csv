@@ -1,4 +1,4 @@
-# A/B partition table for the unified rover+hub image — 4 MB flash.
+# A/B partition table for the unified robot+hub image — 4 MB flash.
 #
 # ota_0 + ota_1, no factory: an OTA push writes the slot that is NOT running,
 # and a push that fails its self-test rolls back to the slot that is. Both slots

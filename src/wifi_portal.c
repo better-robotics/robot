@@ -7,12 +7,12 @@
  *
  * Its job is the ISLAND board: no hub, so no dashboard until it self-brokers, and
  * a home uplink that cannot be configured over the network it hasn't joined. The
- * student joins the open rover-<id> AP, browses rover.local, sets home Wi-Fi.
+ * student joins the open robot-<id> AP, browses robot.local, sets home Wi-Fi.
  *
  * A HUB-JOINED board is the other case, and it needs almost none of this: it has
  * no AP at all (hub_role.c board_ap_down — one network in the room, the hub's),
  * takes its name and pins over MQTT, and drives off the hub's dashboard. This
- * httpd stays up for it, reachable at rover-<id>.local on the hub's LAN, but
+ * httpd stays up for it, reachable at robot-<id>.local on the hub's LAN, but
  * nothing routine sends anyone here.
  *
  * The scan itself lives in hub_role.c (board_wifi_scan) because that file owns the
@@ -33,8 +33,8 @@
 #include "esp_wifi_ap_get_sta_list.h"   /* ...with_ip: MAC+IP per station, keyed as s_accepted is */
 #include "cJSON.h"          /* /wifi/connect speaks hubd's JSON dialect */
 #include "roles.h"          /* board_ap_t, board_wifi_scan */
-#include "rover_config.h"   /* rover_config_set_wifi, rover_config_load */
-#include "provisioning_util.h" /* rover_host_is_local — captive 404 + rebind guard */
+#include "robot_config.h"   /* robot_config_set_wifi, robot_config_load */
+#include "provisioning_util.h" /* robot_host_is_local — captive 404 + rebind guard */
 #include "wifi_portal.h"
 #include "dns_server.h"     /* wildcard :53 responder — makes the OS captive-portal
                              * probes below actually get dialed against this board */
@@ -197,8 +197,8 @@ static const char PAGE_BODY[] =
 "<div id=bgo></div>"
 "</div>"
 "<div class=card>"
-"<h2>Set the rover&rsquo;s Wi-Fi</h2>"
-"<p class=s>Pick your home network and the rover restarts to join it.</p>"
+"<h2>Set the robot&rsquo;s Wi-Fi</h2>"
+"<p class=s>Pick your home network and the robot restarts to join it.</p>"
 /* No Scan button: opening the page IS the scan request, same as the dashboard
  * picker and as iPhone/Android. Rescan is a quiet link in .foot. */
 "<div id=nets class=list-group></div>"
@@ -219,9 +219,9 @@ static const char PAGE_BODY[] =
 "<h2>Board role</h2>"
 "<p class=s>What this board is. Changing it restarts the board.</p>"
 "<select id=role>"
-"<option value=auto>Normal rover &#8212; drives; hosts itself at home</option>"
+"<option value=auto>Normal robot &#8212; drives; hosts itself at home</option>"
 "<option value=hub>Classroom hub &#8212; hosts the class, no driving</option>"
-"<option value=rover>Rover only &#8212; always joins a hub</option>"
+"<option value=robot>Robot only &#8212; always joins a hub</option>"
 "</select>"
 "<button onclick=setrole() class=btn>Apply role &amp; restart</button>"
 "<div id=rmsg class=s></div>"
@@ -292,10 +292,10 @@ static const char PAGE_BODY[] =
 "body:JSON.stringify({ssid:chosen,password:pass.value})})).json()}"
 "catch(e){msg.textContent='Connect request failed \\u2014 try again.';return}"
 "if(res.ok){park();"
-"msg.textContent='Joined \\u2713 \\u2014 saved; restarting to settle in. The rover stays your "
+"msg.textContent='Joined \\u2713 \\u2014 saved; restarting to settle in. The robot stays your "
 "Wi-Fi ('+chosen+' is only its internet uplink), but it blips off for ~10 seconds. If your phone "
-"doesn\\u2019t re-join the rover\\u2019s Wi-Fi by itself, pick it again in Wi-Fi settings, then "
-"reopen rover.local.';setTimeout(()=>location.reload(),12000)}"
+"doesn\\u2019t re-join the robot\\u2019s Wi-Fi by itself, pick it again in Wi-Fi settings, then "
+"reopen robot.local.';setTimeout(()=>location.reload(),12000)}"
 "else{msg.textContent='Couldn\\u2019t join: '+(res.error||'check the password and try again.')}"
 "});"
 /* ONE /wifi/role fetch feeds every role-dependent control — the select's value
@@ -305,9 +305,9 @@ static const char PAGE_BODY[] =
  *
  * The password field is NOT role-gated (2026-07-16). It used to be hub-only,
  * correctly: connect_cb was the only thing that read the password, and only a
- * hub runs a broker, so on a rover the control did nothing. POST /ota changed
+ * hub runs a broker, so on a robot the control did nothing. POST /ota changed
  * that — every board registers it and every board checks this same password.
- * Leaving the field hub-only meant a rover's OTA endpoint was gated by a
+ * Leaving the field hub-only meant a robot's OTA endpoint was gated by a
  * password its own panel would not let you set, so it stayed the compile-time
  * default, which ships in every .bin this public repo publishes: anyone on the
  * Wi-Fi could reflash the fleet. Reusing one credential means every surface
@@ -322,7 +322,7 @@ static const char PAGE_BODY[] =
  * the modal iframe into a nested dashboard). */
 "async function stat(){try{let r=await fetch('/wifi/status');let j=await r.json();"
 "document.getElementById('bid').textContent=j.board||'This board';"
-"let t=j.role=='hub'?'Classroom hub':j.role=='rover'?'Rover (always joins a hub)':'Rover';"
+"let t=j.role=='hub'?'Classroom hub':j.role=='robot'?'Robot (always joins a hub)':'Robot';"
 "t+=' \\u00b7 ';"
 "t+=j.state=='hub'?'part of classroom '+j.ssid:"
 "j.state=='local'?(j.ip?'self-hosted \\u00b7 internet via '+j.ssid+' ('+j.ip+')':"
@@ -345,9 +345,9 @@ static const char PAGE_BODY[] =
 "async function setrole(){let rm=document.getElementById('rmsg');rm.textContent='applying\\u2026';"
 "let v=document.getElementById('role').value;let f=new URLSearchParams();f.append('role',v);"
 "try{await fetch('/wifi/role',{method:'POST',body:f});"
-"rm.textContent=v=='hub'?'Now the classroom hub. It restarts and appears as an open hub-\\u2026 network (hub.local); rovers auto-join it.':"
-"v=='rover'?'Rover-only. Restarting \\u2014 it will keep looking for a hub to join.':"
-"'Normal rover. Restarting \\u2014 stay on its Wi-Fi and reopen rover.local.'}"
+"rm.textContent=v=='hub'?'Now the classroom hub. It restarts and appears as an open hub-\\u2026 network (hub.local); robots auto-join it.':"
+"v=='robot'?'Robot-only. Restarting \\u2014 it will keep looking for a hub to join.':"
+"'Normal robot. Restarting \\u2014 stay on its Wi-Fi and reopen robot.local.'}"
 "catch(x){rm.textContent='Applied \\u2014 restarting\\u2026'}}"
 "async function setprof(){let m=document.getElementById('pmsg');"
 "let v=document.getElementById('profpass').value;"
@@ -392,7 +392,7 @@ static const char LANDING_BODY[] =
 "<script>"
 "let n=0;"
 "function go(){fetch('/wifi/status').then(r=>r.json()).then(j=>{"
-"document.getElementById('bn').textContent=j.board||'rover';"
+"document.getElementById('bn').textContent=j.board||'robot';"
 "let st=document.getElementById('st'),act=document.getElementById('act');"
 /* This board serves the dashboard now — "/" was re-registered, so reload IS it. */
 "if(j.dash=='/'){location.reload();return}"
@@ -406,7 +406,7 @@ static const char LANDING_BODY[] =
 "a.textContent='Open the class dashboard';act.appendChild(a)}"
 "setTimeout(go,5000);return}"
 "act.innerHTML='';"
-"st.textContent=n>12?'No hub found yet \\u2014 the rover keeps looking. You can set its Wi-Fi or role below.':"
+"st.textContent=n>12?'No hub found yet \\u2014 the robot keeps looking. You can set its Wi-Fi or role below.':"
 "'Starting up \\u2014 deciding how to connect\\u2026';"
 "n++;setTimeout(go,1200)}).catch(()=>{n++;setTimeout(go,2000)})}"
 "go();"
@@ -576,7 +576,7 @@ static bool reject_cross_origin(httpd_req_t *req)
 {
     char host[64] = "";
     httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
-    if (rover_host_is_local(host)) return false;
+    if (robot_host_is_local(host)) return false;
     ESP_LOGW(TAG, "cross-origin POST %s (Host: %s) refused — DNS-rebind guard", req->uri, host);
     httpd_resp_set_status(req, "403 Forbidden");
     httpd_resp_set_type(req, "text/plain");
@@ -597,9 +597,9 @@ static esp_err_t save_post(httpd_req_t *req)
     }
     form_field(body, "pass", pass, sizeof pass);   /* absent → open network */
 
-    esp_err_t e = rover_config_set_wifi(ssid, pass);
+    esp_err_t e = robot_config_set_wifi(ssid, pass);
     if (e != ESP_OK) {
-        ESP_LOGE(TAG, "rover_config_set_wifi failed: %s", esp_err_to_name(e));
+        ESP_LOGE(TAG, "robot_config_set_wifi failed: %s", esp_err_to_name(e));
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
@@ -615,15 +615,15 @@ static esp_err_t save_post(httpd_req_t *req)
 }
 
 /* POST /wifi/forget — "Forget this network" (dashboard's Set-up-Wi-Fi panel).
- * No body needed: erases the stored uplink only (rover_config_clear_wifi) and
+ * No body needed: erases the stored uplink only (robot_config_clear_wifi) and
  * reboots, same config-apply path as save_post. The board comes back up with
  * no venue/home network configured — a fresh island, same as never-provisioned. */
 static esp_err_t forget_post(httpd_req_t *req)
 {
     if (reject_cross_origin(req)) return ESP_OK;
-    esp_err_t e = rover_config_clear_wifi();
+    esp_err_t e = robot_config_clear_wifi();
     if (e != ESP_OK) {
-        ESP_LOGE(TAG, "rover_config_clear_wifi failed: %s", esp_err_to_name(e));
+        ESP_LOGE(TAG, "robot_config_clear_wifi failed: %s", esp_err_to_name(e));
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
@@ -640,7 +640,7 @@ static esp_err_t forget_post(httpd_req_t *req)
  * form-POST /wifi/save above stays as the portal page's own submit.
  * ok now means VERIFIED, matching the Pi hubd (whose nmcli connect blocks
  * until the join lands): the dedicated hub re-dials live and lets its panel
- * watch the join; board/rover mode trial-joins first — the AP and this page
+ * watch the join; board/robot mode trial-joins first — the AP and this page
  * stay up through the attempt — and only a verified join is persisted to
  * NVS and config-apply rebooted. A failed trial replies with the verdict
  * ("wrong password?") and saves nothing, so a typo can no longer be saved
@@ -668,13 +668,13 @@ static esp_err_t connect_post(httpd_req_t *req)
      * very panel) stays up; the panel's status re-read shows the join land.
      * Its loop doesn't own the radio, so the swap is safe fire-and-forget. */
     if (board_wifi_redial(ssid, pass)) {
-        if (rover_config_set_wifi(ssid, pass) != ESP_OK)
+        if (robot_config_set_wifi(ssid, pass) != ESP_OK)
             return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"could not save credentials\"}");
         ESP_LOGI(TAG, "saved uplink '%s' via /wifi/connect — re-dialing live", ssid);
         return httpd_resp_sendstr(req, "{\"ok\":true}");
     }
 
-    /* Board/rover mode: the apply is still a config-apply reboot, but the
+    /* Board/robot mode: the apply is still a config-apply reboot, but the
      * credentials are trial-joined FIRST (blocking, up to ~20 s; the AP and
      * this page ride through it). Only a verified join is persisted — a
      * typo'd password comes back as this reply's error instead of being
@@ -685,7 +685,7 @@ static esp_err_t connect_post(httpd_req_t *req)
         snprintf(reply, sizeof reply, "{\"ok\":false,\"error\":\"%s\"}", why);
         return httpd_resp_sendstr(req, reply);
     }
-    if (rover_config_set_wifi(ssid, pass) != ESP_OK)
+    if (robot_config_set_wifi(ssid, pass) != ESP_OK)
         return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"could not save credentials\"}");
     ESP_LOGI(TAG, "uplink '%s' verified via /wifi/connect — saving + restarting to settle in", ssid);
     httpd_resp_sendstr(req, "{\"ok\":true}");
@@ -694,13 +694,13 @@ static esp_err_t connect_post(httpd_req_t *req)
 }
 
 /* ── Board role (#2 tier-2 designate) ─────────────────────────────────────────
- * role_pref selects the boot dispatch (main.c): auto/rover → board_run, hub →
+ * role_pref selects the boot dispatch (main.c): auto/robot → board_run, hub →
  * hub_role_run. Exposing it here is what lets a operator turn any board into the
  * classroom hub — and back — without reflashing. The hub ALSO serves this panel
  * (hub_role_run calls wifi_portal_start), so designating HUB isn't a one-way trip. */
-static const char *role_str(rover_role_pref_t r)
+static const char *role_str(robot_role_pref_t r)
 {
-    return r == ROLE_HUB ? "hub" : r == ROLE_ROVER ? "rover" : "auto";
+    return r == ROLE_HUB ? "hub" : r == ROLE_ROBOT ? "robot" : "auto";
 }
 
 static esp_err_t role_get(httpd_req_t *req)
@@ -709,15 +709,15 @@ static esp_err_t role_get(httpd_req_t *req)
      * nvs : baked`): unset NVS means this board still admits the compile-time
      * OPERATOR_PASS, which ships in every published .bin — i.e. Stop-all AND
      * POST /ota are gated by a public string. Computed for every role, not just
-     * hub: since /ota, a rover has something worth gating too. Discloses
+     * hub: since /ota, a robot has something worth gating too. Discloses
      * nothing — anyone on the open AP can establish the same fact with one
      * CONNECT, or one /ota probe. Told here, not polled from /wifi/status: it
      * changes on a save, never on its own. */
     char nvs_pass[65];
-    rover_config_load_operator_pass(nvs_pass);
+    robot_config_load_operator_pass(nvs_pass);
     char j[64];
     snprintf(j, sizeof j, "{\"role\":\"%s\",\"prof_default\":%s}",
-             role_str(rover_config_load_role_pref()),
+             role_str(robot_config_load_role_pref()),
              nvs_pass[0] ? "false" : "true");
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, j);
@@ -734,12 +734,12 @@ static esp_err_t role_post(httpd_req_t *req)
         httpd_resp_set_status(req, "400 Bad Request");
         return httpd_resp_sendstr(req, "missing role");
     }
-    rover_role_pref_t rp = strcmp(role, "hub")   == 0 ? ROLE_HUB
-                         : strcmp(role, "rover") == 0 ? ROLE_ROVER
+    robot_role_pref_t rp = strcmp(role, "hub")   == 0 ? ROLE_HUB
+                         : strcmp(role, "robot") == 0 ? ROLE_ROBOT
                          : ROLE_AUTO;   /* unknown → the safe default */
-    esp_err_t e = rover_config_set_role_pref(rp);
+    esp_err_t e = robot_config_set_role_pref(rp);
     if (e != ESP_OK) {
-        ESP_LOGE(TAG, "rover_config_set_role_pref failed: %s", esp_err_to_name(e));
+        ESP_LOGE(TAG, "robot_config_set_role_pref failed: %s", esp_err_to_name(e));
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
@@ -751,7 +751,7 @@ static esp_err_t role_post(httpd_req_t *req)
 }
 
 /* POST /wifi/operator — body `pass=<value>`. Sets the hub role's operator
- * password in NVS (rover_config_set_operator_pass), which connect_cb reads
+ * password in NVS (robot_config_set_operator_pass), which connect_cb reads
  * per-connection, so a rotation takes effect on the next connect with no
  * reboot. "-" clears back to the compile-time OPERATOR_PASS.
  *
@@ -775,9 +775,9 @@ static esp_err_t operator_post(httpd_req_t *req)
     }
     /* "-" is the clear sentinel, mirroring cmd/config's hub-pin convention.
        An empty stored secret would admit EVERY client as operator, so
-       rover_config_set_operator_pass("") erases instead of storing. */
+       robot_config_set_operator_pass("") erases instead of storing. */
     const bool clearing = strcmp(pass, "-") == 0;
-    esp_err_t e = rover_config_set_operator_pass(clearing ? "" : pass);
+    esp_err_t e = robot_config_set_operator_pass(clearing ? "" : pass);
     if (e != ESP_OK) {
         ESP_LOGE(TAG, "set operator pass failed: %s", esp_err_to_name(e));
         return httpd_resp_sendstr(req,
@@ -802,7 +802,7 @@ static esp_err_t operator_post(httpd_req_t *req)
  * into a sockaddr_in read back peer IP 0.0.0.0 every time, so it fell back to
  * one global flag — meaning a second phone joining within the idle window got
  * silently waved through with no Welcome prompt at all. Fine for a single
- * island rover, wrong for one being passed between students in a classroom.
+ * island robot, wrong for one being passed between students in a classroom.
  * Root cause (documented ESP-IDF quirk, espressif/esp-idf#4863): this httpd's
  * listener is IPv6 internally even for IPv4 connections, so a sockaddr_in
  * read comes back zeroed. The fix is lwip_getpeername() (not the newlib
@@ -1087,7 +1087,7 @@ static esp_err_t captive_api_get(httpd_req_t *req)
  *
  * Strictly additive: a device that never fires a probe (locked-down MDM
  * policy, or an OS/version that skips it) sees no different behavior than
- * today — it still just manually visits rover.local or /wifi. */
+ * today — it still just manually visits robot.local or /wifi. */
 /* Absolute, IP-literal portal URL for every redirect Location (built once at
  * portal start — the AP IP is fixed for the boot). Implementer consensus:
  * never redirect a walled-garden client to a hostname — Android's login
@@ -1152,7 +1152,7 @@ static esp_err_t not_found_handler(httpd_req_t *req, httpd_err_code_t err)
     (void)err;
     char host[64] = "";
     httpd_req_get_hdr_value_str(req, "Host", host, sizeof host);
-    if (rover_host_is_local(host)) {   /* our own name → honest 404, not a probe */
+    if (robot_host_is_local(host)) {   /* our own name → honest 404, not a probe */
         httpd_resp_set_status(req, "404 Not Found");
         httpd_resp_set_type(req, "text/plain");
         return httpd_resp_sendstr(req, "not found");
@@ -1172,7 +1172,7 @@ void wifi_portal_start(void)
     /* 5 (was 3, was 7): this handle also serves the dashboard + the IDE
      * shell once start_ws_mqtt_bridge registers onto it, and the chip-wide
      * LWIP pool (24, sdkconfig LWIP_MAX_SOCKETS) is shared with mosquitto/
-     * rovers/DNS/mDNS — a 7 budget let one embedded-IDE page load starve the
+     * robots/DNS/mDNS — a 7 budget let one embedded-IDE page load starve the
      * broker's accept loop (2026-07-13), while 3 made Chrome's keep-alive
      * connections 503 the page's own /wifi/status poll (Duke bench
      * 2026-07-14). The IDE shell keeps this safe by construction: ONE request

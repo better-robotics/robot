@@ -95,7 +95,7 @@ static int question_end(const uint8_t *pkt, int len)
 }
 
 /* Decode the question name into dotted form for logging (diagnostic-only,
- * 2026-07-14 — a phone joining rover-a044 never showed the captive sheet at
+ * 2026-07-14 — a phone joining robot-a044 never showed the captive sheet at
  * all, and with no visibility into what it actually queried this was
  * unfalsifiable from the board's side). Truncates silently if `out` is too
  * small; never called on the hot path's correctness, only ESP_LOGI. */
@@ -156,7 +156,7 @@ static void dns_server_task(void *arg)
     /* "WIFI_AP_DEF" is the fixed netif key esp_netif_create_default_wifi_ap()
      * registers (hub_role.c's wifi_apsta_up) — querying it directly means this
      * server needs no IP passed in and Just Works whichever subnet the caller
-     * is on: 192.168.99.1 for a normal board (rover-<id>), 192.168.4.1 for the
+     * is on: 192.168.99.1 for a normal board (robot-<id>), 192.168.4.1 for the
      * dedicated hub role (hub-<id>). */
     esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
     esp_netif_ip_info_t ip_info = { 0 };

@@ -2,7 +2,7 @@
  * Wi-Fi + broker services of the unified image. TWO entry points:
  *
  *   board_run(self_broker_ok)  — the NORMAL board (tiers 1 + 3). Comes up APSTA:
- *       its own open `rover-<id>` AP AND an STA uplink, from line one. So
+ *       its own open `robot-<id>` AP AND an STA uplink, from line one. So
  *       home↔classroom is runtime state, not a boot role, and there is NO
  *       mode-switch reboot to *reach* a state (the old RTC-flag self-hub claim
  *       is deleted — CLAUDE.md § Status & design history):
@@ -10,19 +10,19 @@
  *           and DROPS its AP for as long as it stays a hub client: one network
  *           in the room, the hub's (board_ap_down has the full argument).
  *         - no hub, AUTO → runs a LOCAL broker and drives itself (home/island).
- *         - no hub, ROVER-pinned → keeps looking (never self-brokers).
- *       Its AP is `rover-<id>` (NOT hub-*), so no other rover joins a home board.
+ *         - no hub, ROBOT-pinned → keeps looking (never self-brokers).
+ *       Its AP is `robot-<id>` (NOT hub-*), so no other robot joins a home board.
  *       The only mode change is APSTA→STA on a hub join, which is safe live; the
  *       way BACK is a clean restart, never a live switch.
  *
  *   hub_role_run()             — tier 2: a dedicated operator hub. Raises a
- *       `hub-*` AP (the SSID a rover's scan joins → it gathers a fleet), runs the
+ *       `hub-*` AP (the SSID a robot's scan joins → it gathers a fleet), runs the
  *       broker, and does NOT drive (broker/AP vs real-time motors on one radio,
  *       hub#2). Chosen deliberately via role_pref=HUB.
  *
  * ESP32-as-hub is the full local slice on one chip: AP+STA+NAPT + Mosquitto +
  * per-robot connect-auth (feasibility validated on hardware 2026-07-09).
- *   - AP  (open)      : students/rovers/laptop join, no password.
+ *   - AP  (open)      : students/robots/laptop join, no password.
  *   - STA (venue/home): uplink for internet (optional — the broker works offline).
  *   - NAPT            : forwards AP-side traffic out the STA leg, so joining the
  *                       AP does NOT cut internet.
@@ -46,11 +46,11 @@
 #include "zenoh-pico.h"          /* the hub's Zenoh backbone (was mosq_broker.h) */
 #include "mdns.h"
 #include "roles.h"
-#include "rover_config.h"        /* rover_config_load — the stored STA uplink */
-#include "provisioning_util.h"   /* rover_format_robot_id — the board's AP SSID = its rover-id */
+#include "robot_config.h"        /* robot_config_load — the stored STA uplink */
+#include "provisioning_util.h"   /* robot_format_robot_id — the board's AP SSID = its robot-id */
 #include "device_log.h"
 #include "ota_update.h"
-#include "wifi_portal.h"         /* the always-on :80 Wi-Fi config panel (rover.local/wifi) */
+#include "wifi_portal.h"         /* the always-on :80 Wi-Fi config panel (robot.local/wifi) */
 #include "captive_nat.h"         /* packet-layer backstop for clients that bypass our DNS */
 
 /* STA_SSID / STA_PASS — the tier-2 hub's venue uplink. Gitignored header so real
@@ -58,8 +58,8 @@
 #include "wifi_creds.h"
 
 #define AP_SSID_PREFIX "hub-"          /* tier-2 hub only (+ last 2 SoftAP MAC bytes
-                                        * → hub-a3f2); a normal board uses its rover-id */
-#define AP_PASS     ""                 /* open by default: rovers only auto-join OPEN
+                                        * → hub-a3f2); a normal board uses its robot-id */
+#define AP_PASS     ""                 /* open by default: robots only auto-join OPEN
                                         * hub-*, and students join with no password. ""
                                         * → open; 8-63 chars → WPA2 (an optional per-board
                                         * password can ride with the #17 config panel). */
@@ -82,12 +82,12 @@ static esp_netif_t *sta_netif;
 
 /* Is our own AP still beaconing? A board drops it once cleanly joined to a hub
  * (board_ap_down); the tier-2 hub never does. Gates the two things that exist
- * only to serve AP clients: NAPT, and the rover.local alias. */
+ * only to serve AP clients: NAPT, and the robot.local alias. */
 static volatile bool s_ap_up = false;
 
 /* MDNS_BOARD_ALIAS — the friendly name, delegated, AP-only (wifi_apsta_up). The
- * board's PRIMARY mDNS name is its unique rover-<id>; see the mDNS block there. */
-#define MDNS_BOARD_ALIAS "rover"
+ * board's PRIMARY mDNS name is its unique robot-<id>; see the mDNS block there. */
+#define MDNS_BOARD_ALIAS "robot"
 
 /* STA state, shared with the event handler below. */
 static volatile bool s_sta_got_ip = false;
@@ -105,7 +105,7 @@ static volatile bool s_portal_trial = false;   /* a portal trial-join owns the r
 static volatile board_net_state_t s_net_state = BOARD_NET_SEARCHING;
 static char s_uplink_ssid[33];   /* the STA target we last committed to ("" = none) */
 static char s_dash[64];          /* where the drive dashboard lives (roles.h) */
-static char s_board_id[16];      /* rover-xxxx / hub-xxxx — set once at entry */
+static char s_board_id[16];      /* robot-xxxx / hub-xxxx — set once at entry */
 
 void board_net_state_set(board_net_state_t st, const char *uplink_ssid, const char *dash)
 {
@@ -252,11 +252,11 @@ int board_status_json(char *buf, size_t len)
     esp_netif_ip_info_t ipi;
     if (s_sta_got_ip && sta_netif && esp_netif_get_ip_info(sta_netif, &ipi) == ESP_OK)
         snprintf(ip, sizeof ip, IPSTR, IP2STR(&ipi.ip));
-    rover_role_pref_t rp = rover_config_load_role_pref();
-    const char *role = rp == ROLE_HUB ? "hub" : rp == ROLE_ROVER ? "rover" : "auto";
+    robot_role_pref_t rp = robot_config_load_role_pref();
+    const char *role = rp == ROLE_HUB ? "hub" : rp == ROLE_ROBOT ? "robot" : "auto";
     char esc[65], pin[33], pesc[65];
     json_esc_ssid(esc, sizeof esc, s_uplink_ssid);
-    rover_config_load_hub_pin(pin);   /* surfaced so "did the pin apply" is visible */
+    robot_config_load_hub_pin(pin);   /* surfaced so "did the pin apply" is visible */
     json_esc_ssid(pesc, sizeof pesc, pin);
     /* ssid + uplink follow the Pi hubd's /wifi/status dialect — the shared
      * dashboard shows "No uplink yet" unless `ssid` is set and gates health
@@ -296,7 +296,7 @@ bool board_operator_pass_ok(const char *given)
 {
     if (!given) return false;
     char nvs_pass[65];
-    rover_config_load_operator_pass(nvs_pass);
+    robot_config_load_operator_pass(nvs_pass);
     const char *want = nvs_pass[0] ? nvs_pass : OPERATOR_PASS;
     return strcmp(given, want) == 0;
 }
@@ -333,7 +333,7 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
             /* Redial with backoff, not immediately: every attempt at an absent
              * uplink is a full off-channel scan (~2 s) that mutes the AP, and an
              * immediate redial per disconnect looped that scan continuously — a
-             * hub with a dead venue uplink stuttered every rover and phone on its
+             * hub with a dead venue uplink stuttered every robot and phone on its
              * AP for as long as the outage lasted (single radio). First retries
              * stay immediate: a rebooting hub is the COMMON disconnect and comes
              * back in seconds (robot#1, the 2026-07-10 AP-bounce test). The 30 s
@@ -472,7 +472,7 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, const char
     ESP_ERROR_CHECK(esp_wifi_start());
     s_ap_up = true;   /* before any STA join can fire IP_EVENT_STA_GOT_IP, which reads it */
     /* Default WIFI_PS_MIN_MODEM dozes the radio between DTIM beacons — but drive
-     * commands reach a classroom rover over this STA leg, so modem sleep puts
+     * commands reach a classroom robot over this STA leg, so modem sleep puts
      * beacon-interval latency spikes on the joystick path (and delays AP-side
      * service). The ~50 mA it saves is noise next to the motors. */
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
@@ -497,28 +497,28 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, const char
 
     /* ── mDNS: two names, split by which link they belong to ─────────────────
      * PRIMARY (mdns_hostname_set) = the UNIQUE name: "hub" for a hub (matches
-     * the Pi's avahi name), "rover-<id>" for a board. The responder tracks its
+     * the Pi's avahi name), "robot-<id>" for a board. The responder tracks its
      * addresses automatically on every netif, so it is right on the board's own
      * AP and on a hub's LAN alike, with no maintenance.
      *
-     * Why unique-as-primary, when a bare "rover" reads nicer: the primary is
+     * Why unique-as-primary, when a bare "robot" reads nicer: the primary is
      * the name that gets MANGLED on a collision. RFC 6762 conflict resolution
      * is implemented here (mdns_receive.c, mangle_name → "-2", "-3"...), so N
-     * boards sharing a LAN do NOT fail — they silently become rover, rover-2,
-     * rover-3..., and `rover.local` resolves to WHICHEVER BOOTED FIRST. A name
+     * boards sharing a LAN do NOT fail — they silently become robot, robot-2,
+     * robot-3..., and `robot.local` resolves to WHICHEVER BOOTED FIRST. A name
      * that works and points somewhere arbitrary is worse than one that doesn't
      * resolve, and the ordinals land in the same namespace as the MAC-suffix
-     * ids (rover-2 next to rover-3f2a, indistinguishable by shape). MAC
+     * ids (robot-2 next to robot-3f2a, indistinguishable by shape). MAC
      * suffixes don't collide, so a unique primary never mints one.
      *
-     * ALIAS (delegated) = the friendly "rover.local", pinned to our AP's own
+     * ALIAS (delegated) = the friendly "robot.local", pinned to our AP's own
      * IP. A delegated hostname carries a STATIC address list the caller must
      * maintain — normally the catch, and here exactly why it fits: this name
      * is only ever answered on our own AP, whose IP is fixed above, so the
      * list is a constant. Read back from the netif rather than restating
      * 192.168.99.1 — one source for the AP's address. That pinning IS the
-     * policy: rover.local is the AP's name, rover-<id>.local is the board's,
-     * so "stop claiming rover.local on a hub" needs no separate rule — it
+     * policy: robot.local is the AP's name, robot-<id>.local is the board's,
+     * so "stop claiming robot.local on a hub" needs no separate rule — it
      * falls out of dropping the AP (board_ap_down). */
     if (mdns_init() == ESP_OK) {
         mdns_hostname_set(mdns_host);
@@ -557,7 +557,7 @@ static bool sta_join(const char *ssid, const char *pass)
     sta.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
     /* Never ESP_ERROR_CHECK here: if the auto-reconnect handler left an attempt
      * in flight (dead AP), set_config returns ESP_ERR_WIFI_STATE — abort()ing on
-     * it crash-rebooted every rover whose hub vanished (robot#1, caught in the
+     * it crash-rebooted every robot whose hub vanished (robot#1, caught in the
      * 2026-07-10 AP-bounce test). Abort the attempt and retry once instead. */
     esp_err_t e = esp_wifi_set_config(WIFI_IF_STA, &sta);
     if (e == ESP_ERR_WIFI_STATE) {
@@ -579,9 +579,9 @@ static bool sta_join(const char *ssid, const char *pass)
 }
 
 /* Zero-touch onboarding: an OPEN network named hub-* is the classroom
- * convention, so its existence is all the config a rover needs; strongest wins.
- * A hub PIN (NVS, rover_config_set_hub_pin) narrows admission to one exact SSID
- * (rover_hub_admits) — the rogue-hub guard. */
+ * convention, so its existence is all the config a robot needs; strongest wins.
+ * A hub PIN (NVS, robot_config_set_hub_pin) narrows admission to one exact SSID
+ * (robot_hub_admits) — the rogue-hub guard. */
 /* One active scan; returns the strongest admissible hub found (or false). */
 static bool scan_for_hub(char out[33], const char *pin)
 {
@@ -595,7 +595,7 @@ static bool scan_for_hub(char out[33], const char *pin)
     int best = -1;
     for (int i = 0; i < n; i++)
         if (ap[i].authmode == WIFI_AUTH_OPEN &&
-            rover_hub_admits((const char *)ap[i].ssid, pin) &&
+            robot_hub_admits((const char *)ap[i].ssid, pin) &&
             (best < 0 || ap[i].rssi > ap[best].rssi))
             best = i;
     if (best >= 0) {
@@ -607,7 +607,7 @@ static bool scan_for_hub(char out[33], const char *pin)
 }
 
 /* Zero-touch onboarding: an OPEN network named hub-* is the classroom convention,
- * so its existence is all the config a rover needs; strongest wins. Retried a few
+ * so its existence is all the config a robot needs; strongest wins. Retried a few
  * times — a single active scan (especially while our own AP is beaconing) can miss
  * an AP that IS there, and a false "no hub" wrongly drops an AUTO board to islanding. */
 #define HUB_SCAN_TRIES 3
@@ -616,14 +616,14 @@ static bool discover_hub(char out[33])
     /* Quiesce the STA leg first. Clearing the gate only stops FUTURE reconnects;
      * an attempt already in flight (the handler redialing a vanished AP) keeps
      * the driver in "connecting", where every scan is refused ("scan not
-     * allowed") — so a rover whose hub died could never SEE the hub coming back
+     * allowed") — so a robot whose hub died could never SEE the hub coming back
      * (robot#1, 2026-07-10 AP-bounce test). Disconnect aborts the attempt; on an
      * idle STA it's a harmless no-op. */
     s_want_connect = false;
     esp_wifi_disconnect();
     vTaskDelay(pdMS_TO_TICKS(200));   /* let the driver settle before scanning */
     char pin[33];
-    rover_config_load_hub_pin(pin);
+    robot_config_load_hub_pin(pin);
     if (pin[0]) ESP_LOGI(TAG, "scanning for pinned hub '%s' (foreign hub-* ignored)", pin);
     else        ESP_LOGI(TAG, "scanning for an open hub-* network");
     for (int t = 0; t < HUB_SCAN_TRIES; t++) {
@@ -692,7 +692,7 @@ int board_wifi_scan(board_ap_t *out, int max)
 
 /* Set by hub_role_run: the dedicated hub applies new uplink credentials with
  * a live re-dial (its STA is fire-and-forget + event-handler reconnect);
- * board/rover mode keeps the config-apply reboot — its loop owns the radio
+ * board/robot mode keeps the config-apply reboot — its loop owns the radio
  * mid-session. */
 static volatile bool s_hub_role = false;
 
@@ -719,7 +719,7 @@ bool board_wifi_redial(const char *ssid, const char *pass)
     return true;
 }
 
-/* Trial-join for the portal (board/rover mode, where the apply is still a
+/* Trial-join for the portal (board/robot mode, where the apply is still a
  * config-apply reboot): attempt the credentials on the STA leg and block
  * until an IP lands or ~20 s passes. In APSTA the AP — and the portal page
  * on it — stays up throughout, which is the whole point: a wrong password
@@ -794,10 +794,10 @@ const char *board_wifi_try_join(const char *ssid, const char *pass)
  * boots ~30-60 s slower than an ESP; a operator's hub is switched on; or our own
  * boot scan simply missed it). For a bounded window, watch for any `hub-*` and
  * step down to it. This is SAFE against peer islands because an island raises
- * `rover-<id>`, NOT `hub-*` — so a `hub-*` beacon can only be a *real* designated
+ * `robot-<id>`, NOT `hub-*` — so a `hub-*` beacon can only be a *real* designated
  * hub (a Pi `hub-pi-*` or a tier-2 operator hub), never another home board.
  * Yielding = a clean esp_restart (NOT a mode switch, no RTC flag): board_run
- * re-runs, discovers the now-present hub, and joins it as a rover.
+ * re-runs, discovers the now-present hub, and joins it as a robot.
  *
  * The watch is PERPETUAL, not a bounded window: a teacher who powers the hub
  * after the kids' boards would otherwise get a dead room until every board is
@@ -823,12 +823,12 @@ static bool sees_hub_to_yield_to(const uint8_t self_bssid[6])
     uint16_t n = HUB_SCAN_MAX_AP;
     bool yield = false;
     char pin[33];
-    rover_config_load_hub_pin(pin);   /* a pinned island yields ONLY to its own hub */
+    robot_config_load_hub_pin(pin);   /* a pinned island yields ONLY to its own hub */
     if (esp_wifi_scan_get_ap_records(&n, ap) == ESP_OK) {
         for (int i = 0; i < n; i++) {
             const char *ss = (const char *)ap[i].ssid;
             if (memcmp(ap[i].bssid, self_bssid, 6) == 0) continue;   /* our own AP beacon */
-            if (ap[i].authmode == WIFI_AUTH_OPEN && rover_hub_admits(ss, pin)) {
+            if (ap[i].authmode == WIFI_AUTH_OPEN && robot_hub_admits(ss, pin)) {
                 ESP_LOGW(TAG, "yield: hub '%s' present — stepping down (a real hub is preferred)", ss);
                 yield = true;
                 break;
@@ -846,7 +846,7 @@ static void hub_watch_task(void *arg)
     esp_read_mac(self_bssid, ESP_MAC_WIFI_SOFTAP);
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(HUB_WATCH_SCAN_MS));
-        if (rover_ms_since_drive() < HUB_WATCH_DRIVE_QUIET_MS)
+        if (robot_ms_since_drive() < HUB_WATCH_DRIVE_QUIET_MS)
             continue;    /* being driven — don't hiccup the link with a scan */
         if (s_portal_trial)
             continue;    /* a portal trial-join owns the radio — and a yield-
@@ -858,7 +858,7 @@ static void hub_watch_task(void *arg)
     }
 }
 
-/* The hub's Zenoh backbone — a peer-listen session rovers connect to, replacing
+/* The hub's Zenoh backbone — a peer-listen session robots connect to, replacing
  * the embedded MQTT broker (mosq_broker_run). Opened once; the WS-JSON adapter
  * (ws_zenoh_bridge) rides the SAME session for the browser edge, and owns the
  * fleet/estop queryable latch + the operator auth gate that the broker's
@@ -902,7 +902,7 @@ static void start_zenoh_hub(void)
  *      channel — it follows the STA. So every board's beacons contend with the
  *      exact link carrying its own drive commands, and PS is deliberately NONE.
  *   2. A second, password-less door into the classroom network, via NAPT: join
- *      any rover-<id> and you route straight to the hub's broker without ever
+ *      any robot-<id> and you route straight to the hub's broker without ever
  *      touching the hub's Wi-Fi. (Not a privilege escalation — the hub's AP is
  *      open too — but it makes "connect to the hub" a suggestion, not a fact.)
  *   3. A second topology to explain. The room should be "everything is on the
@@ -922,9 +922,9 @@ static void start_zenoh_hub(void)
 static void board_ap_down(void)
 {
     if (!s_ap_up) return;
-    /* rover.local is the AP's name, pinned to the AP's IP (wifi_apsta_up) — with
+    /* robot.local is the AP's name, pinned to the AP's IP (wifi_apsta_up) — with
      * no AP there is no link for it to answer on, and on a hub LAN it is the
-     * name that would collide with every peer. The unique rover-<id>.local
+     * name that would collide with every peer. The unique robot-<id>.local
      * (primary) is untouched and now answers over the hub's LAN. */
     mdns_delegate_hostname_remove(MDNS_BOARD_ALIAS);
     esp_netif_napt_disable(ap_netif);
@@ -943,37 +943,37 @@ static void board_ap_down(void)
 
 /* ── board_run: the normal board (tiers 1 + 3) ────────────────────────────────
  * self_broker_ok = AUTO (may become its own island if no hub is found); false =
- * ROVER-pinned (must never self-broker — keeps looking for a hub). Never returns.
+ * ROBOT-pinned (must never self-broker — keeps looking for a hub). Never returns.
  * Comes up APSTA always; drops to STA-only for as long as it is a hub client
  * (board_ap_down), and restarts rather than switch back live. */
 void board_run(bool self_broker_ok)
 {
-    rover_button_start();   /* recover button: hold to reboot (rover_role.c) */
+    robot_button_start();   /* recover button: hold to reboot (robot_role.c) */
 
     uint8_t stamac[6];
     esp_read_mac(stamac, ESP_MAC_WIFI_STA);
     char ap_ssid[16];
-    rover_format_robot_id(stamac, ap_ssid);   /* "rover-<suffix>" — matches the board id */
+    robot_format_robot_id(stamac, ap_ssid);   /* "robot-<suffix>" — matches the board id */
     snprintf(s_board_id, sizeof s_board_id, "%s", ap_ssid);
     /* AP on 192.168.99.1 (so the STA can join a hub cleanly). mDNS: primary is the
-     * UNIQUE rover-<id>.local (survives a hub LAN full of peers); "rover.local" is
+     * UNIQUE robot-<id>.local (survives a hub LAN full of peers); "robot.local" is
      * the friendly alias, answered on this AP only. */
     wifi_apsta_up(ap_ssid, ap_ssid, MDNS_BOARD_ALIAS, true);
 
     /* The Wi-Fi config panel — always on, on this board's :80, before any broker
      * decision, so it is already serving whatever this board turns out to be. It
-     * is what makes "join rover.local, set your home Wi-Fi" work on an ISLAND —
+     * is what makes "join robot.local, set your home Wi-Fi" work on an ISLAND —
      * the only case that needs it, since a board with no hub has no dashboard
      * until it self-brokers, and its uplink can't be set over a network it hasn't
      * joined. A hub-joined board drops its AP below and reaches this panel only
-     * over the hub's LAN (rover-<id>.local), which is enough: its name and pins
+     * over the hub's LAN (robot-<id>.local), which is enough: its name and pins
      * arrive over MQTT. When the board islands, start_ws_mqtt_bridge registers the
      * drive dashboard onto this same :80 handle. */
     wifi_portal_start();
 
     /* Firmware push (POST /ota) onto that same handle, and the self-test that
      * confirms a pushed image — so a board reached over the hub's LAN at
-     * rover-<id>.local, or over its own AP when islanded, can be updated
+     * robot-<id>.local, or over its own AP when islanded, can be updated
      * without a cable. Both roles call this; neither special-cases the other. */
     ota_update_start();
     device_log_serve();   /* GET /log on the same handle — see device_log.h */
@@ -987,7 +987,7 @@ void board_run(bool self_broker_ok)
     bool broker_started = false;
     for (;;) {
         char ssid[33], pass[65], loc[65];
-        rover_config_load(ssid, pass, loc);
+        robot_config_load(ssid, pass, loc);
 
         char discovered[33] = "";
         bool joined = false, joined_hub = false;
@@ -1053,21 +1053,21 @@ void board_run(bool self_broker_ok)
                 broker_started = true;
                 vTaskDelay(pdMS_TO_TICKS(2000));   /* let the listener bind :7447 first */
             }
-            /* rover_client_run converts this mqtt:// locator to tcp/127.0.0.1:7447,
+            /* robot_client_run converts this mqtt:// locator to tcp/127.0.0.1:7447,
              * so the island drives itself off its OWN peer-listen session. */
             snprintf(uri, sizeof uri, "mqtt://127.0.0.1:1883");
             /* Only now does dash say "/" — the bridge above owns :80's / from here,
              * so a landing page that reloads on "/" always gets the dashboard. */
             board_net_state_set(BOARD_NET_LOCAL, joined ? ssid : "", "/");
         } else {
-            /* ROVER-pinned with no hub in range: never self-broker. Keep the AP up
+            /* ROBOT-pinned with no hub in range: never self-broker. Keep the AP up
              * (reconfigurable) and rescan shortly — no reboot. */
-            ESP_LOGW(TAG, "no hub reachable and role is ROVER — rescanning shortly");
+            ESP_LOGW(TAG, "no hub reachable and role is ROBOT — rescanning shortly");
             vTaskDelay(pdMS_TO_TICKS(15000));
             continue;
         }
 
-        rover_client_run(uri);   /* blocks driving the board; returns on a dead session */
+        robot_client_run(uri);   /* blocks driving the board; returns on a dead session */
 
         /* Session died — re-evaluate. If we were islanding, the broker + AP stay up
          * and we simply re-dial localhost (no reboot). If the classroom hub
@@ -1079,7 +1079,7 @@ void board_run(bool self_broker_ok)
 }
 
 /* ── hub_role_run: tier-2 dedicated operator hub ─────────────────────────────
- * role_pref=HUB. Raises a hub-* AP a rover's scan joins, runs the broker, does
+ * role_pref=HUB. Raises a hub-* AP a robot's scan joins, runs the broker, does
  * NOT drive. Never returns (blocks in the broker). */
 void hub_role_run(void)
 {
@@ -1111,7 +1111,7 @@ void hub_role_run(void)
      * classroom works offline), so we don't block on the join; the event handler
      * reconnects and NAT arms if it lands. */
     char ssid[33], pass[65], loc[65];
-    rover_config_load(ssid, pass, loc);
+    robot_config_load(ssid, pass, loc);
     wifi_config_t sta = {0};   /* zero-init: unused tail stays NUL, no terminator needed */
     const char *up_ssid = ssid[0] ? ssid : STA_SSID;
     const char *up_pass = ssid[0] ? pass : STA_PASS;

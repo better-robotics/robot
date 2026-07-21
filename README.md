@@ -1,6 +1,6 @@
 # robot
 
-One ESP32 image, both ends of the wire. Every board is a **rover** — an
+One ESP32 image, both ends of the wire. Every board is a **robot** — an
 [`esp-mqtt`](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/protocols/mqtt.html)
 drive client — and any board can become **the whole hub** (open Wi-Fi AP + MQTT
 broker + dashboard) the moment a room needs one. Runtime decisions, never
@@ -19,7 +19,7 @@ power on
    │                                  hub pin narrows this to ONE exact hub)
    │
    └── sees none ─────────────────▶ becomes its own hub — AP + broker +
-                                     dashboard at http://rover.local
+                                     dashboard at http://robot.local
                                      (stored home Wi-Fi = internet uplink;
                                       drives fine with none)
                                         │
@@ -29,18 +29,18 @@ power on
 
 A board comes up as **AP + station at once**, then follows the room:
 
-- **On its own** it keeps its open `rover-XXXX` network up. `http://rover.local`
+- **On its own** it keeps its open `robot-XXXX` network up. `http://robot.local`
   answers with a landing page that routes to wherever the dashboard is *right
   now*, and holds the **Wi-Fi & role settings** (network scanner, home Wi-Fi,
-  rover/hub/auto switch).
+  robot/hub/auto switch).
 - **Joined to a hub** it shuts that network down. The hub is the one place to
   connect: its Wi-Fi, its dashboard, its broker. A robot on a hub is just a
   robot — it isn't also a network to get lost in, and it isn't spending the
   hub's airtime advertising itself. Its settings page follows it, at
-  `http://rover-XXXX.local` on the hub's network.
+  `http://robot-XXXX.local` on the hub's network.
 
-Every board answers at its own **`rover-XXXX.local`** wherever it is. The short
-`rover.local` is a convenience on a board's own network, where it's the only
+Every board answers at its own **`robot-XXXX.local`** wherever it is. The short
+`robot.local` is a convenience on a board's own network, where it's the only
 one answering.
 
 ## Life of a board
@@ -54,12 +54,12 @@ or pio     hub, or      anyone on the hub's match id to   hub pin ·   until tol
 
 - **Flash from a browser** — [better-robotics.github.io](https://better-robotics.github.io/)
   (desktop Chrome/Edge over USB) — or `pio run -e <env> -t upload`
-  (envs: `esp32dev` · `esp32c3-supermini` · `esp32cam` · `rover-l298n`).
+  (envs: `esp32dev` · `esp32c3-supermini` · `esp32cam` · `robot-l298n`).
 - **Update over Wi-Fi after that** — a freshly flashed board never needs the
   cable again:
 
   ```
-  INSTRUCTOR_PASS=… tools/ota-push.py --host rover-XXXX.local \
+  INSTRUCTOR_PASS=… tools/ota-push.py --host robot-XXXX.local \
       .pio/build/<env>/firmware.bin
   ```
 
@@ -72,7 +72,7 @@ or pio     hub, or      anyone on the hub's match id to   hub pin ·   until tol
 
   `INSTRUCTOR_PASS` is the board's instructor password — the same one the hub's
   fleet controls need. It's `change-me` until you set one on the board's own
-  config page (`http://rover-XXXX.local/wifi` → **Instructor password**).
+  config page (`http://robot-XXXX.local/wifi` → **Instructor password**).
 
   **Boards flashed before OTA existed need one more USB pass**, to pick up the
   two-slot partition table; until then they answer a push with *"no OTA slot on
@@ -94,7 +94,7 @@ publishes · `▼` board obeys:
 
 | topic | | payload |
 |---|---|---|
-| `sys` | ▲ 2 s | `{"uptime_ms":…,"free_heap":…,"hw":"esp32cam","board":"rover-XXXX","ip":…,"cam":…,"rssi_dbm":…}` — `rssi_dbm` only while the STA uplink is associated |
+| `sys` | ▲ 2 s | `{"uptime_ms":…,"free_heap":…,"hw":"esp32cam","board":"robot-XXXX","ip":…,"cam":…,"rssi_dbm":…}` — `rssi_dbm` only while the STA uplink is associated |
 | `pwm` | ▼ | `{"left_motor":180,"right_motor":-180,"duration_ms":200}` — signed ±255/wheel, positive = forward; *left* = the robot's own left, standing behind it facing forward; a watchdog coasts to a stop `duration_ms` after the last command |
 | `cmd/config` | ▼ | assign: `name` `hub` (pin; `""` clears) `pins` (L298N wiring) — no password field; optional `target` board-id addresses one of N |
 | `cmd/identify` | ▼ | blink the LED ~6 s — find the physical board |
@@ -109,7 +109,7 @@ IN4=13`; C3 SuperMini: `ENA=6 IN1=0 IN2=1 · ENB=5 IN3=3 IN4=4`) and are
 re-wireable from the dashboard for a custom chassis. **Wiring convention:** the
 **left** wheel — the robot's left, standing behind it — plugs into the L298N's
 **OUT1/OUT2** (channel A); firmware pin names match the silkscreen 1:1. If a
-rover mirrors its turns while forward/reverse work, the motor plugs are
+robot mirrors its turns while forward/reverse work, the motor plugs are
 swapped: confirm with one wheel at a time
 (`{"left_motor":150,"right_motor":0,"duration_ms":1500}` must spin the left
 wheel forward) and swap the plugs rather than remapping pins.
@@ -120,7 +120,7 @@ Two ids, split by job: the **name** (a topic address, not a credential — fresh
 boards are `unassigned`, a pool name anyone on the hub's Wi-Fi can drive; it
 may be driven by one student or a few sharing the board, the protocol has no
 notion of team size, only whoever's on the hub's Wi-Fi drives it) and
-**`rover-XXXX`** (last 2 MAC bytes — the AP name, the `board` telemetry field,
+**`robot-XXXX`** (last 2 MAC bytes — the AP name, the `board` telemetry field,
 the serial-log token; hardware model is metadata, so boards swap without
 identity churn).
 
@@ -138,11 +138,11 @@ src/
 ├── hub_role.c           Wi-Fi + broker services — the board (AP until a hub takes
 │                        over), tier-2 hub, discovery + hub-watch (islands yield
 │                        to real hubs), NAT
-├── rover_role.c         drive client — esp-mqtt, motors + watchdog, cmd/* handlers
+├── robot_role.c         drive client — esp-mqtt, motors + watchdog, cmd/* handlers
 ├── wifi_portal.c        the board's :80 — landing, Wi-Fi & role settings, /wifi/status
 ├── ws_mqtt_bridge.c     :9001 WebSocket↔MQTT bridge + serves the embedded dashboard
 ├── camera.c             ESP32-CAM MJPEG (:81)
-├── rover_config.c       NVS — network, name identity, motor pins, boot role, hub pin
+├── robot_config.c       NVS — network, name identity, motor pins, boot role, hub pin
 └── provisioning_util.c  pure helpers: robot id, locator, hub admission (unit-tested)
 web/dashboard.html       VENDORED from better-robotics/hub — tools/sync-dashboard.sh --check
 tools/                   dashboard embed (pre-build hook) + sync/drift-check

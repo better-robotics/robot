@@ -17,7 +17,7 @@
  *
  * One session-wide subscriber on ** fans each sample out to the clients whose
  * filters match. The hub OWNS the fleet/estop latch: an authed estop pub updates
- * s_estop_latched and a queryable on fleet/estop answers a (re)joining rover's
+ * s_estop_latched and a queryable on fleet/estop answers a (re)joining robot's
  * join-time get — the retained-message latch of the MQTT era, as a query.
  *
  * Validation-grade static pool, exactly like ws_mqtt_bridge.c; the reap-on-STA-
@@ -43,8 +43,8 @@
 #define MAX_CLIENTS  3       /* same LWIP-socket budget rationale as ws_mqtt_bridge.c's MAX_BRIDGES */
 #define MAX_SUBS     6       /* per-client key filters — dashboard uses ~2 (a robots wildcard + fleet/estop) */
 #define KEYLEN       48
-#define MAX_ROVERS   16      /* per-owner claim table (hub#10) — a classroom's worth of names */
-#define IDLEN        24      /* rover name / opaque browser clientId */
+#define MAX_ROBOTS   16      /* per-owner claim table (hub#10) — a classroom's worth of names */
+#define IDLEN        24      /* robot name / opaque browser clientId */
 
 static const char *TAG = "ws-zenoh";
 
@@ -62,18 +62,18 @@ static client_t s_clients[MAX_CLIENTS];
 static z_owned_session_t *s_sess;    /* owned by hub_role; we borrow it per call */
 static volatile bool s_estop_latched = false;   /* hub-owned fleet/estop latch */
 
-/* Per-owner rover isolation (hub#10). Ownership lives ONLY here — it never
+/* Per-owner robot isolation (hub#10). Ownership lives ONLY here — it never
  * rides the zenoh wire (a local z_put wouldn't loop back to our own ** sub to
  * fan out anyway), so it is adapter-private state pushed to dashboards as
- * {op:owner} frames. A slot is created only from a rover's own claimable
+ * {op:owner} frames. A slot is created only from a robot's own claimable
  * announce (on_sample is the sole creator — single-writer), so a claim can
- * only land on a rover that physically opened its window. */
+ * only land on a robot that physically opened its window. */
 typedef struct {
-    char id[IDLEN];               /* rover name (empty = free slot) */
+    char id[IDLEN];               /* robot name (empty = free slot) */
     char owner[IDLEN];            /* clientId of the owner (empty = unclaimed → open) */
     int64_t claimable_until_us;   /* > now ⇒ a BOOT-tap window is live; a claim consumes it */
-} rover_t;
-static rover_t s_rovers[MAX_ROVERS];
+} robot_t;
+static robot_t s_robots[MAX_ROBOTS];
 
 /* ── Zenoh key-expression glob match (`*`=one chunk, `**`=zero+ chunks) ─────────
  * Enough of the grammar for the dashboard's filters (a robots wildcard,
@@ -115,22 +115,22 @@ static void ws_send_json(client_t *c, const char *json) {
 
 /* ── per-owner isolation helpers (hub#10) ──────────────────────────────────── */
 
-/* Find a rover slot by name. create=true fills the first free slot — used ONLY
+/* Find a robot slot by name. create=true fills the first free slot — used ONLY
  * from on_sample (the read task), so slot creation has a single writer; a claim
- * looks up with create=false and fails if the rover never announced. */
-static int rover_slot(const char *id, bool create) {
+ * looks up with create=false and fails if the robot never announced. */
+static int robot_slot(const char *id, bool create) {
     int freeidx = -1;
-    for (int i = 0; i < MAX_ROVERS; i++) {
-        if (s_rovers[i].id[0]) { if (!strcmp(s_rovers[i].id, id)) return i; }
+    for (int i = 0; i < MAX_ROBOTS; i++) {
+        if (s_robots[i].id[0]) { if (!strcmp(s_robots[i].id, id)) return i; }
         else if (freeidx < 0) freeidx = i;
     }
-    if (create && freeidx >= 0) { snprintf(s_rovers[freeidx].id, IDLEN, "%s", id); return freeidx; }
+    if (create && freeidx >= 0) { snprintf(s_robots[freeidx].id, IDLEN, "%s", id); return freeidx; }
     return -1;
 }
 
 /* A stop is a zero-drive pwm (both motors 0, or absent → 0). The safety
  * invariant: a stop is honored for everyone regardless of ownership, so it must
- * pass the gate — the rover already honors zero-drive under any e-stop state. */
+ * pass the gate — the robot already honors zero-drive under any e-stop state. */
 static bool is_stop_pwm(cJSON *val) {
     const cJSON *l = cJSON_GetObjectItemCaseSensitive(val, "left_motor");
     const cJSON *r = cJSON_GetObjectItemCaseSensitive(val, "right_motor");
@@ -140,8 +140,8 @@ static bool is_stop_pwm(cJSON *val) {
 }
 
 /* The gate: may this client publish `key`? Only drive channels of a *claimed*
- * rover are restricted (the pwm and cmd channels); everything else — the fleet
- * and pair namespaces, led queries, an unclaimed or pool rover — stays open (the
+ * robot are restricted (the pwm and cmd channels); everything else — the fleet
+ * and pair namespaces, led queries, an unclaimed or pool robot — stays open (the
  * Wi-Fi perimeter is the boundary, CONTRACT.md § Discovery & isolation).
  * Operator (authed) overrides, and a stop always passes. */
 static bool ownership_ok(client_t *c, const char *key, cJSON *val) {
@@ -155,20 +155,20 @@ static bool ownership_ok(client_t *c, const char *key, cJSON *val) {
     char rid[IDLEN];
     size_t n = slash - id; if (n >= IDLEN) n = IDLEN - 1;
     memcpy(rid, id, n); rid[n] = 0;
-    int s = rover_slot(rid, false);
-    if (s < 0 || !s_rovers[s].owner[0]) return true;                 /* unclaimed → open */
+    int s = robot_slot(rid, false);
+    if (s < 0 || !s_robots[s].owner[0]) return true;                 /* unclaimed → open */
     if (c->authed) return true;                                      /* operator override */
-    if (!strcmp(s_rovers[s].owner, c->client_id)) return true;       /* the owner */
+    if (!strcmp(s_robots[s].owner, c->client_id)) return true;       /* the owner */
     if (!strcmp(chan, "pwm") && is_stop_pwm(val)) return true;       /* a stop is for everyone */
     return false;
 }
 
 /* The owner clientId is a BEARER token — presenting it is what proves ownership
  * at the gate — so it must never leave the adapter. Each client is told only
- * whether a rover is "mine", "held" (by someone else), or "free", never *who*
+ * whether a robot is "mine", "held" (by someone else), or "free", never *who*
  * holds it. A broadcast owner token would let any dashboard copy it off its own
  * socket and impersonate the owner; a per-recipient verdict can't be replayed. */
-static const char *owner_state_for(const rover_t *rv, const client_t *c) {
+static const char *owner_state_for(const robot_t *rv, const client_t *c) {
     if (!rv->owner[0]) return "free";
     return !strcmp(rv->owner, c->client_id) ? "mine" : "held";
 }
@@ -182,7 +182,7 @@ static void broadcast_owner(int slot) {
         if (!c->in_use) continue;
         char buf[80];
         snprintf(buf, sizeof buf, "{\"op\":\"owner\",\"id\":\"%s\",\"state\":\"%s\"}",
-                 s_rovers[slot].id, owner_state_for(&s_rovers[slot], c));
+                 s_robots[slot].id, owner_state_for(&s_robots[slot], c));
         ws_send_json(c, buf);
     }
 }
@@ -193,23 +193,23 @@ static void send_owners(client_t *c) {
     char buf[512];
     int n = snprintf(buf, sizeof buf, "{\"op\":\"owners\",\"mine\":[");
     bool first = true;
-    for (int i = 0; i < MAX_ROVERS && n < (int)sizeof buf - 48; i++) {
-        if (!s_rovers[i].id[0] || !s_rovers[i].owner[0] || strcmp(s_rovers[i].owner, c->client_id)) continue;
-        n += snprintf(buf + n, sizeof buf - n, "%s\"%s\"", first ? "" : ",", s_rovers[i].id);
+    for (int i = 0; i < MAX_ROBOTS && n < (int)sizeof buf - 48; i++) {
+        if (!s_robots[i].id[0] || !s_robots[i].owner[0] || strcmp(s_robots[i].owner, c->client_id)) continue;
+        n += snprintf(buf + n, sizeof buf - n, "%s\"%s\"", first ? "" : ",", s_robots[i].id);
         first = false;
     }
     n += snprintf(buf + n, sizeof buf - n, "],\"held\":[");
     first = true;
-    for (int i = 0; i < MAX_ROVERS && n < (int)sizeof buf - 48; i++) {
-        if (!s_rovers[i].id[0] || !s_rovers[i].owner[0] || !strcmp(s_rovers[i].owner, c->client_id)) continue;
-        n += snprintf(buf + n, sizeof buf - n, "%s\"%s\"", first ? "" : ",", s_rovers[i].id);
+    for (int i = 0; i < MAX_ROBOTS && n < (int)sizeof buf - 48; i++) {
+        if (!s_robots[i].id[0] || !s_robots[i].owner[0] || !strcmp(s_robots[i].owner, c->client_id)) continue;
+        n += snprintf(buf + n, sizeof buf - n, "%s\"%s\"", first ? "" : ",", s_robots[i].id);
         first = false;
     }
     snprintf(buf + n, sizeof buf - n, "]}");
     ws_send_json(c, buf);
 }
 
-/* A rover's claimable announce (robots/<id>/claimable, from its BOOT tap) opens
+/* A robot's claimable announce (robots/<id>/claimable, from its BOOT tap) opens
  * or holds a short window. No cross-device clock: each announce extends the
  * window a few seconds, so it stays live while announces keep arriving (~2 s)
  * and lapses shortly after the last one. on_sample is the sole slot creator. */
@@ -223,9 +223,9 @@ static void note_claimable(const char *key, const char *val, int vlen) {
     bool open = true;
     cJSON *r = cJSON_ParseWithLength(val, vlen);
     if (r) { open = !cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(r, "open")); cJSON_Delete(r); }
-    int s = rover_slot(rid, true);
+    int s = robot_slot(rid, true);
     if (s < 0) return;
-    s_rovers[s].claimable_until_us = open ? esp_timer_get_time() + 4LL * 1000000 : 0;
+    s_robots[s].claimable_until_us = open ? esp_timer_get_time() + 4LL * 1000000 : 0;
 }
 
 /* ── zenoh sample -> every subscribed client (runs on the read task) ───────── */
@@ -244,7 +244,7 @@ static void on_sample(z_loaned_sample_t *sample, void *arg) {
     const char *vd = z_string_data(z_string_loan(&val));
     size_t vn = z_string_len(z_string_loan(&val));
 
-    /* A rover's claimable announce updates the per-owner claim window (hub#10)
+    /* A robot's claimable announce updates the per-owner claim window (hub#10)
      * before the normal fan-out — dashboards still receive it via their
      * robots wildcard subscription and paint the Claim button. */
     size_t kl = strlen(key);
@@ -291,7 +291,7 @@ static void on_estop_query(z_loaned_query_t *query, void *ctx) {
 }
 
 /* Update the latch from an estop payload the hub is about to publish. Empty or
- * unparseable = engaged (fail toward stopped, same bias as the rover). */
+ * unparseable = engaged (fail toward stopped, same bias as the robot). */
 static void latch_from_payload(const char *json, int len) {
     bool engaged = true;
     if (len == 0) {
@@ -352,10 +352,10 @@ static void handle_op(client_t *c, const char *text, size_t len) {
             if (is_estop && !c->authed) {
                 ws_send_json(c, "{\"op\":\"error\",\"reason\":\"estop requires operator auth\"}");
             } else if (val && !ownership_ok(c, k, val)) {
-                ws_send_json(c, "{\"op\":\"error\",\"reason\":\"rover claimed by another student\"}");
+                ws_send_json(c, "{\"op\":\"error\",\"reason\":\"robot claimed by another student\"}");
             } else if (val) {
                 if (is_estop) {
-                    /* Update the hub-owned latch BEFORE the put — a joining rover's
+                    /* Update the hub-owned latch BEFORE the put — a joining robot's
                      * query and the live subscribers must agree, and a local put
                      * never loops back to our own subscriber to do it for us. */
                     char *vs = cJSON_PrintUnformatted(val);
@@ -382,24 +382,24 @@ static void handle_op(client_t *c, const char *text, size_t len) {
             send_owners(c);
         } else if (!strcmp(o, "claim")) {
             /* Presence-gated: a claim lands only during a live BOOT-tap window,
-             * so the claimant physically pressed this rover. First tap in the
+             * so the claimant physically pressed this robot. First tap in the
              * window wins and consumes it. */
             const cJSON *idj = cJSON_GetObjectItem(root, "id");
-            int s = cJSON_IsString(idj) ? rover_slot(idj->valuestring, false) : -1;
-            if (s >= 0 && esp_timer_get_time() < s_rovers[s].claimable_until_us) {
-                snprintf(s_rovers[s].owner, IDLEN, "%s", c->client_id);
-                s_rovers[s].claimable_until_us = 0;   /* window consumed */
+            int s = cJSON_IsString(idj) ? robot_slot(idj->valuestring, false) : -1;
+            if (s >= 0 && esp_timer_get_time() < s_robots[s].claimable_until_us) {
+                snprintf(s_robots[s].owner, IDLEN, "%s", c->client_id);
+                s_robots[s].claimable_until_us = 0;   /* window consumed */
                 broadcast_owner(s);
                 ESP_LOGI(TAG, "claim %s", idj->valuestring);
             } else {
-                ws_send_json(c, "{\"op\":\"error\",\"reason\":\"press the rover's BOOT button first\"}");
+                ws_send_json(c, "{\"op\":\"error\",\"reason\":\"press the robot's BOOT button first\"}");
             }
         } else if (!strcmp(o, "release")) {
             /* The owner, or the operator (master override), may release. */
             const cJSON *idj = cJSON_GetObjectItem(root, "id");
-            int s = cJSON_IsString(idj) ? rover_slot(idj->valuestring, false) : -1;
-            if (s >= 0 && (c->authed || !strcmp(s_rovers[s].owner, c->client_id))) {
-                s_rovers[s].owner[0] = 0;
+            int s = cJSON_IsString(idj) ? robot_slot(idj->valuestring, false) : -1;
+            if (s >= 0 && (c->authed || !strcmp(s_robots[s].owner, c->client_id))) {
+                s_robots[s].owner[0] = 0;
                 broadcast_owner(s);
                 ESP_LOGI(TAG, "release %s", idj->valuestring);
             }

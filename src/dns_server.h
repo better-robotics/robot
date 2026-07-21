@@ -6,13 +6,13 @@
 #include <stdint.h>
 
 /*
- * Minimal wildcard DNS-over-UDP responder for the board's own AP (`rover-<id>`
+ * Minimal wildcard DNS-over-UDP responder for the board's own AP (`robot-<id>`
  * or `hub-<id>` — same AP, different SSID prefix; both served by
  * wifi_portal.c). Answers EVERY A-record query with the AP's own IP, so a
  * joining device's OS captive-portal probe resolves to this board and its
  * captive-probe HTTP handlers (wifi_portal.c) can redirect it to "/" —
  * triggering the OS's native captive-portal auto-popup (Apple/Android/
- * Windows) instead of requiring a manual http://rover.local visit.
+ * Windows) instead of requiring a manual http://robot.local visit.
  *
  * True wildcard is the correct scope here — unlike the Pi's dnsmasq, which is
  * scoped to specific OS probe domains against a real uplink, an ESP32 SoftAP

@@ -10,11 +10,11 @@
  * (main.c) reads role_pref from NVS and calls one; each brings up its own radio
  * and never returns. */
 
-/* The normal board (tiers 1 + 3), APSTA at boot — own open rover-<id> AP + STA
+/* The normal board (tiers 1 + 3), APSTA at boot — own open robot-<id> AP + STA
  * uplink. Joins a hub-* → drives off it AND drops its own AP for as long as it
  * stays a hub client (classroom: one network in the room, the hub's); no hub →
  * keeps the AP and runs a local broker, driving itself (home/island).
- * self_broker_ok = AUTO (may island); false = ROVER-pinned (keeps looking, never
+ * self_broker_ok = AUTO (may island); false = ROBOT-pinned (keeps looking, never
  * self-brokers). Defined in hub_role.c (which owns the Wi-Fi + broker services). */
 void board_run(bool self_broker_ok);
 
@@ -22,19 +22,19 @@ void board_run(bool self_broker_ok);
  * (hub_role.c). Chosen via role_pref=HUB. */
 void hub_role_run(void);
 
-/* rover_client_run — the MQTT client + motor-drive loop with NO Wi-Fi setup of
- * its own (rover_role.c). board_run passes the broker: the DHCP gateway when
+/* robot_client_run — the MQTT client + motor-drive loop with NO Wi-Fi setup of
+ * its own (robot_role.c). board_run passes the broker: the DHCP gateway when
  * joined to a hub, or mqtt://127.0.0.1:1883 when the board is its own island.
  * Assumes networking is already up; returns on a dead session, never reboots.
- * rover_button_start arms the recover button (hold to reboot). */
-void rover_client_run(const char *broker_uri);
-void rover_button_start(void);
+ * robot_button_start arms the recover button (hold to reboot). */
+void robot_client_run(const char *broker_uri);
+void robot_button_start(void);
 
 /* Milliseconds since the last drive (pwm) command, or INT64_MAX if none this
  * boot. hub_watch (hub_role.c) reads it to skip its yield-scan while a board is
  * being actively driven — an active scan briefly interrupts AP+STA, so an island
  * only looks for a late-booting hub when idle, never mid-drive. */
-int64_t rover_ms_since_drive(void);
+int64_t robot_ms_since_drive(void);
 
 /* The one gated identity, checked in one place (hub_role.c): NVS-stored password
  * first, compile-time OPERATOR_PASS second, false for NULL. Used by the
@@ -44,16 +44,16 @@ int64_t rover_ms_since_drive(void);
 bool board_operator_pass_ok(const char *given);
 
 /* SSID classification shared by discovery and hub-watch (hub_role.c): any open
- * "hub-*" is a hub to join (peer islands advertise rover-<id>, never hub-*). */
+ * "hub-*" is a hub to join (peer islands advertise robot-<id>, never hub-*). */
 #define HUB_SSID_PREFIX     "hub-"
 
-/* Fresh boards' pool name, normally set per-env via -DROVER_NAME
+/* Fresh boards' pool name, normally set per-env via -DROBOT_NAME
  * (platformio.ini). No password: a name is a topic address, not a
  * credential (CONTRACT.md § Discovery & isolation) — every hub admits every
  * name with no auth, so there's nothing left for the two sides of an island
  * to share but the default string itself. */
-#ifndef ROVER_NAME
-#define ROVER_NAME "unassigned"
+#ifndef ROBOT_NAME
+#define ROBOT_NAME "unassigned"
 #endif
 
 /* Board network state, published by hub_role.c at each broker decision and served
@@ -105,7 +105,7 @@ int board_wifi_scan(board_ap_t *out, int max);
  * back to the reboot). */
 bool board_wifi_redial(const char *ssid, const char *pass);
 
-/* Trial-join (wifi_portal's POST /wifi/connect, board/rover mode): attempt
+/* Trial-join (wifi_portal's POST /wifi/connect, board/robot mode): attempt
  * the credentials live — the AP and the portal page stay up — blocking up
  * to ~20 s for an IP. NULL = verified (caller persists + reboots to apply);
  * otherwise a short human verdict ("wrong password?"), with the previous

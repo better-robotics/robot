@@ -69,7 +69,7 @@ static const char *TAG = "captive_nat";
 
 /* One entry per AP-client flow we've redirected to ourselves. Sized for a
  * handful of concurrent devices/connections on a single board's own AP —
- * this is one rover, not a classroom fleet. */
+ * this is one robot, not a classroom fleet. */
 #define FLOW_MAX     24
 #define FLOW_IDLE_US (60LL * 1000 * 1000)
 

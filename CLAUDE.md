@@ -6,7 +6,7 @@ image, APSTA at boot** (self-election collapsed into an AP+STA board 2026-07-09;
 the AP drops while joined to a hub 2026-07-15 — see below):
 
 - **`board_run`** (`hub_role.c`, the norm): every board comes up **APSTA** — its
-  own open `rover-<id>` AP *and* an STA uplink — and **drops the AP for as long
+  own open `robot-<id>` AP *and* an STA uplink — and **drops the AP for as long
   as it is joined to a hub** (one network in the room: the hub's). It's an
   `esp-mqtt` client that drives an L298N from `robots/<id>/pwm` and takes its name
   + pins post-join, dialing whichever broker is reachable: a discovered `hub-*`'s
@@ -16,11 +16,11 @@ the AP drops while joined to a hub 2026-07-15 — see below):
 - **`hub_role_run`** (`hub_role.c`): the *whole* on-chip hub — AP+STA+NAPT +
   Mosquitto broker + WS bridge + served dashboard — as a **dedicated** tier-2 hub
   (`role_pref=HUB`, `hub-*` AP, no drive). Folded in from `better-robotics/hub/esp32`.
-  The island path reuses these same services against a `rover-<id>` AP.
+  The island path reuses these same services against a `robot-<id>` AP.
 
 `src/main.c` dispatches on `role_pref`; `hub_role.c` owns the Wi-Fi + broker
-(`board_run` + `hub_role_run`), `rover_role.c` is the **drive client**
-(`rover_client_run` + motors, no Wi-Fi of its own). **The ESP hub's contract
+(`board_run` + `hub_role_run`), `robot_role.c` is the **drive client**
+(`robot_client_run` + motors, no Wi-Fi of its own). **The ESP hub's contract
 sources — `dashboard.html`, CONTRACT — stay canonical in the `hub` monorepo**;
 this repo vendors `web/dashboard.html` (drift-checked, `tools/sync-dashboard.sh`).
 
@@ -33,11 +33,11 @@ the classroom's real boundary is its own Wi-Fi, not a login (confirmed
 is the sole credential, scoped to `fleet/estop` alone (CONTRACT.md § Discovery
 & isolation). See git history for the zenoh-era firmware.
 
-**Naming** (repo renamed `rover`→`robot` 2026-07-04): the repo covers any MCU node
-role; robots are *role-named* — `rover-XXXX` is today's only role (a future camera
+**Naming** (repo renamed `robot`→`robot` 2026-07-04): the repo covers any MCU node
+role; robots are *role-named* — `robot-XXXX` is today's only role (a future camera
 role would be `cam-XXXX`, same codebase). Hardware model is metadata (`hw` in
 telemetry), never part of a name. Don't "fix" role-prefixed identifiers
-(`rover-`, `namePrefix`) to say robot — role vocabulary is product surface and stays.
+(`robot-`, `namePrefix`) to say robot — role vocabulary is product surface and stays.
 
 ## Build
 - **PlatformIO + ESP-IDF** — `pio run -e <env> [-t upload]`. esp-mqtt is in-tree
@@ -50,10 +50,10 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   `-DBUTTON_GPIO`), `esp32cam` (AI-Thinker ESP32-CAM — no USB socket, flashed
   via a plug-in USB↔UART adapter; **no BOOT button**, so its only manual
   re-entry is the `reprovision` topic; LED=GPIO33 rear red, active-low),
-  `rover-l298n` (extends esp32dev). Each passes `-DROVER_NAME='"unassigned"'`
-  (the pool name, no credential attached) as a *fallback* only — a rover's
+  `robot-l298n` (extends esp32dev). Each passes `-DROBOT_NAME='"unassigned"'`
+  (the pool name, no credential attached) as a *fallback* only — a robot's
   name is assigned post-join over MQTT (`robots/<id>/cmd/config` → NVS) from
-  the dashboard's "Assign a rover" panel, so boards flash identically and get
+  the dashboard's "Assign a robot" panel, so boards flash identically and get
   named at the hub.
 - **"Done" on firmware = the serial boot banner, not a green build.** After
   `-t upload`, read the `App version:` line and confirm it matches
@@ -118,7 +118,7 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   way `ws_mqtt_bridge.c` does, called from BOTH boot roles, gated by HTTP Basic
   on the `instructor` identity (`board_instructor_pass_ok`, `hub_role.c` — the
   same secret as the broker's session auth, so there is nothing to rotate
-  twice). Push with `tools/ota-push.py --host rover-<id>.local <bin>`,
+  twice). Push with `tools/ota-push.py --host robot-<id>.local <bin>`,
   `INSTRUCTOR_PASS` in the env.
   - **Rollback is the bootloader's, and it is why the table is `ota_0`+`ota_1`
     with no factory.** `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` boots a pushed
@@ -147,8 +147,8 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   - **Reusing one credential means every surface that spends it must be able to
     set it.** The config panel's instructor-password field was `role=='hub'`
     only — correct while `connect_cb` was its lone reader, since only a hub runs
-    a broker, and on a rover the control did nothing. `/ota` runs on EVERY board
-    and checks that same password, so hub-gating the field left a rover's OTA
+    a broker, and on a robot the control did nothing. `/ota` runs on EVERY board
+    and checks that same password, so hub-gating the field left a robot's OTA
     endpoint behind a password its own panel would not let you set: it stayed
     the compile-time default, which ships in every `.bin` this public repo
     publishes. Anyone on the classroom Wi-Fi could have reflashed the fleet. The
@@ -165,10 +165,10 @@ returns):
 ```
 app_main ─► role_pref == HUB → hub_role_run()   (tier 2: dedicated hub-* + broker + NAT; no drive)
             else             → board_run(self_broker_ok = role==AUTO)
-                                 APSTA at boot: own OPEN rover-<id> AP + STA,
+                                 APSTA at boot: own OPEN robot-<id> AP + STA,
                                  loops: join hub-* → AP DOWN, drive its broker;
                                  else AUTO → local broker, drive 127.0.0.1 (island);
-                                 else ROVER-pinned → rescan, never island.
+                                 else ROBOT-pinned → rescan, never island.
                                  (AP down + no hub → restart, never a live switch)
 ```
 **APSTA at boot; STA-only while a hub client** (2026-07-09, amended 2026-07-15;
@@ -182,11 +182,11 @@ subtractive, and the STA keeps its channel and association. **The way back is
 never a live switch**: a board whose AP is down and whose hub is gone does a clean
 `esp_restart` and comes up APSTA (the yield idiom, pointed the other way), so
 STA→APSTA still never happens live. **Islands, not attraction:** a
-self-broker board's AP is `rover-<id>`, *not* `hub-*`, so nothing joins it. A
+self-broker board's AP is `robot-<id>`, *not* `hub-*`, so nothing joins it. A
 shared broker (central control) is opt-in via an explicit hub (a Pi, or a board
 pinned to `role_pref=HUB`). An island board yields to any **`hub-*`** via a
 **clean restart** (board_run re-runs, discovers the hub, joins it) — safe against
-peer islands, which advertise `rover-<id>` not `hub-*`, so it also self-heals a
+peer islands, which advertise `robot-<id>` not `hub-*`, so it also self-heals a
 missed boot scan and joins a hub started after boot. It does not fight peer
 islands. A board's own AP sits on **192.168.99.1** (not the ESP default
 192.168.4.1) so its STA can pull a clean 192.168.4.x lease from a hub — else it
@@ -195,30 +195,30 @@ associates but can't route (two interfaces, one subnet) and wrongly islands.
 All APs **open** by default.
 
 **mDNS: two names, split by link** (2026-07-15). A board's **primary** name is its
-unique **`rover-<id>.local`**, tracked on every netif — so it still answers on a
-hub's LAN, full of peers. **`rover.local`** is a *delegated alias* pinned to the
+unique **`robot-<id>.local`**, tracked on every netif — so it still answers on a
+hub's LAN, full of peers. **`robot.local`** is a *delegated alias* pinned to the
 board's own AP IP, so it exists only while the AP does: dropping the AP drops the
 alias, with no separate rule. A hub is `hub.local` (a board never claims it — it
 would collide with the Pi). **Unique-as-primary is load-bearing, not cosmetic:**
 the primary is what gets mangled on collision, and RFC 6762 conflict resolution is
 implemented (`mangle_name` → `-2`, `-3`), so N boards on one LAN don't fail —
-`rover.local` silently resolves to **whichever booted first**, and the ordinals
-(`rover-2`) land in the same namespace as MAC-suffix ids (`rover-3f2a`),
+`robot.local` silently resolves to **whichever booted first**, and the ordinals
+(`robot-2`) land in the same namespace as MAC-suffix ids (`robot-3f2a`),
 indistinguishable by shape. MAC suffixes don't collide, so a unique primary never
 mints one. (Latent, needs a duplicate MAC to fire: `mangle_name` `strtol`s the
 tail after the last `-`, so an all-decimal id — ~15% of boards, `(10/16)^4` —
-mangles `rover-3210`→`rover-3211`, i.e. into another board's plausible id.)
+mangles `robot-3210`→`robot-3211`, i.e. into another board's plausible id.)
 
-The AP keeps `http://rover.local/` reachable for the #17 config panel ("set your
+The AP keeps `http://robot.local/` reachable for the #17 config panel ("set your
 home Wi-Fi" = the home switch) **in the island case, which is the only case that
 needs it** — a hub-joined board takes its name and pins over MQTT
-(`cmd/config`), and its panel stays reachable at `rover-<id>.local` on the hub's
+(`cmd/config`), and its panel stays reachable at `robot-<id>.local` on the hub's
 LAN. Per-board beacons in a classroom were the named cost; `hub#3`'s mitigation
 ("drop the beacon when cleanly joined to a hub") **shipped 2026-07-15** — see
 `board_ap_down` for the three-part argument, of which the beacon cost is the
 *weakest* third.
 
-### Rover role
+### Robot role
 One radio: Wi-Fi STA + esp-mqtt (BLE removed 2026-07-09 — see below).
 Boot is a pure function of NVS; no stored state is ever a dead end. **Nothing
 stored is fully operable**: no ssid → scan-join the strongest *open* `hub-*`
@@ -230,13 +230,13 @@ until the dashboard assigns one. Discovery results
 are never persisted — and **a hub in range wins over the stored network** (the
 classroom IS the venue; fixed 2026-07-10 — stored-first made a home-configured
 board reboot-loop off `hub_watch` instead of ever joining a classroom hub). A
-stored **hub pin** narrows "a hub" to one exact SSID (`rover_hub_admits` —
+stored **hub pin** narrows "a hub" to one exact SSID (`robot_hub_admits` —
 discovery AND hub-watch), so a pinned board never joins a foreign `hub-*`. Only
 when no `hub-*` is found does the stored ssid join, and a stored locator rides
 only its own stored network (half-stale config isn't trusted by halves).
 
 ```
-boot ──► [dispatcher: role_pref] ──► rover role ──► Wi-Fi STA: discover open hub-*, else stored ssid
+boot ──► [dispatcher: role_pref] ──► robot role ──► Wi-Fi STA: discover open hub-*, else stored ssid
          → mqtt connect(stored locator, or mqtt://<gateway>:1883) — no auth, as <name>
          → LED on; publish robots/<name>/sys every 2s
          → subscribe robots/<name>/{pwm, cmd/config, cmd/reprovision}
@@ -252,12 +252,12 @@ reboot; only a sustained (~20 s) dead session forces a restart.
 **BLE removed (2026-07-09, #11).** Post-join config replaced BLE onboarding, so
 the offline provisioning window (NimBLE + Improv + the `hubcfg` characteristic)
 had no job left — deleted, freeing ~175 KB flash + ~44 KB heap. The one case it
-uniquely covered (pointing a rover at a *specific* network) returns with hub
+uniquely covered (pointing a robot at a *specific* network) returns with hub
 self-election, its intended replacement. Mode dispatch, the RTC provision-request
 flag, and "one radio path per boot" all went with it — there's one path now.
 
 **BOOT button (GPIO0, hold ~1 s):** reboot — force a rescan / recover a wedged
-rover. **Remote twin:** publish anything to `robots/<id>/cmd/reprovision` — the
+robot. **Remote twin:** publish anything to `robots/<id>/cmd/reprovision` — the
 ESP32-CAM's only re-entry besides join failure (no button). **LED:** on = reached
 the broker (a visible "live and drivable" signal; was the provisioning-window LED).
 
@@ -269,19 +269,19 @@ locator overrides. No multicast — campus Wi-Fi filters it and isolates clients
 ## Identity
 Two ids, split by job (CONTRACT.md § Discovery & isolation):
 - **Topic id == the name, and it's an address, not a credential** (confirmed
-  2026-07-13). The rover connects with **no MQTT auth at all** and publishes
+  2026-07-13). The robot connects with **no MQTT auth at all** and publishes
   under `robots/<name>/*` — every hub admits every name; the hub's own Wi-Fi
   is the real boundary, not a per-robot login. Compile-time `unassigned`
-  (`-DROVER_NAME`) is the fallback — a first-class pool name (2026-07-10; was
+  (`-DROBOT_NAME`) is the fallback — a first-class pool name (2026-07-10; was
   demo `team1`, which let fresh boards collide on a real robot's card); the
   real name is assigned post-join from the dashboard (`robots/<id>/cmd/config`
   → NVS, `{"name":"scout"}`, no password field). It may be driven by one
   student or a few sharing the board — the protocol has no notion of team
   size, only "whoever's on the hub's Wi-Fi drives it."
-- **`rover-XXXX`** (last 2 MAC bytes via `rover_format_robot_id`) is a `board`
+- **`robot-XXXX`** (last 2 MAC bytes via `robot_format_robot_id`) is a `board`
   field in the sys payload — hardware is metadata, never the topic id.
-- **`role_pref`** (NVS key `role`, one byte; `rover_config_load/set_role_pref`,
-  enum `AUTO`=0/`HUB`=1/`ROVER`=2) selects the boot role (§ Boot flow). Unset or
+- **`role_pref`** (NVS key `role`, one byte; `robot_config_load/set_role_pref`,
+  enum `AUTO`=0/`HUB`=1/`ROBOT`=2) selects the boot role (§ Boot flow). Unset or
   unrecognized → `AUTO`, so stale/garbage NVS never wedges an unknown role.
 
 ## Hardware-earned traps (2026-07-04, ESP32-C3 + Pi hub)
@@ -290,12 +290,12 @@ Two ids, split by job (CONTRACT.md § Discovery & isolation):
   the deciding scar: zenoh-pico declares `Z_CONFIG_USER/PASSWORD_KEY` but no
   transport code consumes them, so a per-robot MCU identity was impossible (a
   usrpwd router rejected the session in ~200 ms) — esp-mqtt's native
-  username/password support is why the rover shipped on MQTT, not Zenoh.
+  username/password support is why the robot shipped on MQTT, not Zenoh.
   That capability turned out to matter for exactly one identity: the classroom
   redesign (2026-07-13) dropped per-robot credentials entirely — a robot's
   name is a topic address, not something MQTT auth gates — and kept
   username/password for `instructor` alone, gating only `fleet/estop`. The
-  rover itself now connects with no MQTT auth at all (`rover_role.c`).
+  robot itself now connects with no MQTT auth at all (`robot_role.c`).
 - **WPA2 join fails against the Pi's brcmfmac AP** — 4-way handshake timeout
   (`run → init (0xf00)` loop) despite correct PSK; open AP joins in ~6 s. C3 client
   vs NM/wpa_supplicant AP interop, unresolved — investigate before shipping a
@@ -320,18 +320,18 @@ Two ids, split by job (CONTRACT.md § Discovery & isolation):
 
 ## Verification
 Verify on a **non-isolated network** (phone hotspot + laptop `hubd` as the router).
-A client-isolated campus network (e.g. WhiteSky) blocks rover→hub regardless of
+A client-isolated campus network (e.g. WhiteSky) blocks robot→hub regardless of
 correct code.
 
 ## Conventions
 - **Measured data only** — publish only what the board truly measures (uptime, heap).
   No faked IMU. `synthetic:false`.
-- **NVS namespace `"rover"`** — keys: `ssid`/`pass`/`locator` (network),
+- **NVS namespace `"robot"`** — keys: `ssid`/`pass`/`locator` (network),
   `name` (post-join identity — no password field; a name is a topic address,
   not a credential, confirmed 2026-07-13), `mpins` (6-byte motor-pin
   blob, a custom-wired chassis), `role` (boot role, § Identity), `hubpin`
   (optional exact-SSID hub lock — rogue-hub guard, set via cmd/config
-  `{"hub":…}`, `rover_hub_admits`). All optional — absent falls back to the
+  `{"hub":…}`, `robot_hub_admits`). All optional — absent falls back to the
   compile-time / AUTO default.
 
 ## Status & design history
@@ -360,7 +360,7 @@ chosen-against:
   principle was already written down, and the AP was quietly violating it.
   Two supporting costs, both real but neither sufficient alone: beacons land on
   the **hub's own channel** (single radio → the AP follows the STA, so they
-  contend with the drive path itself), and NAPT made each rover a second
+  contend with the drive path itself), and NAPT made each robot a second
   password-less door into the classroom network (*not* an escalation — the hub's
   AP is open too — but it made "connect to the hub" a suggestion rather than a
   fact). **Chosen-against: dropping the AP in the `BOARD_NET_REMOTE` case too**
@@ -369,12 +369,12 @@ chosen-against:
   or two boards cost nothing and the AP is the recovery channel. Narrow the
   change to the case that earned it.
   **Chosen-against: keeping the AP as an escape hatch on a hub-joined board.**
-  It isn't one — a misjoined board is reachable at `rover-<id>.local` on the
+  It isn't one — a misjoined board is reachable at `robot-<id>.local` on the
   hub's LAN, and the true dead-end (an ESP32-CAM, no BOOT button, joined to a
   hub you don't control) is recovered by powering it up out of the hub's range.
 - **OS-native captive-portal onboarding, rebuilt end to end (2026-07-13 →
   2026-07-14, all live-diagnosed against real boards + real phones, not
-  designed ahead of the bugs).** Rover→hub auto-discovery needs no human and
+  designed ahead of the bugs).** Robot→hub auto-discovery needs no human and
   is untouched; the one config that stays human-driven is a board's own
   uplink Wi-Fi in the island scenario. `wifi_portal.c` answers the OS probes
   (`/hotspot-detect.html`, `/generate_204`, `/connecttest.txt`, `/ncsi.txt`)
@@ -391,7 +391,7 @@ chosen-against:
     `captive_accepted()` by `httpd_req_to_sockfd`+`getpeername`. Live-tested:
     every request read back peer IP `0.0.0.0` on this httpd stack, so the
     flip silently never engaged. Replaced with ONE global accept flag + a
-    15-minute idle window — a rover's own AP overwhelmingly serves one phone
+    15-minute idle window — a robot's own AP overwhelmingly serves one phone
     at a time, and the open ACL already gives every client full read+write
     regardless, so a flag shared across clients costs nothing real.
   - **Chosen-against #3 — flipping to "genuine success" unconditionally.**
@@ -470,7 +470,7 @@ chosen-against:
     never open the portal (answering 204 honestly would lie to every other
     Android — accepted); iOS 26 has an open regression where the auto-sheet
     errors on exactly this DNS-wildcard pattern (Apple DevForums thread
-    805035 — the manual `http://192.168.99.1` / rover.local path is the
+    805035 — the manual `http://192.168.99.1` / robot.local path is the
     fallback); a live `/wifi/scan` while the AP serves the sheet briefly
     drops the radio (can cache scan results if it ever bites); and on iOS,
     "Use Without Internet" disables Auto Login for that SSID — the sheet

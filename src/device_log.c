@@ -60,7 +60,7 @@ RTC_NOINIT_ATTR static uint32_t s_reset;
  *   - spinlock: esp_log_write is reachable from contexts where taking a mutex
  *     is fatal. The critical section covers one vsnprintf and a byte copy. */
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
-/* 256: the rover's own telemetry line ("pub {…}", every 2 s) is ~250 bytes and
+/* 256: the robot's own telemetry line ("pub {…}", every 2 s) is ~250 bytes and
  * is by far the most common thing in this ring. It is static, so its size costs
  * DRAM once and nothing per call — 192 was chosen against a stack cost this
  * design does not pay. */

@@ -296,7 +296,7 @@ static esp_err_t ide_redirect_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* The dashboard polls /fleet for the uplink pill + rover-setup locator. On the
+/* The dashboard polls /fleet for the uplink pill + robot-setup locator. On the
  * Pi that's hubd; here the same httpd answers it so the real page works
  * unmodified. Uplink is the probe verdict, same none/portal/full vocabulary the
  * Pi reports (board_uplink, roles.h) — NOT the DHCP lease.
@@ -317,7 +317,7 @@ static esp_err_t fleet_handler(httpd_req_t *req)
     const char *uplink = up_str[board_uplink()];
     /* ssid/host feed the dashboard's identity chip: which host serves this
      * page. Read from the live AP config, so a hub reports hub-XXXX and an
-     * island board reports its own rover-XXXX — both truthful. */
+     * island board reports its own robot-XXXX — both truthful. */
     wifi_config_t apcfg = { 0 };
     const char *ssid = "";
     if (esp_wifi_get_config(WIFI_IF_AP, &apcfg) == ESP_OK)
@@ -331,16 +331,16 @@ static esp_err_t fleet_handler(httpd_req_t *req)
     if (ap && esp_netif_get_ip_info(ap, &apip) == ESP_OK && apip.ip.addr)
         snprintf(locator, sizeof locator, "mqtt://" IPSTR ":1883", IP2STR(&apip.ip));
 
-    /* `boards` — where THIS HUB saw each rover, as opposed to where the rover's
+    /* `boards` — where THIS HUB saw each robot, as opposed to where the robot's
      * beacon says it lives. The sys beacon's `ip` is chosen by whoever published
      * it (the broker admits every client with no credential, on an open AP), so
      * it is fine for showing a fact and disqualifying for anything the dashboard
-     * sends a secret to: a fake rover pointing at a laptop would collect the
+     * sends a secret to: a fake robot pointing at a laptop would collect the
      * operator password from the next person who pressed Update.
      *
      * These two facts are ours, not the beacon's: the station is associated to
      * our AP, and our own DHCP server chose its address. The id derives from the
-     * same MAC — rover_format_robot_id is "rover-%02x%02x" of the STA MAC's last
+     * same MAC — robot_format_robot_id is "robot-%02x%02x" of the STA MAC's last
      * two bytes, and the STA MAC is what associates here.
      *
      * Not proof of identity (MAC spoofing exists), but it costs an attacker a
@@ -361,9 +361,9 @@ static esp_err_t fleet_handler(httpd_req_t *req)
             for (int i = 0; i < n; i++) {
                 /* Real hardware MACs only. Students' phones join this AP too,
                  * and a randomised MAC — every modern phone's default — has the
-                 * locally-administered bit set. A rover never does: its id comes
+                 * locally-administered bit set. A robot never does: its id comes
                  * from esp_read_mac's Espressif-assigned global address. Without
-                 * this, every device in the room gets a rover name, because only
+                 * this, every device in the room gets a robot name, because only
                  * two bytes decide one. */
                 ok[i] = pairs[i].ip.addr && !(pairs[i].mac[0] & 0x02);
             }
@@ -372,7 +372,7 @@ static esp_err_t fleet_handler(httpd_req_t *req)
                     /* Two devices claiming one id is the exact substitution this
                      * map exists to stop, so an ambiguous id vouches for NOBODY
                      * — both drop, and only they do. Letting the later station
-                     * win would hand the name to whoever spoofed a rover's low
+                     * win would hand the name to whoever spoofed a robot's low
                      * two bytes; dropping the whole map would let them switch
                      * Update off for the fleet. */
                     if (pairs[i].mac[4] == pairs[j].mac[4] && pairs[i].mac[5] == pairs[j].mac[5])
@@ -382,7 +382,7 @@ static esp_err_t fleet_handler(httpd_req_t *req)
             for (int i = 0; i < n && bl < sizeof boards - 48; i++) {
                 if (!ok[i]) continue;
                 bl += snprintf(boards + bl, sizeof boards - bl,
-                               "%s\"rover-%02x%02x\":\"" IPSTR "\"", bl ? "," : "",
+                               "%s\"robot-%02x%02x\":\"" IPSTR "\"", bl ? "," : "",
                                pairs[i].mac[4], pairs[i].mac[5], IP2STR(&pairs[i].ip));
             }
         }
@@ -420,7 +420,7 @@ void start_ws_mqtt_bridge(void)
         page_cfg.server_port = 80;
         page_cfg.ctrl_port = 32768;
         /* 3: this handle serves one self-contained page, and the socket budget
-         * must leave room for mosquitto + rovers within LWIP's pool — see
+         * must leave room for mosquitto + robots within LWIP's pool — see
          * MAX_BRIDGES above. */
         page_cfg.max_open_sockets = 3;
         page_cfg.lru_purge_enable = true;

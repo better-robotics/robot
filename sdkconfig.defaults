@@ -1,8 +1,8 @@
-# Unified image: the rover role needs little, the HUB ROLE needs the rest.
+# Unified image: the robot role needs little, the HUB ROLE needs the rest.
 # (The hub role's broker/NAT/WS-bridge config, folded in 2026-07-09.)
 
 # mosq_broker_run() blocks in the main task and Mosquitto wants >=5KB stack; the
-# rover role runs in the same task and is happy with the headroom.
+# robot role runs in the same task and is happy with the headroom.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
 
 # NAT: the hub role forwards AP-side traffic out the STA uplink (built into
@@ -14,7 +14,7 @@ CONFIG_LWIP_IPV4_NAPT=y
 CONFIG_HTTPD_WS_SUPPORT=y
 
 # Each browser bridge session costs 3 sockets (WS + broker TCP + mosquitto's
-# accepted end) on top of an ~12-socket baseline (two httpds, broker, rover
+# accepted end) on top of an ~12-socket baseline (two httpds, broker, robot
 # client, DNS forwarder, mDNS, uplink probe; the camera board adds one more
 # httpd). 16 let three sessions' worth of churn exhaust the pool and wedge
 # every listener until reboot; 24 keeps the full worst case under the ceiling.
@@ -37,7 +37,7 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 # The app built at -Og (ESP-IDF's default) while the bootloader beside it was
 # already size-optimized — nothing chose that asymmetry, it was just the default
-# nobody looked at. Measured 2026-07-16: esp32dev/rover-l298n -70,576 B,
+# nobody looked at. Measured 2026-07-16: esp32dev/robot-l298n -70,576 B,
 # esp32c3-supermini -121,936 B, esp32cam -143,296 B.
 #
 # This buys nothing against the 3 MB factory partition alone (the largest image

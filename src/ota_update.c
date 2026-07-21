@@ -103,7 +103,7 @@ static void reboot_task(void *arg)
 }
 
 /* ── CORS ─────────────────────────────────────────────────────────────────────
- * The dashboard is served BY THE HUB and pushes to a rover's own IP, so every
+ * The dashboard is served BY THE HUB and pushes to a robot's own IP, so every
  * browser-driven update is cross-origin. Basic auth is what forces a preflight:
  * Authorization is not a CORS-safelisted header, so the browser sends OPTIONS
  * first and never sends the 1.3 MB body unless this answers. Without it the

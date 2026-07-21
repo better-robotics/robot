@@ -161,7 +161,7 @@
        first-time student can't read. Tapping a chip opens its control. */
     /* Shrink order under pressure: the SSID chip gives way (3× shrink weight)
        before the host token — "hub-a2f5"'s suffix is what tells two hubs
-       apart. The Instructor / identity labels never ellipsize; on phones the
+       apart. The Operator / identity labels never ellipsize; on phones the
        locked chip drops to icon-only instead (the 480px rule below). */
     .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.5rem;
       min-width: 0; flex: 0 3 auto; }
@@ -179,7 +179,7 @@
     }
     .tchip.show { display: inline-flex; }
     /* The e-stop's fence. It tracks the CHIP's own visibility (.show is toggled
-       by renderEstop for a signed-in instructor) — a divider with nothing beside
+       by renderEstop for a signed-in operator) — a divider with nothing beside
        it is a rule floating in a gap. Hence :has(), not a second JS toggle:
        one source of truth for "is Stop all here right now". */
     .estop-slot { display: none; flex: none; }
@@ -187,9 +187,9 @@
       display: inline-flex; margin-right: 0.25rem; padding-right: 0.75rem;
       border-right: 0.5px solid var(--border-default);
     }
-    /* Island-served page (a lone rover's own AP — /fleet reports a rover-XXXX
-       SSID): there is no fleet and no instructor role, and joining the rover's
-       AP already means holding the robot. The instructor door would be a false
+    /* Island-served page (a lone robot's own AP — /fleet reports a robot-XXXX
+       SSID): there is no fleet and no operator role, and joining the robot's
+       AP already means holding the robot. The operator door would be a false
        affordance — no code exists that an island accepts. */
     body.solo #signin-chip { display: none; }
     .tchip > svg { flex: none; }
@@ -198,7 +198,7 @@
     /* Amber alone was the whole signal. For a hub that HAS an SSID but sits
        behind a captive portal, the chip label is the SSID either way — so
        "online" and "needs venue sign-in" differed by hue and nothing else, and
-       a colourblind instructor read an un-signed-in portal as fine all class
+       a colourblind operator read an un-signed-in portal as fine all class
        (SC 1.4.1). A shape restores the second channel. Text "!", not an emoji
        or an icon swap: emoji render platform-coloured against the monochrome
        chrome (this file's own rule — see ICON_PATHS), and the icon system
@@ -208,15 +208,15 @@
        of outline status chips, so the room's kill switch is found instantly.
        The fill is darker than --danger-text: white on the bare red misses AA
        (~3:1), so it's mixed toward black — #fff lands at 5.03 on the result.
-       Amber stays the "act here" channel; this red is "act NOW". Instructor-only. */
+       Amber stays the "act here" channel; this red is "act NOW". Operator-only. */
     .tchip.danger { color: #fff;
       background: color-mix(in srgb, var(--danger-text) 72%, #000);
       border-color: color-mix(in srgb, var(--danger-text) 72%, #000); }
     .tchip.danger:hover { background: color-mix(in srgb, var(--danger-text) 80%, #000); }
-    /* Instructor identity by STATE: neutral when locked, blue when unlocked.
+    /* Operator identity by STATE: neutral when locked, blue when unlocked.
        The signed-out door (#signin-chip) stays a quiet outline circle — it's a
        dormant affordance. Signing in swaps it for #id-chip, which goes solid
-       Duke blue + white: blue means "you ARE the instructor", the elevated
+       Duke blue + white: blue means "you ARE the operator", the elevated
        session you can act from. White on --accent (#00539B) clears AA at ~8:1.
        :not(.warn) so a reconnecting tint still wins — that state must read as
        trouble, not as a calm blue. */
@@ -228,7 +228,7 @@
        the circle carries a glyph instead. Porting the initials would ship its
        "?" fallback as the steady state.)
        The label costs nothing to drop: onScope() is only ever called for
-       "instructor", so #id-chip's span was spending topbar width to restate the
+       "operator", so #id-chip's span was spending topbar width to restate the
        glyph. The e-stop and network chips keep their pills — their labels are
        live data (SSID, engaged state), not a constant.
        .tchip already sets --radius-pill, so a square box IS the circle. */
@@ -376,7 +376,7 @@
       padding: 0.3rem 0.35rem; cursor: pointer; text-align: left;
     }
     .tw-group:hover { background: var(--inset); }
-    /* A rover name is student-supplied and unbounded; the rail is 232px. Clip
+    /* A robot name is student-supplied and unbounded; the rail is 232px. Clip
        the NAME, never the chevron or the alias — the same rule the card's
        identity chip already follows. */
     .tw-group > .tw-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -451,7 +451,7 @@
          `left: calc(var(--rail-w) - 0.62rem)`, because this block changes
          grid-template-columns but never touches --rail-w. Measured at 320px:
          the chevron sat at x=222, y=375 — detached from the rail, floating in
-         the middle of a rover card, over .cchip/.card-meta. A control whose
+         the middle of a robot card, over .cchip/.card-meta. A control whose
          only job is to narrow a column that no longer exists. */
       .rail-toggle { display: none; }
       .rail {
@@ -575,7 +575,7 @@
     #robots {
       /* start, not stretch: a card's height is its content. stretch forced every
          card in a row to the tallest one's height, so a board with fewer actions
-         (an unclaimed rover on an anonymous view has none) carried a big dead
+         (an unclaimed robot on an anonymous view has none) carried a big dead
          region under its name — read as a broken card, not a short one. */
       display: grid; gap: 0.9rem; align-items: start;
       /* Fixed 20rem tracks, not 1fr: a card is its content, so it never stretches
@@ -593,7 +593,7 @@
       border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; box-shadow: var(--shadow-card);
     }
     /* 0.8, not lower: the offline card is the one a student squints at when
-       their rover dies — its text must stay AA-readable while clearly dimmed. */
+       their robot dies — its text must stay AA-readable while clearly dimmed. */
     .robot.offline { opacity: 0.8; box-shadow: none; }
     .robot h2 {
       font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em;
@@ -665,7 +665,7 @@
     /* Controls: drive + codes are cards that share a row when width allows and
        stack below ~53rem — the wide canvas reads as panels, not a long scroll. */
     /* Off-screen storage now (the drive panel and assign sheet move into the
-       modal on demand; a instructor sign-in error is the only thing that ever
+       modal on demand; a operator sign-in error is the only thing that ever
        renders here). It sits after .shell in the body flex column, so any
        margin here is dead space stealing height the shell should fill — the old
        margin-top left a 32px gap below the whole app. A visible gate-error gets
@@ -678,7 +678,7 @@
       background: var(--surface); border: 0.5px solid var(--border-default);
       border-radius: var(--radius-lg); padding: 1.25rem 1.4rem; box-shadow: var(--shadow-card);
     }
-    /* Hidden by default — it holds nothing but a instructor sign-in error
+    /* Hidden by default — it holds nothing but a operator sign-in error
        (#gate-error), so it must not render as an empty padded card for every
        visitor who never signs in. updateSigninVisibility() reveals it only
        when there's something to say. */
@@ -1038,10 +1038,10 @@
       font-variant-numeric: tabular-nums; }
 
     /* Robots live as cards in the fleet grid — each robot's identity is a
-       card. #codes below is hidden storage for the instructor's Assign sheet
+       card. #codes below is hidden storage for the operator's Assign sheet
        (moved in/out on open/close), never rendered as its own page section. */
     #codes { display: none; }
-    /* Card chips — a card's corner is the rover's own topbar: network +
+    /* Card chips — a card's corner is the robot's own topbar: network +
        identity, the grammar the page chrome taught, one scale down. */
     .card-chips { margin-left: auto; display: flex; gap: 0.3rem; min-width: 0; }
     .cchip { display: inline-flex; align-items: center; gap: 0.3rem; max-width: 10rem;
@@ -1059,7 +1059,7 @@
       content: ""; position: absolute; inset: -10px -2px; }
     /* .link-btn opts out of --tap (a 44px-tall text link would read as a
        button), so it needs the same treatment or it ships a ~20px target on a
-       phone — which is what Rescan / Forget this network / Unassign rover…
+       phone — which is what Rescan / Forget this network / Unassign robot…
        were, all demoted to links on 2026-07-16 without this. -12px takes ~20px
        of text to ~44; -4px horizontal stays well inside the 0.9rem/1rem gaps
        their rows use, so neighbours can't steal each other's taps. Every
@@ -1072,12 +1072,19 @@
     .cchip svg { flex: none; }
     /* A claimed board is settled — its name reads in plain ink, no color. An
        unclaimed board needs a name, so it reads amber = "act here": the corner
-       chip (Claim for a student, Unassigned for the instructor) and the card's
+       chip (Claim for a student, Unassigned for the operator) and the card's
        Assign button all carry the warn hue. Amber recedes as the class
        gets set up — a board that earns a name drops to plain ink. */
     .cchip-robot { color: var(--ink); }
     .cchip-robot.pool, .cchip-claim { color: var(--warn-ink);
       border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+    /* Ownership (hub#10): "Yours" reads as the settled/positive state (the same
+       live green .dir-in uses); "In use" as a muted lock. The glyph is the
+       primary channel — user-check vs padlock — so neither leans on hue alone. */
+    .cchip-own.mine { color: var(--success);
+      border-color: color-mix(in srgb, var(--success) 45%, transparent);
+      background: color-mix(in srgb, var(--success) 12%, var(--inset)); }
+    .cchip-own.held { color: var(--ink-faint); }
     /* Assign/repair form: its own hairline-divided block, labeled fields on
        the pins-grid pattern (an anonymous placeholder box loses its name on
        the first keystroke), equal widths via flex-grow. */
@@ -1101,7 +1108,7 @@
     .pins-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
     .pins-grid label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.72rem; color: var(--ink-muted); }
     .pins-grid input { width: 100%; min-height: 2.4rem; padding: 0.4rem 0.55rem; }
-    /* Staged ≠ live: the field differs from what the rover reports — visible
+    /* Staged ≠ live: the field differs from what the robot reports — visible
        until Apply lands and the returning sys beacon confirms the new map.
        Id-scoped to outweigh the #assign-form input base rule; the inset ring
        reads at the grid's 0.5px border weight without shifting layout. */
@@ -1118,7 +1125,7 @@
       background: var(--inset); border-radius: var(--radius); margin-top: 0.5rem; }
     .pool-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; align-items: center; }
     .pool-actions .btn-tile { margin: 0; }
-    /* Inline claim: the name field lives in the rover's own row. */
+    /* Inline claim: the name field lives in the robot's own row. */
     .pool-actions .claim-name { flex: 1 1 8rem; min-width: 0; padding: 0.4rem 0.7rem; min-height: 2.2rem; }
     .claim-err { color: var(--danger-text); font-size: 0.85rem; flex-basis: 100%; }
     /* The address the name maps to, forming live as the student types — the
@@ -1222,7 +1229,7 @@
     .qr-box svg { display: block; width: 100%; height: auto; border-radius: 12px; }
     #qr-print { display: none; }
     /* The physical medium is a ROUND 1-inch label: the QR inscribes in the
-       circle (side = d/√2), the rover id rides the space under it, and the
+       circle (side = d/√2), the robot id rides the space under it, and the
        circle outline is the cut guide. The print QR is generated at EC level
        L — fewer modules than the screen's M, so each dot prints bigger. */
     @media print {
@@ -1297,9 +1304,9 @@
        input is a finger. This is also the only place --tap belongs: applying
        it in the base control rule (as the inputs and primary buttons used to)
        makes a mouse-driven 24rem popover carry 44px controls next to 0.78rem
-       chips, which is what made the instructor gate look bolted on. */
+       chips, which is what made the operator gate look bolted on. */
     /* <summary> is a real target — it IS the disclosure control — and it matched
-       nothing in the list below, so "Advanced rover setup" (~23.5px) and "Motor
+       nothing in the list below, so "Advanced robot setup" (~23.5px) and "Motor
        pins & orientation" (~20px) were under both the 44pt house number and
        WCAG's own 24px floor, on the iPads this whole coarse block exists for.
        The base rule gives them the one control height everywhere; the coarse
@@ -1335,25 +1342,25 @@
            the fix; the reorder is only what makes room for it. -->
       <span class="estop-slot">
         <!-- The accessible name MUST start with the visible label (SC 2.5.3).
-             It read "Emergency stop — halt every rover" over a chip that says
+             It read "Emergency stop — halt every robot" over a chip that says
              "Stop all", so the name did not contain the visible text: a voice
              user looked at the room's kill switch, said "click Stop all", and
              nothing happened — no error, no feedback. The one control in this
              file that must never miss, unreachable by the input method most
              likely to be used by someone who can't reach a mouse fast. The
              label stays (≤480px hides the span, per the rule below). -->
-        <button id="estop-chip" class="tchip danger" aria-label="Stop all — emergency stop, halts every rover" data-icon="octagon"><span>Stop all</span></button>
+        <button id="estop-chip" class="tchip danger" aria-label="Stop all — emergency stop, halts every robot" data-icon="octagon"><span>Stop all</span></button>
       </span>
       <!-- Fleet e-stop: one tap engages the retained fleet/estop latch
            (CONTRACT.md § Fleet e-stop). Direct action, not a popover chip;
-           visible only to a signed-in instructor, and while engaged the
+           visible only to a signed-in operator, and while engaged the
            banner (with its Clear) takes over. -->
       <button id="net-chip" class="tchip" aria-haspopup="dialog" aria-controls="chip-pop" aria-expanded="false" data-icon="wifi"><span id="net-chip-label"></span></button>
-      <!-- Locked: the instructor's door lives in the account corner. It isn't a
-           sign-in — one shared code unlocks the instructor role; robots need no
-           credential at all (Claim on the rover card, Drive for anyone).
+      <!-- Locked: the operator's door lives in the account corner. It isn't a
+           sign-in — one shared code unlocks the operator role; robots need no
+           credential at all (Claim on the robot card, Drive for anyone).
            Swaps for #id-chip once a session exists. -->
-      <button id="signin-chip" class="tchip avatar" aria-label="Instructor — unlock fleet controls" aria-haspopup="dialog" aria-controls="chip-pop" aria-expanded="false" data-icon="lock"><span>Instructor</span></button>
+      <button id="signin-chip" class="tchip avatar" aria-label="Operator — unlock fleet controls" aria-haspopup="dialog" aria-controls="chip-pop" aria-expanded="false" data-icon="lock"><span>Operator</span></button>
       <button id="id-chip" class="tchip avatar" aria-haspopup="dialog" aria-controls="chip-pop" aria-expanded="false" data-icon="person"><span id="id-chip-name"></span></button>
     </span>
   </header>
@@ -1496,7 +1503,7 @@
     <div id="banner" class="notice">Hub unreachable — retrying…</div>
     <!-- Fleet e-stop banner: driven by the retained fleet/estop latch, so every
          dashboard — anonymous fleet views included — shows the engaged state.
-         The Clear button appears only for a signed-in instructor. -->
+         The Clear button appears only for a signed-in operator. -->
     <!-- No role="alert" here any more, for two reasons. (1) This element is
          display:none until engaged and ships with its text already written —
          populate-then-reveal, which announces in some browser/AT pairs and not
@@ -1506,12 +1513,12 @@
          #app-alert (always rendered, empty at rest); this banner is purely the
          sighted channel. -->
     <div id="estop-banner" class="notice danger" style="gap:0.6rem; align-items:center; flex-wrap:wrap">
-      <span style="flex:1; min-width:12rem; overflow-wrap:anywhere"><b>Emergency stop engaged</b> — <span id="estop-meta">rovers refuse drive commands until it is cleared</span><!--
-        Did every robot actually HEAR it? CONTRACT.md § Fleet e-stop has rovers
+      <span style="flex:1; min-width:12rem; overflow-wrap:anywhere"><b>Emergency stop engaged</b> — <span id="estop-meta">robots refuse drive commands until it is cleared</span><!--
+        Did every robot actually HEAR it? CONTRACT.md § Fleet e-stop has robots
         echo "estop":true in their sys beacon for exactly this check, and nothing
         was reading it — a board that reconnects mid-emergency is the whole
         reason the latch is retained. It belongs in the banner because the answer
-        only matters while engaged: a silent rover during an emergency earns a
+        only matters while engaged: a silent robot during an emergency earns a
         second line, "everything is fine" never does.
       --><span id="estop-confirm"></span></span>
       <button id="estop-clear" class="btn-danger" style="display:none">Clear — release the fleet</button>
@@ -1520,7 +1527,7 @@
       </div>
       <main class="content">
       <section class="panel" id="p-fleet">
-  <p id="empty">No rovers yet — power one on near the hub and it appears here within seconds.
+  <p id="empty">No robots yet — power one on near the hub and it appears here within seconds.
     <span class="hint">New board with no firmware? <a href="https://better-robotics.github.io/">Flash it over USB</a>.</span></p>
   <div id="robots"></div>
       </section>
@@ -1535,14 +1542,14 @@
            this panel. -->
       <section class="panel" id="p-code" hidden>
         <div class="panel-head"><h2>Code</h2>
-          <span class="hint">snap blocks together, watch the Python appear &#8212; it runs in this tab and drives a real rover</span>
+          <span class="hint">snap blocks together, watch the Python appear &#8212; it runs in this tab and drives a real robot</span>
           <span class="spacer"></span>
           <a id="ide-pop" class="link-btn" href="/ide/" target="_blank" rel="noopener">Open in a tab &#8599;</a>
         </div>
         <!-- Names no cause: hubs 404 this for unrelated reasons (a Pi with an
              empty HUB_IDE_DIR; an ESP32 image from before the loader shell).
              Naming a Pi env var here read as a misconfiguration to a student
-             on a rover that is working exactly as designed. -->
+             on a robot that is working exactly as designed. -->
         <div id="ide-host"><p class="hint" id="ide-missing" hidden>No code editor on this hub. Everything else on this dashboard works without it.</p></div>
       </section>
 
@@ -1558,14 +1565,14 @@
            answers it. -->
       <section class="panel" id="p-messages" hidden>
         <div class="panel-head"><h2>Messages</h2>
-          <span class="hint">every address on the wire &#183; <span class="log-in">&#8595;</span> the rover talks &#183; <span class="log-out">&#8593;</span> you talk</span>
+          <span class="hint">every address on the wire &#183; <span class="log-in">&#8595;</span> the robot talks &#183; <span class="log-out">&#8593;</span> you talk</span>
           <span class="spacer"></span>
           <span id="details-age"></span>
           <span id="wire-rate" aria-live="off"></span>
         </div>
         <div id="topic-detail"></div>
         <div class="wire-head">
-          <select class="select-sm" id="wire-filter" aria-label="Filter messages to one rover"><option value="">all rovers</option></select>
+          <select class="select-sm" id="wire-filter" aria-label="Filter messages to one robot"><option value="">all robots</option></select>
           <!-- Topic filter. The log prints the topic on every line, so naming the
                options after the channels makes the filter teach itself in place.
                Replaced a binary toggle ("Beacons" — the firmware's word for sys,
@@ -1573,11 +1580,11 @@
 
                SHOW EVERYTHING by default, filter down — what every log viewer does
                (DevTools, Wireshark). The old default hid sys, inherited from when
-               this panel was instructor-only: a instructor watching for events doesn't
+               this panel was operator-only: a operator watching for events doesn't
                want 2s chatter. That premise died when students got the panel, because
-               sys is the ONLY thing a rover ever publishes (rover_role.c:567; pwm and
-               cmd/* are things it SUBSCRIBES to). So "all except sys" meant the rover
-               never appeared to answer at all — the "← the rover answers" legend
+               sys is the ONLY thing a robot ever publishes (robot_role.c:567; pwm and
+               cmd/* are things it SUBSCRIBES to). So "all except sys" meant the robot
+               never appeared to answer at all — the "← the robot answers" legend
                promising something that could never arrive, and an idle student
                reading an empty log as broken.
 
@@ -1600,9 +1607,9 @@
         <!-- The arrows must be the ones the log actually draws: this said → / ←
              while logLine drew ↑ / ↓ from the moment the lines became columns — a
              key that keys nothing.
-             "the rover answers" was wrong twice over: sys is UNPROMPTED (every 2s,
+             "the robot answers" was wrong twice over: sys is UNPROMPTED (every 2s,
              answering nothing), and inbound also carries fleet/estop, which comes
-             from a instructor, not a rover. Direction is the honest claim — what
+             from a operator, not a robot. Direction is the honest claim — what
              this page sent vs what it received. -->
         <!-- It rode the closed toggle bar until 2026-07-16, where it keyed arrows
              that are only on screen once the drawer is OPEN — and the bar was a
@@ -1616,7 +1623,7 @@
         <p class="wire-legend"><span class="log-out">&#8593; sent from this page</span> &#183; <span class="log-in">&#8595; received</span></p>
         <!-- aria-live="off" is REQUIRED here, not belt-and-braces: role="log"
              carries an implicit aria-live="polite", so every frame logLine() appends
-             became an announcement. sys alone is one per rover per 2 s — six rovers
+             became an announcement. sys alone is one per robot per 2 s — six robots
              is three utterances a second, forever, each reading a full JSON payload.
              The polite queue never drains, so every other announcement in the app
              (including the e-stop) starves behind a wall of telemetry. This is a
@@ -1633,13 +1640,13 @@
 
   <!-- The bus view: everything this session's subscription carries — its own
        full-width row below the controls, a verbose surface that deserves the
-       whole column. Shown only once signed in as instructor ("Advanced
-       diagnostics"). Per-rover reading lives in each card's telemetry sheet;
+       whole column. Shown only once signed in as operator ("Advanced
+       diagnostics"). Per-robot reading lives in each card's telemetry sheet;
        this is the classroom's raw wire, the teaching tap. -->
-  <!-- Instructor-only, and no longer a disclosure. It wrapped TWO gated
+  <!-- Operator-only, and no longer a disclosure. It wrapped TWO gated
        wrappers (details + section#wire) around one thing, and once the
        redundant fleet-vitals table was deleted the only content left is the
-       wire log — the teaching surface a signed-in instructor is here to watch.
+       wire log — the teaching surface a signed-in operator is here to watch.
        A click to reveal the one thing you signed in for isn't a fold, it's a
        toll. (The old summary read "Details & troubleshooting", which never
        once rendered: the row is display:none until signIn, which retitles it
@@ -1653,8 +1660,8 @@
   <section id="signin">
     <!-- Every visitor already has anonymous read+write on robots/# — driving
          and claiming need no sign-in at all. The only remaining door is the
-         instructor's (the topbar chip); this box stays empty and hidden
-         except to surface a instructor sign-in error (updateSigninVisibility). -->
+         operator's (the topbar chip); this box stays empty and hidden
+         except to surface a operator sign-in error (updateSigninVisibility). -->
     <!-- No role="alert": this element is display:none-toggled inside a
          display:none-toggled #signin, so it is not in the accessibility tree at
          the moment its text is written — the announcement could never fire from
@@ -1671,7 +1678,7 @@
       <div id="drive-status">
         <span class="dot"></span>
         <div>
-          <p id="drive-status-line">Waiting for your rover…</p>
+          <p id="drive-status-line">Waiting for your robot…</p>
           <p id="drive-status-sub"></p>
         </div>
       </div>
@@ -1680,7 +1687,7 @@
            (sys.cam); a board without one leaves it empty and the controls rise
            to the top. This replaced a separate Camera button + a Live-status
            panel: the button opened the same stream in its own modal (two ways
-           to see one rover), and Live status restated sys fields the Details
+           to see one robot), and Live status restated sys fields the Details
            sheet already owns. -->
       <div id="drive-cam"></div>
       <!-- Plain toggle buttons (aria-pressed), not a tablist: the full tabs
@@ -1716,7 +1723,7 @@
           <!-- Tilt: phone-as-steering-wheel. Rolling the phone steers; the two
                hold-pedals are the throttle. The bar mirrors the steering read
                back (fill grows from center toward the tilt; the green band is
-               the dead zone where the rover keeps going straight). -->
+               the dead zone where the robot keeps going straight). -->
           <div id="tilt-wrap">
             <div class="tilt-bar" aria-hidden="true">
               <div class="tilt-neutral"></div>
@@ -1737,7 +1744,7 @@
     </div>
   </div>
 
-  <!-- Instructor-only Assign sheet, hidden storage (not a page section): the
+  <!-- Operator-only Assign sheet, hidden storage (not a page section): the
        robot chip on each card opens it, moved into the modal on demand and
        returned here on close. Naming an unassigned board otherwise needs no
        sign-in at all — see the Claim row on the board's own card. -->
@@ -1748,16 +1755,16 @@
         <input id="assign-name" placeholder="robot3"
                autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off"></label>
       <details id="assign-advanced">
-      <summary>Advanced rover setup</summary>
+      <summary>Advanced robot setup</summary>
       <!-- Rogue-hub guard, TOFU at assignment time: lock the board to one exact
            hub SSID so a student's own hub-XXXX can't absorb it. "-" clears.
            ("Lock", not "pin" — "Motor pins" below already means GPIO.) -->
       <label class="field">Lock to hub
         <input id="assign-hub" placeholder='hub-a045 · "-" clears'
                autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off"></label>
-      <!-- Live truth + staged edits: fields show the rover's reported wiring
+      <!-- Live truth + staged edits: fields show the robot's reported wiring
            (sys carries "pins"); flips rearrange the FIELDS only. Nothing
-           reaches the rover until Apply sends the whole map in one reboot. -->
+           reaches the robot until Apply sends the whole map in one reboot. -->
       <details id="assign-pins-wrap">
         <summary>Motor pins &amp; orientation</summary>
         <p class="pins-help" id="pins-live-note">Pick a board above to see its live wiring.</p>
@@ -1782,7 +1789,7 @@
             <button class="btn-tile" data-flip="right">&#8635; Reverse right</button>
           </div>
           <div class="orient-btns">
-            <button class="btn-tile" id="pins-apply" disabled>Apply pins &#183; reboots the rover</button>
+            <button class="btn-tile" id="pins-apply" disabled>Apply pins &#183; reboots the robot</button>
           </div>
         </div>
       </details>
@@ -1790,12 +1797,12 @@
       <!-- Dialog footer: destructive left, primary right, one row. Unassign
            lives HERE, not on the card: the name pill is the one identity
            affordance and this sheet is what it opens. A dedicated "Unassign
-           rover…" tile on every assigned card meant the card carried two
+           robot…" tile on every assigned card meant the card carried two
            identity controls (pill → rename, tile → unassign) while an
            unassigned card carried none. Hidden for a pool board — nothing to
            unassign. -->
       <div class="assign-actions">
-        <button id="unassign-btn" class="link-btn btn-danger" hidden>Unassign rover…</button>
+        <button id="unassign-btn" class="link-btn btn-danger" hidden>Unassign robot…</button>
         <button id="assign-btn" class="btn-primary">Assign</button>
       </div>
     </div>
@@ -1817,7 +1824,7 @@
   </div>
 
   <!-- Print-only sticker (see @media print): the join QR + the two-step
-       instruction, sized for a label on the rover's chassis. -->
+       instruction, sized for a label on the robot's chassis. -->
   <div id="qr-print" aria-hidden="true">
     <div class="qr-box"></div>
     <p class="qr-print-ssid"></p>
@@ -1862,9 +1869,9 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     };
 
     // Escape MQTT-derived strings before they enter innerHTML or an attribute.
-    // Telemetry is semi-trusted: a robot controls its own rover's firmware, so
+    // Telemetry is semi-trusted: a robot controls its own robot's firmware, so
     // fields like sys.board / the topic id are attacker-settable, and the
-    // instructor's dashboard (full robots/# access) renders every robot's — an
+    // operator's dashboard (full robots/# access) renders every robot's — an
     // unescaped `board:"<img onerror=…>"` would run in the teacher's session.
     const esc = s => String(s ?? "").replace(/[&<>"']/g,
       c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -1957,7 +1964,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // (2026-07-08), hubd only still knows the uplink verdict and locator.
     const robots = new Map();
 
-    // board id (rover-XXXX) -> {robot, sys, seenAt} — the per-BOARD view. The
+    // board id (robot-XXXX) -> {robot, sys, seenAt} — the per-BOARD view. The
     // `robots` map above collapses by name (topic id == robot name), so boards
     // sharing one identity would flap last-writer-wins on a single card; this
     // map keeps them distinct by the sys payload's `board` field, which is what
@@ -2004,7 +2011,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // (the token the user just tapped in Wi-Fi settings) + host class; older
     // firmware without ssid in /fleet → the bare address; standalone copy →
     // an arrow at whichever broker host it's pointed at.
-    // A self-hosted rover's own SSID (rover-XXXX) is suppressed: that same
+    // A self-hosted robot's own SSID (robot-XXXX) is suppressed: that same
     // board is also the one card (often the only card) in the fleet list
     // below, so naming it again up here is pure duplication. A classroom
     // hub's SSID (hub-XXXX) stays — it names the ROOM, not any one robot,
@@ -2012,34 +2019,34 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // Which hub this page is on. Held in a variable, not read back out of a
     // topbar node — Settings shows the same value (its "Hub" row), and the
     // topbar no longer carries it, so the DOM can't be the source of truth for
-    // two surfaces. A rover-XXXX SSID means an island (a lone rover's own AP),
+    // two surfaces. A robot-XXXX SSID means an island (a lone robot's own AP),
     // which has no hub name to show.
     let hostLabel = "";
     // The broker address the hub ITSELF hands out (/fleet's `locator`), not a
     // string this page assembles. hubd builds it from the port mosquitto is
     // actually bound to (`mqtt://{host}:{mqtt_port}`, hubd.rs) and prints the
-    // same value as the one to point rovers at — so a hub moved off :1883
+    // same value as the one to point robots at — so a hub moved off :1883
     // stays truthful here, where a hardcoded ":1883" would quietly teach a
     // port nothing listens on. Empty until /fleet answers (and forever on a
     // standalone copy, which has no hubd to ask) — Settings falls back to the
     // contract default there.
     let brokerLocator = "";
-    // Where the HUB says each board lives — /fleet's `boards`, keyed by rover id.
+    // Where the HUB says each board lives — /fleet's `boards`, keyed by robot id.
     //
     // This exists because sys.ip does not survive the question "who told us
     // that?". The beacon is published over an ACL that admits every client with
     // no credential, on an open AP, so any device in the room can announce a
-    // rover at any address. That is fine for painting a card and disqualifying
+    // robot at any address. That is fine for painting a card and disqualifying
     // for anything this page sends a secret to.
     //
     // The hub's answer comes from its own DHCP: the Pi reads the lease file its
     // dnsmasq wrote, the ESP32 hub reads the stations associated to its AP. Both
     // key on the MAC that holds the address, and a board's id IS that MAC's last
-    // two bytes (robot's rover_format_robot_id). A beacon can claim an ip; it
+    // two bytes (robot's robot_format_robot_id). A beacon can claim an ip; it
     // cannot make the hub's DHCP server agree.
     let vouchedIps = {};
 
-    // The only addresses this page will send the instructor password to.
+    // The only addresses this page will send the operator password to.
     //   1. the origin that served this page — trusting it is not a leap, the
     //      page came from there;
     //   2. an address the hub vouches for, above.
@@ -2054,7 +2061,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     function setHostChip(ssid, host) {
       const cls = host === "pi" ? "Pi" : host === "esp32" ? "ESP32" : "";
       hostLabel =
-        ssid && ssid.startsWith("rover-") ? "" :
+        ssid && ssid.startsWith("robot-") ? "" :
         ssid ? `${ssid}${cls ? " · " + cls : ""}` : (standalone ? (hubHost ? `→ ${hubHost}` : "") : location.host);
     }
 
@@ -2085,7 +2092,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         banner.style.display = "block";
         // The hub going down mid-class was previously a purely visual event: an
         // amber band appeared and AT said nothing, so a blind student kept
-        // driving a rover that wasn't there. The guard in announce() means this
+        // driving a robot that wasn't there. The guard in announce() means this
         // polls every few seconds without repeating itself.
         announce("Hub unreachable — retrying…");
         // Hosted copy with no hubd behind it (github.io, a laptop server):
@@ -2101,11 +2108,11 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         return;
       }
       uplinkBusy = false;
-      // Island-served (a lone rover's own AP): /fleet's ssid is the live AP
-      // config, so rover-XXXX is the board's own word that it's an island —
+      // Island-served (a lone robot's own AP): /fleet's ssid is the live AP
+      // config, so robot-XXXX is the board's own word that it's an island —
       // the same signal setHostChip already trusts. body.solo hides the
-      // instructor door (CSS above): one board, no fleet, no role to unlock.
-      document.body.classList.toggle("solo", !!(data.ssid && data.ssid.startsWith("rover-")));
+      // operator door (CSS above): one board, no fleet, no role to unlock.
+      document.body.classList.toggle("solo", !!(data.ssid && data.ssid.startsWith("robot-")));
       brokerLocator = data.locator || "";
       setHostChip(data.ssid, data.host);
       if (renderUplinkChip) renderUplinkChip(data.uplink);
@@ -2386,7 +2393,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
           // half-module quiet zone against the dark page) — spec wants 4
           // modules, so cellSize×4.
           const svg = qr.createSvgTag({ cellSize: 8, margin: 32, scalable: true });
-          const home = apSsid.startsWith("hub-") ? "hub.local" : "rover.local";
+          const home = apSsid.startsWith("hub-") ? "hub.local" : "robot.local";
           const wrap = document.createElement("div");
           wrap.className = "modal-note qr-share";
           const box = document.createElement("div");
@@ -2426,11 +2433,11 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // distinct, instead of a normal card whose last-writer-wins telemetry
     // flaps between boards. Blink = robots/<name>/cmd/identify targeted by
     // board id; Assign preselects the board in the assign panel. Both are
-    // instructor actions.
+    // operator actions.
 
     // ── Device cards: one card per physical board — the grid mirrors the desk.
     // A card is permanent across assignments; the NAME is something the device
-    // WEARS, as a chip. A card's corner is the rover's own topbar — network +
+    // WEARS, as a chip. A card's corner is the robot's own topbar — network +
     // identity, the same grammar the page chrome taught, one scale down; the
     // chips tap through to the flows that already exist (board Wi-Fi panel,
     // the assign sheet). This one renderer replaced the pool card, the
@@ -2479,6 +2486,10 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
           + '<path d="M9.7 17l4.6 0"/>',
       /* tabler outline/user-plus */
       claim: '<path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M16 19h6"/><path d="M19 16v6"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4"/>',
+      /* tabler outline/lock — a robot held by another student */
+      lock: '<path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2z"/><path d="M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0"/><path d="M8 11v-4a4 4 0 1 1 8 0v4"/>',
+      /* tabler outline/user-check — a robot that is yours */
+      mine: '<path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4"/><path d="M15 19l2 2l4 -4"/>',
       /* tabler outline/alert-triangle */
       warn: '<path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0"/><path d="M12 16h.01"/>',
       /* tabler outline/octagon — the e-stop chip's stop-sign silhouette */
@@ -2508,6 +2519,52 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     for (const el of document.querySelectorAll("[data-icon]"))
       el.insertAdjacentHTML("afterbegin", icon(el.dataset.icon, 13));
     const PERSON_SVG = icon("person", 11);
+
+    // ── Per-owner robot ownership (hub#10) ───────────────────────────────────
+    // A persistent, opaque browser id — the owner key the adapter binds on
+    // {op:hello}. It is a BEARER token: presenting it is what proves ownership at
+    // the hub's gate, so it only ever leaves here in that one direction. The hub
+    // never tells us anyone else's token — only whether each robot is "mine",
+    // "held" (by another), or free — so nothing here can impersonate an owner.
+    const CLIENT_ID = (() => {
+      let v = localStorage.getItem("hubClientId");
+      if (!v) { v = crypto.randomUUID ? crypto.randomUUID() : "c-" + Math.random().toString(36).slice(2);
+                localStorage.setItem("hubClientId", v); }
+      return v;
+    })();
+    const robotOwn = new Map();        // robot id -> "mine" | "held"  (absent = free)
+    const claimableUntil = new Map();  // robot id -> ms deadline while its BOOT-tap window is live
+    const isClaimable = (robot) => { const u = claimableUntil.get(robot); return !!u && Date.now() < u; };
+    // {op:owners, mine:[], held:[]} on join; {op:owner, id, state} on change.
+    function applyOwners(d) {
+      robotOwn.clear();
+      for (const id of d.mine || []) robotOwn.set(id, "mine");
+      for (const id of d.held || []) robotOwn.set(id, "held");
+    }
+    function applyOwner(d) {
+      if (d.state === "free") robotOwn.delete(d.id); else robotOwn.set(d.id, d.state);
+    }
+    // The robot's claimable announce (robots/<id>/claimable) rides the normal sub
+    // fan-out; each one extends the local window, matching the hub's grace.
+    function ingestClaimable(topic, payload) {
+      const robot = topic.split("/")[1];
+      let open = true;
+      try { open = JSON.parse(payload.toString()).open !== false; } catch {}
+      claimableUntil.set(robot, open ? Date.now() + 4000 : 0);
+    }
+    // Ownership commands go through whichever client is live (operator's drive
+    // client when signed in, else the anonymous public client).
+    const activeClient = () =>
+      (myScope && driveClient && driveClient.connected) ? driveClient : publicClient;
+    // Both clients get the same ownership wiring (hello is sent in zenohConnect).
+    function wireOwnership(client) {
+      // Owner frames are rare (only on a claim/release), so repaint at once — a
+      // remote student taking a robot should lock this card without the 2 s wait.
+      client.on("owners", (d) => { applyOwners(d); renderRobots(); });
+      client.on("owner", (d) => { applyOwner(d); renderRobots(); });
+      return client;
+    }
+
     function deviceCard(board, rec, robotCounts) {
       const { sys, robot, seenAt } = rec;
       const ageMs = Date.now() - seenAt;
@@ -2515,11 +2572,25 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       const prof = myScope && myScope.scope === "all";
       const isPool = robot === "unassigned";
       // Naming an unassigned board needs no sign-in at all — anonymous
-      // already carries write on robots/#. Hidden only while the instructor
+      // already carries write on robots/#. Hidden only while the operator
       // is signed in, who gets the fuller Assign sheet (pins, hub lock)
       // instead — one entry point per viewer, not two on the same card.
       const claimable = isPool && !myCred;
-      // The corner is the rover's own topbar — network + identity, the same
+      // ── Per-owner state (hub#10): a NAMED robot can be claimed exclusively.
+      // "own" is the hub's per-recipient verdict — never a token — so this card
+      // knows only mine / held / free. A held robot locks a student out of
+      // driving (the hub enforces it too, this is just the honest UI); the
+      // operator always overrides. "Take" appears only while the robot announces
+      // its BOOT-tap window — ownership is tied to physically pressing it.
+      const own = !isPool ? robotOwn.get(robot) : undefined;   // "mine" | "held" | undefined
+      const lockedOut = own === "held" && !prof;
+      const canTake = !isPool && !offline && own !== "mine" && isClaimable(robot);
+      const ownChip = own === "mine"
+          ? `<span class="cchip cchip-own mine">${icon("mine", 11)}<span>Yours</span></span>`
+          : own === "held"
+            ? `<span class="cchip cchip-own held">${icon("lock", 11)}<span>In use</span></span>`
+            : "";
+      // The corner is the robot's own topbar — network + identity, the same
       // grammar the page chrome taught. A claimed board wears its name in
       // plain ink (settled); an unclaimed board wears its "Unassigned" state,
       // and an arriving robot gets the amber Claim call-to-action.
@@ -2541,14 +2612,14 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
               ? `<button class="cchip cchip-robot pool" data-assign="${esc(board)}" data-brobot="${esc(robot)}" title="Assign a name">${PERSON_SVG}<span>Unassigned</span></button>`
               : `<span class="cchip cchip-robot pool">${PERSON_SVG}<span>Unassigned</span></span>`;
       const chips = `<span class="card-chips">
-        ${idChip}
+        ${ownChip}${idChip}
       </span>`;
       // ONE row, ONE order, ONE name per action — buttons appear and disappear
       // with state, they never reorder or rename. All three used to drift: a
       // pool board read Drive/Identify/Telemetry while an assigned one read
       // Drive/Telemetry/Identify — the same two actions in opposite order,
       // because each branch rebuilt the row by hand. "Identify" was also
-      // "Identify rover" when assigned, and Telemetry was "Details" (and the
+      // "Identify robot" when assigned, and Telemetry was "Details" (and the
       // only action with no icon) for a student. Same button, same handler,
       // three names.
       // Order is importance, not history: Drive is the product, Camera is
@@ -2556,15 +2627,21 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       const actions = [];
       // Drive opens the joystick/D-pad in a per-board modal — no separate Drive
       // card, no target picker; the button IS the target. Pool boards drive too
-      // when the viewer is the instructor: the "unassigned" ACL role
+      // when the viewer is the operator: the "unassigned" ACL role
       // (CONTRACT.md) exists precisely so a board nobody has claimed yet can
       // still be test-driven from the bench, before it's handed to a robot.
-      if (!offline && (!isPool || prof))
-        actions.push(`<button class="btn-accent" data-drive-open="${esc(robot)}" data-drive-board="${esc(board)}">${icon("drive")} Drive</button>`);
+      if (!offline && (!isPool || prof)) {
+        // A student locked out of a claimed robot sees why, not a missing button
+        // — the disabled tile IS the explanation. The hub enforces it regardless.
+        if (lockedOut)
+          actions.push(`<button class="btn-tile" disabled aria-label="In use by another student — you can't drive it">${icon("lock")} In use</button>`);
+        else
+          actions.push(`<button class="btn-accent" data-drive-open="${esc(robot)}" data-drive-board="${esc(board)}">${icon("drive")} Drive</button>`);
+      }
       // No separate Camera button: the stream lives inside Drive now, above the
       // controls, because you steer by what the camera sees. A camera board
       // opens straight into that view.
-      // Blink the board to find which one on the desk it is — instructor-only,
+      // Blink the board to find which one on the desk it is — operator-only,
       // and pointless on a board that isn't answering.
       if (prof && !offline)
         actions.push(`<button class="btn-tile" data-blink="${esc(board)}" data-brobot="${esc(robot)}">${icon("bulb")} Identify</button>`);
@@ -2573,10 +2650,19 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // transport instead of the content, so nobody could tell it was the info
       // panel (Jonas asked for an info button that already existed). The student
       // view called it "Details" before today's unification; that was the right
-      // survivor. Offered to a student on their own rover too — it's the "why
+      // survivor. Offered to a student on their own robot too — it's the "why
       // won't it move" surface, which is exactly a student question.
       if (prof || !isPool)
         actions.push(`<button class="btn-tile" data-tel="${esc(robot)}" data-tel-board="${esc(board)}">${icon("activity")} Details</button>`);
+      // Take: appears only while the robot announces its BOOT-tap window (someone
+      // physically pressed it). Distinct from the pool "Claim" above, which NAMES
+      // an unassigned board; this takes exclusive ownership of a *named* one.
+      if (canTake)
+        actions.push(`<button class="btn-accent" data-take="${esc(robot)}">${icon("claim")} Take</button>`);
+      // Release: the owner hands a robot back; the operator can force-release one
+      // held by a student (the master override).
+      if (own === "mine" || (prof && own === "held"))
+        actions.push(`<button class="btn-tile" data-release="${esc(robot)}">${icon("lock")} Release</button>`);
       // Claim: no sign-in, no approval — type a name and it's published.
       // The amber corner chip is the one entry (no idle-state button — one
       // CTA per card); this row only shows the inline name field once tapped.
@@ -2644,7 +2730,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       initWifiSetup();
     }
     // The 2 s clock is the ONLY painter (message handlers just update the Maps):
-    // at N rovers publishing every 2 s, painting per message costs N²/2 full
+    // at N robots publishing every 2 s, painting per message costs N²/2 full
     // grid rebuilds a second; the clock caps it at 0.5 regardless of N.
     const EVICT_MS = 10 * 60 * 1000;
     setInterval(() => {
@@ -2668,7 +2754,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // on this clock, not on the retained latch that only arrives once.
       renderEstop();
       renderNavBadge();
-      // Same reason the grid repaints here: rovers arrive and age out. Only the
+      // Same reason the grid repaints here: robots arrive and age out. Only the
       // visible panel pays — and never under a hand that's typing in the filter.
       if (panel === "messages" && document.activeElement?.id !== "tw-filter") {
         renderTopicTree(); renderTopicDetail();
@@ -2687,14 +2773,14 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // Anonymous mqtt.js connection — Mosquitto's ACL grants every connection,
     // no MQTT username/password at all, full read+write on robots/# and
     // pair/# (mosquitto-acl.example.conf's top-level rule). This is now
-    // sufficient for every non-instructor interaction: driving, claiming an
+    // sufficient for every non-operator interaction: driving, claiming an
     // unassigned board, reading the fleet. Only fleet/estop stays gated to
-    // the "instructor" credential (driveClient below), so this client's
+    // the "operator" credential (driveClient below), so this client's
     // subscription still doubles as the public "no login needed" fleet view
     // hubd's old /fleet endpoint used to serve.
     const wsPort = "9001"; // fixed convention, same host — see mosquitto.example.conf
     let publicClient = null;
-    // Feed the rover cards from any /sys message, whichever client carried it.
+    // Feed the robot cards from any /sys message, whichever client carried it.
     function ingestSys(topic, payload) {
       const id = topic.split("/")[1];
       try {
@@ -2742,20 +2828,20 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // change-guard means this is spoken once when the latch engages and once
       // when it clears — not every 2 s tick for the length of the emergency.
       alertNow(engaged
-        ? "Emergency stop engaged — rovers refuse drive commands until it is cleared" +
+        ? "Emergency stop engaged — robots refuse drive commands until it is cleared" +
           (estopState.by ? ` (engaged by ${estopState.by})` : "")
         : "");
       if (engaged) {   // textContent, so a hostile "by" can't inject markup
         document.getElementById("estop-meta").textContent =
-          "rovers refuse drive commands until it is cleared" +
+          "robots refuse drive commands until it is cleared" +
           (estopState.by ? ` (engaged by ${estopState.by})` : "");
-        // Silence is the alarming case, so it gets the words: a rover that
+        // Silence is the alarming case, so it gets the words: a robot that
         // hasn't echoed the latch is the reason this check exists. Say nothing
         // when there's no live fleet to confirm — "0 of 0" reads as a fault.
         const { live, heard } = estopHeard();
         const el = document.getElementById("estop-confirm");
         el.textContent = !live ? ""
-          : heard === live ? (live === 1 ? " · the rover confirmed stopped"
+          : heard === live ? (live === 1 ? " · the robot confirmed stopped"
                                          : ` · all ${live} confirmed stopped`)
           : ` · ${heard} of ${live} confirmed — ${live - heard} not answering`;
         el.style.fontWeight = live && heard !== live ? "700" : "400";
@@ -2766,7 +2852,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     function publishEstop(on) {
       if (!driveClient || !driveClient.connected) return;
       const payload = JSON.stringify({ timestamp: Date.now() / 1000, engaged: on,
-                                       by: myCred ? myCred.user : "instructor" });
+                                       by: myCred ? myCred.user : "operator" });
       driveClient.publish("fleet/estop", payload, { qos: 1, retain: true });
       logLine("out", `fleet/estop ${payload}`);
     }
@@ -2775,14 +2861,88 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // One page, one connection: signing in ENDS this client (the signed-in
     // session's own subscription takes over the sys feed), and logout brings
     // it back. The ESP32 hub bridges at most a handful of WS-MQTT sessions —
-    // a page that holds two would fill it alone (bench 2026-07-13: instructor
+    // a page that holds two would fill it alone (bench 2026-07-13: operator
     // sign-in stalled with "No answer from the hub" on a fresh laptop).
+    // ── Zenoh transport (WS-JSON adapter) — a drop-in for mqtt.js ─────────────
+    // The browser can't speak native Zenoh, so it speaks the hub's small WS-JSON
+    // op protocol over one WebSocket and gets back an mqtt.js-shaped client:
+    // .on / .subscribe / .publish / .end / .connected, message payloads as JSON
+    // strings. UI and envelopes are unchanged — only the transport swaps.
+    //   Topic wildcards map to key-exprs: mqtt + -> zenoh * , mqtt # -> zenoh ** .
+    //   The retained fleet/estop latch (delivered on subscribe under MQTT) is a
+    //   get-on-subscribe here — the hub owns the latch and answers the query.
+    //   mqtt.connect(url,{username,password}) -> WS open then {op:auth}; "connect"
+    //   fires on {op:auth,ok:true}, "error" on ok:false (an anonymous client
+    //   connects on WS-open with no auth).
+    function mqttToZenoh(t) {
+      return t.split("/").map(s => s === "+" ? "*" : s === "#" ? "**" : s).join("/");
+    }
+    function zenohConnect(url, opts) {
+      const handlers = {}, pendingGets = {};
+      let ws, gseq = 0;
+      const needAuth = !!(opts && opts.username);
+      const client = {
+        connected: false,
+        on(ev, cb) { (handlers[ev] = handlers[ev] || []).push(cb); return client; },
+        _emit(ev, ...a) { (handlers[ev] || []).forEach(cb => { try { cb(...a); } catch (e) { console.error(e); } }); },
+        _send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); },
+        subscribe(topic) {
+          const key = mqttToZenoh(topic);
+          client._send({ op: "sub", key });
+          if (key === "fleet/estop") {            // retained-latch emulation: fetch current state
+            const id = "g" + (gseq++); pendingGets[id] = key;
+            client._send({ op: "get", id, key });
+          }
+        },
+        publish(topic, payload) {
+          let val; try { val = JSON.parse(payload); } catch { val = payload; }
+          client._send({ op: "pub", key: mqttToZenoh(topic), val });
+        },
+        claim(id) { client._send({ op: "claim", id }); },       // take a robot during its BOOT-tap window
+        release(id) { client._send({ op: "release", id }); },   // hand it back (owner, or operator override)
+        end() { try { ws && ws.close(); } catch {} },
+      };
+      try { ws = new WebSocket(url); }
+      catch (e) { setTimeout(() => client._emit("error", e), 0); return client; }
+      ws.onopen = () => {
+        // Bind this browser's opaque owner id first (the bearer key the hub
+        // matches for the claim gate), then auth if operator. hello goes on every
+        // connection — anonymous students claim too.
+        client._send({ op: "hello", clientId: CLIENT_ID });
+        if (needAuth) client._send({ op: "auth", role: opts.username, password: opts.password });
+        else { client.connected = true; client._emit("connect"); }
+      };
+      ws.onmessage = (e) => {
+        let d; try { d = JSON.parse(e.data); } catch { return; }
+        if (d.op === "auth") {
+          if (d.ok) { client.connected = true; client._emit("connect"); }
+          else client._emit("error", new Error("auth rejected"));
+        } else if (d.op === "owners") {
+          client._emit("owners", d);       // {mine:[], held:[]} — this client's view, never tokens
+        } else if (d.op === "owner") {
+          client._emit("owner", d);        // {id, state:"mine"|"held"|"free"}
+        } else if (d.op === "reply") {
+          const key = pendingGets[d.id]; delete pendingGets[d.id];
+          if (key !== undefined) client._emit("message", key, JSON.stringify(d.val));
+        } else if (d.op === "error") {
+          /* adapter-side refusal (e.g. estop without auth, or a robot held by
+           * another student) — non-fatal, log-only; the UI already reflects it */
+        } else if (d.key !== undefined) {
+          client._emit("message", d.key, JSON.stringify(d.val));
+        }
+      };
+      ws.onerror = () => client._emit("error", new Error("ws error"));
+      ws.onclose = () => { client.connected = false; client._emit("close"); };
+      return client;
+    }
+
     function startPublicClient() {
       if (publicClient || !hubHost) return;
-      publicClient = mqtt.connect(`ws://${hubHost}:${wsPort}`);
+      publicClient = wireOwnership(zenohConnect(`ws://${hubHost}:${wsPort}`));
       publicClient.on("connect", () => {
         hostGate.style.display = "none"; // real confirmation: this host actually works
         publicClient.subscribe("robots/+/sys");
+        publicClient.subscribe("robots/+/claimable");   // a robot's BOOT-tap window (hub#10)
         publicClient.subscribe("fleet/estop");   // retained latch arrives with the subscribe
       });
       if (standalone) {
@@ -2797,12 +2957,14 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         });
       }
       publicClient.on("message", (topic, payload) => {
-        // Log it too: logLine("in", …) used to be called from the instructor's
+        // Log it too: logLine("in", …) used to be called from the operator's
         // driveClient ONLY, so an anonymous session's log showed its own "→ you
-        // send" lines and never one "← the rover answers" — the legend would
+        // send" lines and never one "← the robot answers" — the legend would
         // have been a lie the moment students could see the panel.
         logLine("in", `${topic} ${payload.toString()}`);
-        topic === "fleet/estop" ? ingestEstop(payload) : ingestSys(topic, payload);
+        topic === "fleet/estop" ? ingestEstop(payload)
+          : topic.endsWith("/claimable") ? ingestClaimable(topic, payload)
+          : ingestSys(topic, payload);
       });
     }
     function stopPublicClient() {
@@ -2813,7 +2975,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     startPublicClient();
 
     // The empty-state line must not lie about WHICH thing is absent. "No
-    // rovers yet" presumes this page has a live feed to be empty OF; when the
+    // robots yet" presumes this page has a live feed to be empty OF; when the
     // MQTT session itself is down (hub rebooting, bridge refusing, Wi-Fi
     // blip) the honest message is that the feed is unreachable — a reader
     // acting on "power one on" would debug the wrong end (a hub whose bridge
@@ -2831,7 +2993,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       emptyEl.innerHTML = stalled
         ? `Can't reach the hub's live feed — reconnecting… <span class="hint">If this doesn't clear in a minute, power-cycle the hub and reload this page.</span>`
         : emptyDefault;
-      // This block swaps the DIAGNOSIS — "no rovers yet, power one on" vs
+      // This block swaps the DIAGNOSIS — "no robots yet, power one on" vs
       // "can't reach the feed" point at opposite ends of the room — and
       // announced neither, so a blind student debugged whichever one they
       // guessed. The `stalled === emptyStalled` early-return above already
@@ -2849,17 +3011,17 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // No hubd relay (2026-07-08): the browser is a direct mqtt.js client of
     // Mosquitto, authenticated with its own MQTT username+password, scoped by
     // mosquitto-acl.example.conf — not by application code in this page.
-    // "Code" input is `username:password` (instructor's username is always
-    // "instructor"; a robot's username is always its own name) — see
+    // "Code" input is `username:password` (operator's username is always
+    // "operator"; a robot's username is always its own name) — see
     // classroom.example.json5.
     let driveClient = null, myScope = null, target = null, targetBoard = null, lastSend = 0;
     const MAX_LOG = 60;
     // The bus's pulse, over a SLIDING window. Ingest TIMESTAMPS, not a count:
-    // pushed before the beacon/rover filters so the rate is the BUS's, not the
+    // pushed before the beacon/robot filters so the rate is the BUS's, not the
     // view's — hiding sys must not make the fleet look idle.
     //
     // This was a tumbling 1 s counter — count, print, reset — which at
-    // classroom rest is a coin flip: one rover beacons sys every 2 s, so the
+    // classroom rest is a coin flip: one robot beacons sys every 2 s, so the
     // true rate is 0.5 msg/s and a 1 s integer bucket can only ever print 1 or
     // 0. It printed both, blanked on the 0, and the readout blinked at 0.5 Hz.
     // The unit was sized for the 200 msg/s ceiling (see the burst note in
@@ -2867,7 +3029,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // which is the whole range this bar sits at while nobody is driving.
     const RATE_WIN_MS = 5000;
     // Smoothing, because a sliding window only MOVES the quantization it was
-    // brought in to fix: rovers beacon in a burst (all of them, every 2 s), so
+    // brought in to fix: robots beacon in a burst (all of them, every 2 s), so
     // a 5 s window catches 2 or 3 bursts depending on where its edge lands and
     // the raw number alternates ±20% forever — measured on the bench at 0.8 ↔
     // 1.2 for a wire whose true rate is a flat 1.0. A wider window doesn't
@@ -2931,9 +3093,9 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     }, 1000);
 
     let wirePaused = false;
-    // Bus-view filters: beacons hidden by DEFAULT — at N rovers the sys
+    // Bus-view filters: beacons hidden by DEFAULT — at N robots the sys
     // beacons are ~90% of volume and drown the command traffic the log
-    // exists to teach; the rendered per-rover Telemetry view is where sys
+    // exists to teach; the rendered per-robot Telemetry view is where sys
     // belongs. Robot filter narrows to one subtree.
     // "" = everything (default), "-sys" = everything except sys, else the one
     // channel to show. The boolean this replaced could only say sys/not-sys.
@@ -2968,11 +3130,11 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       if (wirePaused) return; // paused = freeze what's on screen for reading
       // Closed drawer = no DOM at all. This is the whole ballgame on a busy
       // fleet, and the load is asymmetric in the worst possible direction: the
-      // anonymous client subscribes robots/+/sys, but the INSTRUCTOR's
+      // anonymous client subscribes robots/+/sys, but the OPERATOR's
       // subscribes robots/+/# — every channel, pwm included, and pwm is 10 Hz
       // per driving student. Twenty students is ~200 msg/s, and this function
       // ran its full DOM path for every one of them whether or not the drawer
-      // was open. The instructor's tab is the only one with the e-stop chip, so
+      // was open. The operator's tab is the only one with the e-stop chip, so
       // its INP degraded precisely under the classroom load where the e-stop
       // matters. The topicSeen bookkeeping above still runs — the Topics tree
       // reads it, and Pause freezes the VIEW, not the wire.
@@ -3056,7 +3218,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       wireRobot = e.target.value;
       applyWireFilters();
     });
-    // Keep the rover filter's options tracking the live fleet — but never
+    // Keep the robot filter's options tracking the live fleet — but never
     // under the user's open dropdown, and only when the set actually changed.
     function syncWireFilter() {
       const sel = document.getElementById("wire-filter");
@@ -3066,13 +3228,13 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       if (sel.dataset.have === want) return;
       sel.dataset.have = want;
       const cur = sel.value;
-      sel.innerHTML = '<option value="">all rovers</option>' +
+      sel.innerHTML = '<option value="">all robots</option>' +
         names.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
       sel.value = names.includes(cur) ? cur : "";
       if (sel.value !== cur) { wireRobot = sel.value; applyWireFilters(); }
     }
 
-    // Only ever called for "instructor" — the sole identity anyone signs in
+    // Only ever called for "operator" — the sole identity anyone signs in
     // as now. myScope stays truthy ({scope:"all"}) for as long as the many
     // "myScope && myScope.scope === 'all'" checks elsewhere expect.
     function onScope(username) {
@@ -3083,15 +3245,15 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       document.getElementById("id-chip").classList.add("show");
       document.getElementById("signin-chip").classList.remove("show");
       closeChipPop();   // the sign-in popover's job is done
-      document.getElementById("id-menu-scope").textContent = "Instructor — full fleet control.";
-      renderRobots(); // re-render cards now that scope is known (adds instructor actions)
+      document.getElementById("id-menu-scope").textContent = "Operator — full fleet control.";
+      renderRobots(); // re-render cards now that scope is known (adds operator actions)
     }
 
     function selectTarget(id, board) {
       target = id;
-      // Per-board drive (instructor, pool/collision rows): the pwm messages
+      // Per-board drive (operator, pool/collision rows): the pwm messages
       // carry this board id and the firmware ignores commands addressed
-      // elsewhere. Null = whole-robot drive, the normal single-rover case.
+      // elsewhere. Null = whole-robot drive, the normal single-robot case.
       targetBoard = board || null;
       applyDriveMode();  // reveal whichever input (joystick / D-pad) is active
       renderDriveStatus(); // paint now, not at the next tick
@@ -3113,7 +3275,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       if (!rec) {
         el.hidden = false;
         el.classList.add("offline");
-        line.textContent = "Waiting for your rover…";
+        line.textContent = "Waiting for your robot…";
         sub.textContent = "Power it on near the hub and this page finds it.";
         return;
       }
@@ -3126,16 +3288,16 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       el.hidden = !stale;
       el.classList.toggle("offline", stale);
       if (stale) {
-        line.textContent = "Your rover stopped answering";
+        line.textContent = "Your robot stopped answering";
         sub.textContent = `Last heard ${fmtUptime(Date.now() - rec.seenAt)} ago — check its power.`;
       }
-      // The driver's rover dying was a purely visual event: the sentence
+      // The driver's robot dying was a purely visual event: the sentence
       // appeared above the joystick and a blind student kept dragging the
       // stick, with #motor-readout dutifully reporting the numbers it WOULD be
       // sending. announce()'s guard holds it to one utterance per transition —
       // and fmtUptime's minute granularity past 90 s (see its own note) is what
       // stops the age text re-firing this on every 2 s tick.
-      announce(stale ? "Your rover stopped answering — check its power." : "");
+      announce(stale ? "Your robot stopped answering — check its power." : "");
     }
     // The collapsed row's pulse: link health without opening it — the
     // freshest beacon fleet-wide.
@@ -3151,11 +3313,11 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // The wire's whole topic space, mirrored from CONTRACT.md + envelopes/.
     // `dir` is from THIS PAGE's point of view, so the tree's arrows are the
     // log's arrows and neither surface has to teach a second vocabulary.
-    // The asymmetry here IS the lesson: a rover publishes exactly one topic.
+    // The asymmetry here IS the lesson: a robot publishes exactly one topic.
     const CHANNELS = [
       { seg: "sys", dir: "in", title: "Telemetry beacon",
-        why: "The only topic a rover publishes — every 2 s, unprompted, answering nothing.",
-        src: "no envelope file: the firmware is the schema (rover_role.c, the sys publish)",
+        why: "The only topic a robot publishes — every 2 s, unprompted, answering nothing.",
+        src: "no envelope file: the firmware is the schema (robot_role.c, the sys publish)",
         fields: [["uptime_ms", "since boot"], ["free_heap", "bytes free"],
                  ["hw", "board model, compiled in"], ["board", "MAC-derived board id"],
                  ["ip", "address on the hub's network"], ["net", "uplink SSID, or empty"],
@@ -3164,7 +3326,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
                  ["synthetic", "false on real hardware"],
                  ["pins", "live motor map — absent on camera boards, which have no motors"]] },
       { seg: "pwm", dir: "out", title: "Drive",
-        why: "Wheel duty. The rover subscribes to this — it never publishes it.",
+        why: "Wheel duty. The robot subscribes to this — it never publishes it.",
         src: "envelopes/pwm.json",
         fields: [["timestamp", "float, seconds"],
                  ["left_motor", "int −255…255"], ["right_motor", "int −255…255"],
@@ -3192,7 +3354,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     ];
     const FLEET_TOPIC = {
       topic: "fleet/estop", seg: "estop", dir: "out", title: "Fleet e-stop", retained: true,
-      why: "The room-wide latch, published retained so a rover that reconnects mid-emergency receives it on subscribe. Read for everyone, write for the instructor.",
+      why: "The room-wide latch, published retained so a robot that reconnects mid-emergency receives it on subscribe. Read for everyone, write for the operator.",
       src: "envelopes/estop.json",
       fields: [["timestamp", "float, seconds"],
                ["engaged", "bool — the only field the firmware reads"],
@@ -3313,13 +3475,13 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       document.getElementById("ide-host").appendChild(f);
     }
 
-    // Rovers first, `fleet` last. Top level is the ROVER, not `robots/`: a node
+    // Robots first, `fleet` last. Top level is the ROBOT, not `robots/`: a node
     // whose child set never varies is an indent, not a tree level.
     // Keyed by the id that appears IN the topic, because that is what the tree
     // addresses. Several boards genuinely share `robots/unassigned/*` until they
     // are named — one topic, so one node; the alias says how many boards answer
     // to it rather than naming whichever board beaconed last.
-    function liveRovers() {
+    function liveRobots() {
       const fresh = Date.now() - 10000;
       const nboards = new Map(), alias = new Map();
       for (const [board, rec] of boards) {
@@ -3337,7 +3499,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     }
     function renderTopicTree() {
       const tree = document.getElementById("tw-tree");
-      const rovers = [...liveRovers().entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+      const robotList = [...liveRobots().entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
       const match = (t) => !twFilter || t.toLowerCase().includes(twFilter);
       const frag = document.createDocumentFragment();
       const mkRow = (topic, label, dir) => {
@@ -3378,7 +3540,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         for (const r of rows) sub.append(r);
         frag.append(g, sub);
       };
-      for (const [id, alias] of rovers) {
+      for (const [id, alias] of robotList) {
         const rows = CHANNELS.filter(c => match(`robots/${id}/${c.seg}`))
           .map(c => mkRow(`robots/${id}/${c.seg}`, c.seg, c.dir));
         if (rows.length) group(id, id, alias && alias !== id ? alias : "", rows);
@@ -3388,7 +3550,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       tree.replaceChildren(frag);
       if (!frag.childNodes.length && !tree.childNodes.length) {
         const e = document.createElement("div"); e.className = "tw-empty";
-        e.textContent = twFilter ? "No matches" : "No rovers yet";
+        e.textContent = twFilter ? "No matches" : "No robots yet";
         tree.append(e);
       }
     }
@@ -3413,7 +3575,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       const tt = document.createElement("span"); tt.className = "td-topic"; tt.textContent = topicSel;
       const pill = document.createElement("span");
       pill.className = `dir-pill ${c && c.dir === "in" ? "in" : "out"}`;
-      pill.textContent = c && c.dir === "in" ? "↓ rover → you" : "↑ you → rover";
+      pill.textContent = c && c.dir === "in" ? "↓ robot → you" : "↑ you → robot";
       head.append(tt, pill);
       left.append(head);
       if (c) {
@@ -3452,7 +3614,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       const meta = document.createElement("p"); meta.className = "hint";
       meta.textContent = seen
         ? `${seen.n} message${seen.n === 1 ? "" : "s"} · last ${fmtUptime(Date.now() - seen.at)} ago`
-        : (c && c.dir === "out" ? "You haven't sent one this session." : "The rover hasn't published yet.");
+        : (c && c.dir === "out" ? "You haven't sent one this session." : "The robot hasn't published yet.");
       right.append(meta);
       if (c && c.retained) right.append(Object.assign(document.createElement("p"),
         { className: "hint", textContent: "Retained — the broker replays this to every client on subscribe." }));
@@ -3528,7 +3690,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // gone because the structure now says the same things: two Broker rows
       // ARE "one broker, two doors"; "Auth: none" IS "the Wi-Fi is the real
       // boundary, not a login"; the fleet/estop row flipping when you sign in
-      // IS the instructor delta a paragraph used to spell out.
+      // IS the operator delta a paragraph used to spell out.
 
       // Which hub this page talks to — the ONE setting this page owns. The
       // failure-state gate at the top owns the same input and the same reload;
@@ -3561,11 +3723,11 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       ]));
 
       // Two rows under one head IS the "one broker, two doors" picture students
-      // get wrong — the rover meets this page on the same topics through a
+      // get wrong — the robot meets this page on the same topics through a
       // different listener. The scheme carries the transport (ws:// IS "over
       // WebSocket"), so the glosses cost a word each instead of a paragraph.
-      // The rover endpoint is the hub's OWN answer (/fleet's locator — the very
-      // string hubd tells rovers to point at), so it is a read, not a guess.
+      // The robot endpoint is the hub's OWN answer (/fleet's locator — the very
+      // string hubd tells robots to point at), so it is a read, not a guess.
       // src for the fallback, used only when no hubd is behind the page:
       // pi/deploy/mosquitto.conf (`listener 1883` / `protocol mqtt`) +
       // CONTRACT.md § Discovery & isolation.
@@ -3573,7 +3735,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // the same const or Settings will one day teach a stale port.
       wrap.append(panelHead("Broker"), list([
         [["This page", "MQTT over WebSocket"], `ws://${brokerHost}:${wsPort}`],
-        [["Rovers", "MQTT over TCP"], brokerLocator || `mqtt://${brokerHost}:1883`],
+        [["Robots", "MQTT over TCP"], brokerLocator || `mqtt://${brokerHost}:1883`],
         ["Auth", "none"],
       ]));
 
@@ -3585,7 +3747,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // being signed in get me", and it flips on the same tick.
 
       // Live: rebuilt on the 2 s tick, so signing in flips the fleet/estop grant
-      // below in place — which is the whole reason the instructor delta needs no
+      // below in place — which is the whole reason the operator delta needs no
       // prose.
       // src: pi/mosquitto-acl.example.conf + CONTRACT.md § Discovery &
       // isolation (the identity/scope table). YOUR grants, not a matrix of
@@ -3593,7 +3755,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // pair/# is the one row with no client in this repo — the hub grants it,
       // nothing it serves speaks it. It is NOT dead: workbench signals
       // phone↔desktop WebRTC over pair/<room>/s/<peer> on this very broker.
-      // Kept because the seam is the lesson: MQTT brokers every rover message,
+      // Kept because the seam is the lesson: MQTT brokers every robot message,
       // while for a phone it only introduces the peers and the media then flows
       // LAN-direct, never through here.
       // "as shipped" is the honesty caveat, moved into the heading where it
@@ -3602,7 +3764,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // at a public broker is a thing we invite.
       wrap.append(panelHead("Permissions", "as shipped"),
         list([
-          [["robots/#", "rovers"], "read + write"],
+          [["robots/#", "robots"], "read + write"],
           [["pair/#", "phone pairing"], "read + write"],
           [["fleet/estop", "emergency stop"], prof ? "read + write" : "read"],
         ]),
@@ -3695,7 +3857,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       const chan  = seg[0] === "robots" ? (seg[2] || "") : seg[seg.length - 1];
       const rSel = document.getElementById("wire-filter");
       const tSel = document.getElementById("wire-topic");
-      // Only if the option exists: the rover list tracks the live fleet and the
+      // Only if the option exists: the robot list tracks the live fleet and the
       // channel list is deliberately short (imu/led are in CONTRACT.md but no
       // firmware publishes them). Assigning an absent value silently selects
       // nothing, which would read as "the filter cleared itself".
@@ -3718,7 +3880,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     setRail(localStorage.getItem("hubRailCollapsed") === "true");
     // Drive input mode — the segmented control switches between the analog
     // joystick, the discrete D-pad, and tilt steering. Only reveal an input
-    // once a target is chosen (instructor "all" scope hasn't picked a robot
+    // once a target is chosen (operator "all" scope hasn't picked a robot
     // before then).
     let driveMode = localStorage.getItem("hubDriveMode") || "joystick";
     // A phone's stored "tilt" must not follow the account to a desk machine:
@@ -3751,7 +3913,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     let assignTarget = null; // { board, robot } — the board's *current* name
 
     // Select a board for repair/move — preselected by a card's "Assign…"
-    // (pool row, collision row, or an assigned rover's own card).
+    // (pool row, collision row, or an assigned robot's own card).
     function preselectAssign(board, robot, scroll) {
       assignTarget = { board, robot };
       syncPinsPanel(true);   // hard seed: pin fields take this board's live map
@@ -3787,13 +3949,13 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       document.getElementById("assign-name").focus({ preventScroll: scroll });
     }
 
-    // Blink = robots/<name>/cmd/identify targeted at one board: the rover
-    // flashes its LED ~6 s so the instructor can match the on-screen id to a
+    // Blink = robots/<name>/cmd/identify targeted at one board: the robot
+    // flashes its LED ~6 s so the operator can match the on-screen id to a
     // physical board before assigning it. Fire-and-forget (a lamp, not a
     // mutation) — qos 0, nothing retained.
     function blinkBoard(board, robot) {
       if (!driveClient || !driveClient.connected) {
-        sheetStatus("Not connected — unlock instructor controls first.", "assign-err");
+        sheetStatus("Not connected — unlock operator controls first.", "assign-err");
         return;
       }
       const topic = `robots/${robot}/cmd/identify`;
@@ -3802,13 +3964,13 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       logLine("out", `${topic} ${payload}`);
     }
 
-    // Unassign = robots/<name>/cmd/reprovision targeted at one board: the rover
+    // Unassign = robots/<name>/cmd/reprovision targeted at one board: the robot
     // clears its stored identity and reboots into the unassigned pool. QoS 1
-    // (a mutation, not a lamp) and confirmed — a mis-tap pulls a robot's rover
+    // (a mutation, not a lamp) and confirmed — a mis-tap pulls a robot's robot
     // mid-class. The robot's code is untouched; only the board forgets it.
     function unassignBoard(board, robot) {
       if (!driveClient || !driveClient.connected) {
-        sheetStatus("Not connected — unlock instructor controls first.", "assign-err");
+        sheetStatus("Not connected — unlock operator controls first.", "assign-err");
         return;
       }
       if (!confirm(`Unassign ${board} from ${robot}? It reboots into the unassigned pool.`)) return;
@@ -3823,21 +3985,21 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       const status = document.getElementById("codes-status");
       const setErr = m => { status.textContent = m; status.className = "assign-err"; };
       if (!assignTarget) return setErr("Pick a board first.");
-      if (!driveClient || !driveClient.connected) return setErr("Connect as instructor first.");
+      if (!driveClient || !driveClient.connected) return setErr("Connect as operator first.");
       const name = document.getElementById("assign-name").value.trim().toLowerCase();
       if (!name) return setErr("A robot name is required.");
       // No credential — a robot's name is a topic address now, not a
       // password; the hub's own Wi-Fi is the security boundary.
       const cfg = { target: assignTarget.board, name };
       // Hub pin: empty = leave as-is, "-" = clear (sends ""), else set. The
-      // rover refuses a non-hub-* value, so a typo can't strand the board.
+      // robot refuses a non-hub-* value, so a typo can't strand the board.
       const hubPin = document.getElementById("assign-hub").value.trim();
       if (hubPin === "-") cfg.hub = "";
       else if (hubPin) cfg.hub = hubPin;
       // Motor pins ride along only when the user actually changed them — the
-      // fields auto-fill with the rover's live map, so "filled" no longer
+      // fields auto-fill with the robot's live map, so "filled" no longer
       // means "intended". A board that doesn't report its map keeps the old
-      // contract: any filled field is sent, blanks stay rover-side.
+      // contract: any filled field is sent, blanks stay robot-side.
       if (pinsStaged && (!pinsLive || !pinsEqual(readPinFields(), pinsLive))) {
         const pins = {};
         for (const k of PIN_KEYS) {
@@ -3847,14 +4009,14 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         if (Object.keys(pins).length) cfg.pins = pins;
       }
       // Publish on the board's CURRENT name topic — that's the subtree it's
-      // subscribed to — targeted by board id so only that rover acts. Non-
-      // retained (QoS 1): the rover is online (its telemetry is why it's listed),
+      // subscribed to — targeted by board id so only that robot acts. Non-
+      // retained (QoS 1): the robot is online (its telemetry is why it's listed),
       // so a live message reaches it, and nothing lingers to re-fire on the next
       // board that boots as unassigned.
       const topic = `robots/${assignTarget.robot}/cmd/config`;
       driveClient.publish(topic, JSON.stringify(cfg), { qos: 1, retain: false });
       logLine("out", `${topic} ${JSON.stringify(cfg)}`);
-      // "Sent" is a proxy — the criterion is the rover's next beacon. Arm the
+      // "Sent" is a proxy — the criterion is the robot's next beacon. Arm the
       // transit watcher (2 s clock) and hold the button so a double-tap can't
       // race the reboot.
       assignPending = { board: assignTarget.board, robot: name, oldRobot: assignTarget.robot,
@@ -3864,7 +4026,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       document.getElementById("assign-btn").textContent = "Assigning…";  // disabled alone had no visible state
       status.textContent = `Sent — waiting for ${assignTarget.board} to reboot as ${name}…`;
       status.className = "";
-      // Pin fields are NOT cleared: they display the rover's live map, and
+      // Pin fields are NOT cleared: they display the robot's live map, and
       // the 2 s sync repaints them once the reboot lands.
       ["assign-name", "assign-hub"]
         .forEach(i => document.getElementById(i).value = "");
@@ -3931,7 +4093,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     }
 
     // ---- Motor pins panel: live truth, staged edits, one Apply. ----
-    // The rover's sys beacon reports its running map ("pins"); the fields
+    // The robot's sys beacon reports its running map ("pins"); the fields
     // show it and track it on the 2 s clock. Flip buttons permute the FIELDS
     // (left = swap IN1/IN2, right = swap IN3/IN4, swap = exchange the sides)
     // so the user sees the change before anything is sent. Apply publishes
@@ -3965,7 +4127,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       if (hard) pinsStaged = false;
       if (!pinsLive) {
         note.textContent = `${assignTarget.board} doesn't report its wiring (older firmware) — ` +
-          "filled fields are sent as-is, blank keeps the rover's current value.";
+          "filled fields are sent as-is, blank keeps the robot's current value.";
         if (hard) PIN_KEYS.forEach(k => { pinEl(k).value = ""; pinEl(k).classList.remove("dirty"); });
         updatePinButtons();
         return;
@@ -3988,19 +4150,19 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
 
     // Apply arms only on a complete staged map that differs from live; Test
     // drives the LIVE config, so staged edits gate it — the pulse must never
-    // look like a test of numbers that aren't on the rover yet.
+    // look like a test of numbers that aren't on the robot yet.
     function updatePinButtons() {
       const fields = readPinFields();
       const changed = pinsLive ? !pinsEqual(fields, pinsLive) : true;
       document.getElementById("pins-apply").disabled = !(pinsStaged && fields && changed);
-      // Gate Test only when we KNOW the fields diverge from the rover's live
+      // Gate Test only when we KNOW the fields diverge from the robot's live
       // map. Old-firmware boards report no map — there's no truth to compare,
       // so their Test never locks.
       const gate = !!pinsLive && pinsStaged && changed;
       for (const id of ["pins-test-fwd", "pins-test-spin"]) {
         const b = document.getElementById(id);
         b.disabled = gate;
-        b.title = gate ? "Apply the staged pins first — Test drives what's on the rover now." : "";
+        b.title = gate ? "Apply the staged pins first — Test drives what's on the robot now." : "";
       }
     }
 
@@ -4029,7 +4191,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     document.getElementById("pins-apply").addEventListener("click", () => {
       const setErr = m => sheetStatus(m, "assign-err");
       if (!assignTarget) return setErr("Pick a board first.");
-      if (!driveClient || !driveClient.connected) return setErr("Connect as instructor first.");
+      if (!driveClient || !driveClient.connected) return setErr("Connect as operator first.");
       const pins = readPinFields();
       if (!pins) return setErr("All six pins are needed to apply.");
       // Board-aware range guard: the C3 exposes GPIO 0–21; firmware would
@@ -4052,7 +4214,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     function testPulse(left, right, expect) {
       const setErr = m => sheetStatus(m, "assign-err");
       if (!assignTarget) return setErr("Pick a board first.");
-      if (!driveClient || !driveClient.connected) return setErr("Connect as instructor first.");
+      if (!driveClient || !driveClient.connected) return setErr("Connect as operator first.");
       const topic = `robots/${assignTarget.robot}/pwm`;
       const pwm = { left_motor: left, right_motor: right, duration_ms: 700,
                     target: assignTarget.board };
@@ -4066,7 +4228,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // #signin has no content of its own once signed in — #drive-panel moved
     // out to its own store (openDrive()), so the section would otherwise sit
     // there as an empty padded box. Show it only while there's an active
-    // instructor sign-in error to report; a visitor who never signs in never
+    // operator sign-in error to report; a visitor who never signs in never
     // sees this box at all.
     function updateSigninVisibility() {
       const show = document.getElementById("gate-error").style.display !== "none";
@@ -4081,10 +4243,10 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // subtree and the subtree was then revealed with the text in place.
       // Populate-then-reveal announces in some browser/AT pairs and not others.
       // The silent auto-login path ("Your saved code no longer works") is the
-      // one that stung: a instructor signed out with an explanation only sighted
+      // one that stung: a operator signed out with an explanation only sighted
       // people received. #app-alert is always rendered, so this always fires.
       alertNow(text || "");
-      // While the instructor sign-in popover is open, messages belong to it
+      // While the operator sign-in popover is open, messages belong to it
       // alone.
       const pop = document.getElementById("prof-pop-status");
       const el = document.getElementById("gate-error");
@@ -4103,7 +4265,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       updateSigninVisibility();
     }
 
-    let myCred = null;   // {user:"instructor", pass} after a successful sign-in
+    let myCred = null;   // {user:"operator", pass} after a successful sign-in
 
     // Session-alive signal on the identity chip (mqtt.js reconnects silently —
     // without this, dragging a dead joystick looks identical to driving).
@@ -4140,9 +4302,9 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // dialing: the ESP32 hub bridges only 3 sessions, and holding our own
       // fleet-view connection while opening a second one means one page
       // briefly costs two — a full-but-working classroom would refuse the
-      // instructor. Every failure path below restores the anonymous feed.
+      // operator. Every failure path below restores the anonymous feed.
       stopPublicClient();
-      const client = mqtt.connect(`ws://${hubHost}:${wsPort}`, { username, password });
+      const client = wireOwnership(zenohConnect(`ws://${hubHost}:${wsPort}`, { username, password }));
       driveClient = client;
       // mqtt.js retries an unreachable host forever without ever emitting
       // "error" — surface that case ourselves instead of spinning silently.
@@ -4166,7 +4328,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         // sessionStorage, NOT localStorage. The stated requirement — "a locked
         // phone or reload lands back in, signed in" — is exactly what
         // sessionStorage gives: it survives reload and restore, and dies with
-        // the tab. localStorage persisted the instructor's plaintext password
+        // the tab. localStorage persisted the operator's plaintext password
         // forever, with no opt-in and no expiry, on a page whose own design
         // notes assume a shared projector machine holding "a semester-long
         // tab". Any student: F12 → Application → Local Storage → the code. It
@@ -4181,7 +4343,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         setConnPill("live");
         client.subscribe("robots/+/#");
         client.subscribe("fleet/estop", { qos: 1 });   // the retained latch re-arrives here
-        renderEstop();   // the chip appears for a instructor as soon as the session is live
+        renderEstop();   // the chip appears for a operator as soon as the session is live
       });
       client.on("error", () => {
         clearTimeout(stall); restore();
@@ -4203,6 +4365,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       client.on("message", (topic, payload) => {
         if (driveClient !== client) return;
         if (topic === "fleet/estop") ingestEstop(payload);
+        else if (topic.endsWith("/claimable")) ingestClaimable(topic, payload);   // hub#10 BOOT-tap window
         else if (topic.endsWith("/sys")) ingestSys(topic, payload); // publicClient's job, taken over
         logLine("in", `${topic} ${payload.toString()}`);
       });
@@ -4214,7 +4377,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     document.getElementById("logout-btn").addEventListener("click", () => {
       try { driveClient.end(true); } catch {}
       driveClient = null; myCred = null; myScope = null; target = null; targetBoard = null;
-      renderEstop();            // the chip and Clear are instructor-scoped — drop them with the session
+      renderEstop();            // the chip and Clear are operator-scoped — drop them with the session
       startPublicClient();      // signed-out cards go back to the anonymous sys feed
       if (!modal.hidden) closeModal();   // an open Drive/Camera/Telemetry sheet must not survive sign-out
       setConnPill("");
@@ -4282,7 +4445,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
                   () => { menu.hidden = true; document.body.append(menu); });
     });
 
-    // Locked account corner → the instructor code — the only credential that
+    // Locked account corner → the operator code — the only credential that
     // exists. Robots never need one; naming/driving them is open (see the
     // Claim chip and Drive button on each card).
     document.getElementById("signin-chip").addEventListener("click", () => {
@@ -4290,9 +4453,9 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       wrap.className = "stack";   // title/row/status need rhythm; a bare div has none
       // Reuses the gate's own form grammar (.gate-row): input flexes, button
       // rides beside it, and the phone breakpoint stacks them full-width.
-      wrap.innerHTML = `<p><b>Unlock instructor controls</b></p>
+      wrap.innerHTML = `<p><b>Unlock operator controls</b></p>
         <div class="gate-row">
-          <input id="prof-code" type="password" placeholder="instructor code" aria-label="Instructor code"
+          <input id="prof-code" type="password" placeholder="operator code" aria-label="Operator code"
                  autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
           <button id="prof-go" class="btn-primary">Unlock</button>
         </div>
@@ -4300,7 +4463,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       openChipPop(document.getElementById("signin-chip"), wrap);
       const go = () => {
         const v = wrap.querySelector("#prof-code").value.trim();
-        if (v) connect("instructor", v); else gateMsg("Enter the instructor code first.");
+        if (v) connect("operator", v); else gateMsg("Enter the operator code first.");
       };
       wrap.querySelector("#prof-go").addEventListener("click", go);
       wrap.querySelector("#prof-code").addEventListener("keydown", e => { if (e.key === "Enter") go(); });
@@ -4324,7 +4487,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     function claimAddr(raw) {
       const name = raw.trim().toLowerCase();
       return name
-        ? { pool: false, html: `<code>robots/<b>${esc(name)}</b>/…</code> — this rover's own address` }
+        ? { pool: false, html: `<code>robots/<b>${esc(name)}</b>/…</code> — this robot's own address` }
         : { pool: true,  html: `<code>robots/<b>unassigned</b>/…</code> — the shared pool every new board joins` };
     }
     async function sendClaim(board) {
@@ -4346,7 +4509,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       }
       claimErr = "";
       // Published on the pool's own subtree, targeted by board id — the same
-      // cmd/config shape the instructor's Assign sheet sends, minus the
+      // cmd/config shape the operator's Assign sheet sends, minus the
       // credential neither flow carries anymore.
       const topic = "robots/unassigned/cmd/config";
       const payload = JSON.stringify({ target: board, name });
@@ -4384,6 +4547,8 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       const drv = e.target.closest("[data-drive-open]");
       const clm = e.target.closest("[data-claim]");
       const cls = e.target.closest("[data-claimsend]");
+      const tk = e.target.closest("[data-take]");
+      const rel = e.target.closest("[data-release]");
       if (drv) openDrive(drv.dataset.driveOpen, drv.dataset.driveBoard);
       else if (tel) openTelemetry(tel.dataset.tel, tel.dataset.telBoard);
       else if (blk) blinkBoard(blk.dataset.blink, blk.dataset.brobot);
@@ -4393,6 +4558,10 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         renderRobots();
         document.querySelector(".claim-name")?.focus();
       } else if (cls) sendClaim(cls.dataset.claimsend);
+      // Take / Release ownership of a NAMED robot (hub#10) — optimistic paint so
+      // the card responds instantly; the hub's {op:owner} confirms/corrects it.
+      else if (tk) { const c = activeClient(); if (c) { c.claim(tk.dataset.take); robotOwn.set(tk.dataset.take, "mine"); renderRobots(); } }
+      else if (rel) { const c = activeClient(); if (c) { c.release(rel.dataset.release); robotOwn.delete(rel.dataset.release); renderRobots(); } }
     });
 
     // ---- Per-board modal: camera lightbox + embedded /wifi config panel ----
@@ -4407,7 +4576,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // Restoring focus by NODE REFERENCE doesn't survive this page. Every modal
     // in the fleet grid is opened from a button inside #robots, and
     // renderRobots() rebuilds that wholesale (innerHTML) on any real state
-    // change — a rover going offline mid-drive rewrites its card, Drive button
+    // change — a robot going offline mid-drive rewrites its card, Drive button
     // and all. So by close time the invoker is routinely a detached node, and
     // `?.focus?.()` made that completely silent: focus landed on <body>, which
     // for a keyboard user means being teleported to the top of the document
@@ -4470,20 +4639,20 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     });
 
     // When this dashboard is served from a board's own AP (192.168.99.1, or
-    // rover.local on it), the only board behind that hostname IS the serving
+    // robot.local on it), the only board behind that hostname IS the serving
     // board — and the STA address its card advertises may sit on a network this
     // device can't route to (e.g. an isolated public Wi-Fi lease). Talk to the
     // host the page already loaded from instead.
     function boardHost(ip) {
       return (ip === location.hostname ||
               location.hostname === "192.168.99.1" ||   // firmware's fixed AP address
-              location.hostname === "rover.local")
+              location.hostname === "robot.local")
         ? location.hostname : ip;
     }
-    // Per-rover observability: the rendered sys (uptime, heap, ip, pins — any
+    // Per-robot observability: the rendered sys (uptime, heap, ip, pins — any
     // key the firmware adds auto-renders, so future sensors appear the day
     // they ship) plus a live feed filtered to this robot. Observability is a
-    // property of the ROVER, so it lives on the card like Camera; the wire
+    // property of the ROBOT, so it lives on the card like Camera; the wire
     // log stays the whole-bus tap.
     let telemetrySync = null;
     function openTelemetry(robot, board) {
@@ -4498,12 +4667,12 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // fact and lives in the facts list above; changing it is an action and
       // lives here, next to the facts it changes. Same shape as Unassign
       // sitting in the identity sheet the name pill opens.
-      // Instructor-only, and only once the board has reported an address to
+      // Operator-only, and only once the board has reported an address to
       // reach it at (it's fetched cross-host over plain http).
       const cfgRow = document.createElement("p");
       // No live feed here: Advanced diagnostics already carries one, with a
-      // rover filter that does this sheet's job and the whole bus besides. This
-      // sheet is the board's FACTS. (A student sees no wire log — instructor-only
+      // robot filter that does this sheet's job and the whole bus besides. This
+      // sheet is the board's FACTS. (A student sees no wire log — operator-only
       // — but the facts are the "why won't it move" answers; a raw MQTT stream
       // isn't.)
       const render = () => {
@@ -4538,9 +4707,9 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         cfgRow.append(b);
 
         // Update firmware — the only control on this page that sends the
-        // instructor password anywhere, so it is the only one that refuses to
+        // operator password anywhere, so it is the only one that refuses to
         // use sys.ip. trustedHost returns the hub's own answer or nothing; on
-        // nothing the button does not exist. A fake rover beacon pointing at a
+        // nothing the button does not exist. A fake robot beacon pointing at a
         // laptop would otherwise collect the fleet credential from whoever
         // pressed Update next, and this password is the one thing in the system
         // that is actually enforced (fleet/estop is friction — the broker has no
@@ -4652,7 +4821,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       modalRestore = () => { telemetrySync = null; clearInterval(logTimer); logTimer = null; };
     }
 
-    // Firmware push. The board checks the instructor password BEFORE it looks at
+    // Firmware push. The board checks the operator password BEFORE it looks at
     // the image, so a zero-byte POST is a free auth+reachability probe: 401 means
     // the password is wrong, 400 ("image missing") means it passed. Without it a
     // wrong password rejects at the first byte while the browser is still
@@ -4692,7 +4861,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       go.addEventListener("click", async () => {
         if (!blob) return;
         go.disabled = true; file.disabled = true;
-        const auth = "Basic " + btoa(`instructor:${myCred.pass}`);
+        const auth = "Basic " + btoa(`operator:${myCred.pass}`);
         const post = (body, ms) => fetch(`http://${host}/ota`, {
           method: "POST", body,
           headers: { "Authorization": auth, "Content-Type": "application/octet-stream" },
@@ -4702,7 +4871,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
           status.textContent = "Checking…";
           const pre = await post(new Uint8Array(0), 30000);   // 30 s: a healthy
           // esp32cam answered its first cold request in 5.7 s on the bench.
-          if (pre.status === 401) { status.textContent = "This board rejected the instructor password."; go.disabled = false; file.disabled = false; return; }
+          if (pre.status === 401) { status.textContent = "This board rejected the operator password."; go.disabled = false; file.disabled = false; return; }
           status.textContent = "Pushing… this takes about a minute over Wi-Fi.";
           const r = await post(blob, 180000);
           const j = await r.json().catch(() => ({}));
@@ -4766,7 +4935,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
 
     // The live stream + its can't-reach fallback. A board is reachable only
     // from the hub's own Wi-Fi, so a failure here is a network location problem,
-    // not a broken rover — say which.
+    // not a broken robot — say which.
     function driveCam(id, board, ip) {
       const streamUrl = `http://${boardHost(ip)}:81/stream`;
       const wrap = document.createElement("div");
@@ -4781,7 +4950,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         hint.className = "modal-note";
         hint.textContent = `Couldn't load the stream — this device can't reach ${ip}. ` +
                            "Boards are reachable only from the classroom Wi-Fi (hub-…) — join it, then retry. " +
-                           `Still nothing? Join the board's own ${board || "rover-…"} Wi-Fi and reopen from rover.local.`;
+                           `Still nothing? Join the board's own ${board || "robot-…"} Wi-Fi and reopen from robot.local.`;
         img.replaceWith(hint);
       });
       // The board's own MJPEG endpoint, opened raw — a full window for a second
@@ -4842,8 +5011,8 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       // publishes, over an ACL that grants robots/# to anyone, with nothing
       // validating it. So the src is attacker-choosable: flash custom firmware,
       // or just publish a crafted sys beacon pointing anywhere. Unsandboxed,
-      // that host could serve "Session expired — re-enter instructor code",
-      // wearing this dashboard's own modal chrome and title, and the instructor
+      // that host could serve "Session expired — re-enter operator code",
+      // wearing this dashboard's own modal chrome and title, and the operator
       // types the code into the attacker's origin. Cross-origin isolation
       // doesn't stop a convincing credential prompt, and it doesn't stop
       // top-level navigation on user activation.
@@ -4877,7 +5046,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
         // the fallback for a board nobody can route to (isolated guest lease).
         hint.append(`Still blank? This device can't reach ${ip} — `, a,
                     ". Boards are reachable only from the classroom Wi-Fi (hub-…) — join it, then reopen this. " +
-                    `Still nothing? Join the board's own ${board || "rover-…"} Wi-Fi and open rover.local.`);
+                    `Still nothing? Join the board's own ${board || "robot-…"} Wi-Fi and open robot.local.`);
         modalBody.prepend(hint);
       };
       const goodPanel = () => {                 // both signals in, either order
@@ -4893,9 +5062,9 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     }
 
     // Whichever client this page currently holds carries the drive — the
-    // instructor's authenticated session once signed in, the anonymous public
+    // operator's authenticated session once signed in, the anonymous public
     // client otherwise (it now carries write on robots/# too, no sign-in
-    // required to drive any rover). "One page, one connection" (see
+    // required to drive any robot). "One page, one connection" (see
     // startPublicClient/connect) means exactly one of the two is ever live.
     function sendPwm({ left, right }) {
       if (!target) return;
@@ -4924,7 +5093,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
     // when reversing, "right" still means "the robot ends up to MY right." Raw
     // tank-drive math (L = throttle + turn) keeps "left motor faster" in the
     // robot's body frame, which from outside the robot inverts the turn while
-    // backing up — push the stick bottom-right and the rover swings LEFT. Every
+    // backing up — push the stick bottom-right and the robot swings LEFT. Every
     // RC car and driving game flips the sign on reverse; so do we.
     // The deadband exists BECAUSE of that flip: WPILib's arcadeDrive documents
     // the zero-throttle discontinuity — sensor noise flickering throttle across
@@ -5242,7 +5411,7 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
 
     // A hidden tab throttles intervals to ~1/s — which doesn't stop a held
     // drive, it re-arms the 200 ms firmware watchdog once a second and the
-    // rover STUTTERS forward while nobody is watching it. Stop everything the
+    // robot STUTTERS forward while nobody is watching it. Stop everything the
     // moment the page loses visibility; each stop is a no-op when its input
     // isn't engaged, so an idle backgrounded page publishes nothing.
     document.addEventListener("visibilitychange", () => {
@@ -5251,16 +5420,16 @@ var qrcode=function(){function i(t,r){function a(t,r){g=function(t){for(var r=ne
       dpadStop(); tiltStop();
     });
 
-    // ---- Instructor unlock shortcuts, tried in order of intent strength ----
-    // 1. #code=user:pass in the URL — a shared-link path (only "instructor"
+    // ---- Operator unlock shortcuts, tried in order of intent strength ----
+    // 1. #code=user:pass in the URL — a shared-link path (only "operator"
     //    ever unlocks now, but the decoder stays generic). Scrubbed from
     //    the address bar immediately; the credential lives on only in
     //    localStorage like any saved code. Explicit intent — honored even
     //    before /fleet answers.
     // 2. A remembered code — locked phones and reloads land unlocked. This
     //    one waits for the first /fleet verdict: an island-served page has
-    //    no instructor role, so a code saved from the classroom hub must not
-    //    dial a lone rover's broker and masquerade as fleet control.
+    //    no operator role, so a code saved from the classroom hub must not
+    //    dial a lone robot's broker and masquerade as fleet control.
     (async () => {
       const m = location.hash.match(/^#code=(.+)$/);
       if (m) {

@@ -4,7 +4,7 @@
 The counterpart to flash-all.py: that one walks USB ports, this one walks
 hostnames. A board only needs USB for its FIRST flash (and for the one
 repartition onto the A/B table); after that it is reachable at
-rover-<id>.local, or hub.local for a dedicated hub.
+robot-<id>.local, or hub.local for a dedicated hub.
 
 Auth is the instructor password — the same secret the broker's session auth
 gates on, sent over HTTP Basic. Set INSTRUCTOR_PASS in the environment; the
@@ -18,9 +18,9 @@ its self-test is reverted automatically, with no USB trip. This script reports
 what the board said; it cannot itself confirm the new image is good.
 
 Usage:
-    INSTRUCTOR_PASS=... tools/ota-push.py --host rover-a044.local .pio/build/esp32dev/firmware.bin
+    INSTRUCTOR_PASS=... tools/ota-push.py --host robot-a044.local .pio/build/esp32dev/firmware.bin
     INSTRUCTOR_PASS=... tools/ota-push.py --host a.local --host b.local <bin>
-    tools/ota-push.py --host rover.local <bin> --dry-run
+    tools/ota-push.py --host robot.local <bin> --dry-run
 """
 import argparse
 import base64

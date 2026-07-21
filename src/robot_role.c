@@ -16,11 +16,11 @@
 #include "driver/ledc.h"
 #include "zenoh-pico.h"
 #include "cJSON.h"
-#include "rover_config.h"
-#include "provisioning_util.h"   /* rover_format_robot_id + locator validation */
+#include "robot_config.h"
+#include "provisioning_util.h"   /* robot_format_robot_id + locator validation */
 #include "roles.h"
 
-static const char *TAG = "rover";
+static const char *TAG = "robot";
 static char s_id[16];
 
 /*
@@ -28,15 +28,15 @@ static char s_id[16];
  * setup of its own. board_run (hub_role.c) brings the radio up in APSTA and hands
  * this a locator — still shaped as the old mqtt://gateway URI, which this converts
  * to tcp/gateway:7447 (the hub's gateway in a classroom, or 127.0.0.1 when the
- * board is its own island). rover_client_run opens the zenoh session, drives, and
+ * board is its own island). robot_client_run opens the zenoh session, drives, and
  * returns on a dead session (never reboots — the caller re-evaluates).
  *
- * (BLE provisioning was removed 2026-07-09 — a rover auto-joins the open hub-*
+ * (BLE provisioning was removed 2026-07-09 — a robot auto-joins the open hub-*
  * AP and is named post-join from the dashboard; the specific-network case it
  * uniquely covered now rides the #17 per-board Wi-Fi config panel.)
  */
 
-/* ── BOOT button: hold ~1 s to reboot (recover a wedged rover / force a rescan) ── */
+/* ── BOOT button: hold ~1 s to reboot (recover a wedged robot / force a rescan) ── */
 
 #ifndef BUTTON_GPIO
 #define BUTTON_GPIO GPIO_NUM_0   /* classic devkit BOOT; C3 SuperMini env passes GPIO_NUM_9 */
@@ -51,8 +51,8 @@ static char s_id[16];
 #define LED_ACTIVE_LOW 0         /* SuperMini's LED sinks into the pin — env passes 1 */
 #endif
 
-/* Visible liveness: LED on = the rover reached the hub broker (set from the
- * MQTT CONNECTED/DISCONNECTED events). A student sees it come on when the rover
+/* Visible liveness: LED on = the robot reached the hub broker (set from the
+ * MQTT CONNECTED/DISCONNECTED events). A student sees it come on when the robot
  * is live and drivable — the feedback the provisioning LED used to give. */
 static void led_set(bool on) {
     gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
@@ -60,7 +60,7 @@ static void led_set(bool on) {
 }
 
 /* A physical BOOT tap opens a per-owner CLAIM WINDOW (hub#10): presence-proof
- * that the person claiming this rover is standing at it. Set by button_task on a
+ * that the person claiming this robot is standing at it. Set by button_task on a
  * short press+release, consumed by the sys loop (which owns the zenoh session and
  * is the only task that may z_put the announce). */
 static volatile bool s_claim_press = false;
@@ -78,7 +78,7 @@ static void button_task(void *p) {
         bool down = (gpio_get_level(BUTTON_GPIO) == 0);
         if (down) {
             held++;
-            if (held >= 10) {   /* ~1 s hold → reboot (recover a wedged rover) */
+            if (held >= 10) {   /* ~1 s hold → reboot (recover a wedged robot) */
                 ESP_LOGI(TAG, "button held — rebooting");
                 esp_restart();
             }
@@ -98,7 +98,7 @@ static void button_task(void *p) {
 
 /* Start the recover button (hold to reboot). Called by board_run (hub_role.c),
  * which owns the Wi-Fi bring-up; this file is just the drive client now. */
-void rover_button_start(void) {
+void robot_button_start(void) {
 #ifdef HAS_CAMERA
     /* GPIO0 (BUTTON_GPIO, the classic BOOT pin) is the camera XCLK on the esp32cam.
      * The running 20 MHz clock reads as a held button and reboot-loops the board.
@@ -112,7 +112,7 @@ void rover_button_start(void) {
 /* ── the zenoh-pico drive client ─────────────────────────────────────────── */
 
 /* Topic identity — a name, not a credential (confirmed 2026-07-13; CONTRACT.md
- * § Discovery & isolation): the rover publishes under robots/<name>, and every
+ * § Discovery & isolation): the robot publishes under robots/<name>, and every
  * hub admits every name with no MQTT auth at all — the hub's own Wi-Fi is the
  * classroom's real boundary. The MAC-derived s_id stays a payload field —
  * hardware is metadata, never the topic id.
@@ -126,12 +126,12 @@ void rover_button_start(void) {
  * runs on the zenoh read task; the sys loop reads the name every 2s on
  * another. Writing one buffer in place would let that loop snapshot a
  * half-copied name and publish to robots/<garbage>/sys — and the dashboard
- * never expires a card, so one torn read would strand a phantom rover on
+ * never expires a card, so one torn read would strand a phantom robot on
  * screen forever. Instead: fill the IDLE buffer, then flip s_topic_id, which
  * is a single aligned pointer store (atomic on ESP32/RISC-V). A reader either
  * sees the whole old name or the whole new one. This didn't matter while every
  * rename rebooted. */
-static char s_name_buf[2][33] = { ROVER_NAME };
+static char s_name_buf[2][33] = { ROBOT_NAME };
 static volatile const char *s_topic_id_v = s_name_buf[0];
 #define s_topic_id ((const char *)s_topic_id_v)
 
@@ -149,7 +149,7 @@ static z_owned_subscriber_t s_sub_pwm, s_sub_config, s_sub_identify, s_sub_repro
  * config_apply only flips this; the sys loop (a different task) re-points the subs. */
 static volatile bool s_rename_pending = false;
 
-int64_t rover_ms_since_drive(void) {
+int64_t robot_ms_since_drive(void) {
     if (s_last_drive_us == INT64_MIN) return INT64_MAX;   /* no drive command this boot */
     return (esp_timer_get_time() - s_last_drive_us) / 1000;
 }
@@ -230,7 +230,7 @@ static void motor_stop(void *unused) { (void)unused; motor_drive(0, 0); }
 /* Graceful, not ESP_ERROR_CHECK: a student-supplied pin could be invalid for
  * this chip, and aborting would reboot → re-read the same pin → abort again, a
  * permanent boot loop. On failure the motors stay a no-op (s_motor_ready=false)
- * and the rover still boots, connects, and reports — recoverable by re-config. */
+ * and the robot still boots, connects, and reports — recoverable by re-config. */
 static void motor_init(void) {
 #ifdef HAS_CAMERA
     /* The AI-Thinker CAM is pin-starved — the OV3660 claims ~16 GPIOs and the XCLK
@@ -317,7 +317,7 @@ static void motor_apply(const char *json, int len) {
 
 /* fleet/estop — the room-wide retained latch (CONTRACT.md § Fleet e-stop),
  * above the per-command self-expiry. Retained delivery on subscribe means a
- * rover that reboots or rejoins mid-emergency latches anyway. Empty payload =
+ * robot that reboots or rejoins mid-emergency latches anyway. Empty payload =
  * clear (the delete-retained idiom); an unparseable payload = ENGAGE — parse
  * failure fails toward stopped. */
 static void estop_apply(const char *json, int len) {
@@ -343,7 +343,7 @@ static void estop_apply(const char *json, int len) {
 
 /* Post-join assignment: {"name":"scout"} on robots/<id>/cmd/config. No password
  * rides along; a name is an address, not a credential. This is the reshaped
- * onboarding — the hub dashboard assigns a rover instead of BLE/compile flags.
+ * onboarding — the hub dashboard assigns a robot instead of BLE/compile flags.
  *
  * A NAME CHANGE NO LONGER REBOOTS (2026-07-16). It used to, but only because
  * this function batched four settings behind one `changed` flag and pins/flip
@@ -360,7 +360,7 @@ static void estop_apply(const char *json, int len) {
 static void config_apply(const char *json, int len) {
     cJSON *root = cJSON_ParseWithLength(json, len);
     if (!root) { ESP_LOGW(TAG, "config: unparseable payload"); return; }
-    /* Optional "target" board-id: rovers sharing a name all see this topic, so a
+    /* Optional "target" board-id: robots sharing a name all see this topic, so a
      * target lets the dashboard assign ONE of them; absent = applies to all. */
     const cJSON *target = cJSON_GetObjectItemCaseSensitive(root, "target");
     if (cJSON_IsString(target) && strcmp(target->valuestring, s_id) != 0) {
@@ -373,7 +373,7 @@ static void config_apply(const char *json, int len) {
     const cJSON *name = cJSON_GetObjectItemCaseSensitive(root, "name");
     if (cJSON_IsString(name) && name->valuestring[0]
         && strcmp(name->valuestring, s_topic_id) != 0) {   /* same name = no-op, not churn */
-        rover_config_set_identity(name->valuestring);
+        robot_config_set_identity(name->valuestring);
         snprintf(old_name, sizeof old_name, "%s", s_topic_id);   /* what to unsubscribe from */
         /* Fill the idle buffer, THEN publish it with one pointer store. */
         char *idle = (s_topic_id == s_name_buf[0]) ? s_name_buf[1] : s_name_buf[0];
@@ -388,7 +388,7 @@ static void config_apply(const char *json, int len) {
      * (it would admit nothing and strand the board off every hub). */
     const cJSON *hub = cJSON_GetObjectItemCaseSensitive(root, "hub");
     if (cJSON_IsString(hub)) {
-        if (rover_config_set_hub_pin(hub->valuestring) == ESP_OK) {
+        if (robot_config_set_hub_pin(hub->valuestring) == ESP_OK) {
             ESP_LOGW(TAG, "hub pin %s%s", hub->valuestring[0] ? "set: " : "cleared",
                      hub->valuestring);
             changed = true;
@@ -409,7 +409,7 @@ static void config_apply(const char *json, int len) {
             const cJSON *v = cJSON_GetObjectItemCaseSensitive(pins, keys[i]);
             if (cJSON_IsNumber(v)) p[i] = v->valueint;
         }
-        if (rover_config_set_motor_pins(p) == ESP_OK) {
+        if (robot_config_set_motor_pins(p) == ESP_OK) {
             needs_boot = true;   /* motor_init ran with the old map */
             ESP_LOGW(TAG, "motor pins updated: %d %d %d %d %d %d",
                      p[0], p[1], p[2], p[3], p[4], p[5]);
@@ -436,7 +436,7 @@ static void config_apply(const char *json, int len) {
         if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(flip, "swap"))) {
             for (int i = 0; i < 3; i++) { tmp = p[i]; p[i] = p[i + 3]; p[i + 3] = tmp; }
         }
-        if (rover_config_set_motor_pins(p) == ESP_OK) {
+        if (robot_config_set_motor_pins(p) == ESP_OK) {
             needs_boot = true;   /* motor_init ran with the old map */
             ESP_LOGW(TAG, "motor orientation flip -> pins %d %d %d %d %d %d",
                      p[0], p[1], p[2], p[3], p[4], p[5]);
@@ -466,7 +466,7 @@ static void config_apply(const char *json, int len) {
 }
 
 /* ── cmd/identify: blink the LED so a physical board can be matched to its id ──
- * The assign flow's missing physical link: the operator sees rover-c9d0 on
+ * The assign flow's missing physical link: the operator sees robot-c9d0 on
  * screen and three identical boards on the desk. ~6 s of 2 Hz blinking, then the
  * LED returns to its liveness meaning (on = connected to the broker). */
 static volatile bool s_blinking = false;
@@ -502,7 +502,7 @@ static void identify_apply(const char *json, int len) {
 /* Reprovision: identity destruction. It arrives on this board's own name
  * topic — anyone who can address robots/<name>/cmd/reprovision can send it,
  * same openness as every other command topic now. Optional
- * {"target":"rover-xxxx"} narrows a name-wide publish to one board, the same
+ * {"target":"robot-xxxx"} narrows a name-wide publish to one board, the same
  * filter cmd/config uses; no/unparseable payload = every board sharing that
  * name. */
 static void reprovision_apply(const char *json, int len) {
@@ -514,7 +514,7 @@ static void reprovision_apply(const char *json, int len) {
         if (!mine) return;
     }
     ESP_LOGW(TAG, "reprovision — clearing identity, rebooting into the pool");
-    rover_config_clear_identity();
+    robot_config_clear_identity();
     esp_restart();
 }
 
@@ -566,7 +566,7 @@ static void undeclare_name_subs(void) {
 }
 
 /* Join-time e-stop latch resync (CONTRACT.md § Fleet e-stop): after declaring the
- * live subscriber, query fleet/estop once so a rover that (re)joins mid-emergency
+ * live subscriber, query fleet/estop once so a robot that (re)joins mid-emergency
  * latches from the hub's current state — closing the reconnect race the MQTT
  * retained message used to close. No hub answer = the room is clear (a hub that
  * rebooted forgot the latch by design), which is exactly the s_estop=false we
@@ -586,21 +586,21 @@ static void estop_query_latch(void) {
     z_get(z_loan(s_session), z_loan(ke), "", z_move(cb), &opts);
 }
 
-/* ── rover_client_run: the zenoh client + motor-drive loop, network-agnostic ──
+/* ── robot_client_run: the zenoh client + motor-drive loop, network-agnostic ──
  * Assumes Wi-Fi/networking is already up and `broker_uri` names the hub; sets
  * up identity + motors, opens the zenoh session, then blocks in the publish loop.
  * Its sole caller is board_run (hub_role.c), which brings the radio up in APSTA
  * and passes the locator (still mqtt://-shaped): the DHCP gateway when joined to
  * a hub (classroom), or 127.0.0.1 when the board is its own island (home).
  * Returns (never reboots) when the session is dead — board_run re-evaluates. */
-void rover_client_run(const char *broker_uri) {
+void robot_client_run(const char *broker_uri) {
     /* Identity is board-local, no network needed: robot-id from the MAC, name
      * from NVS (a post-join assignment) or the compile-time pool default. */
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    rover_format_robot_id(mac, s_id);
+    robot_format_robot_id(mac, s_id);
     char cu[33];
-    rover_config_load_identity(cu);
+    robot_config_load_identity(cu);
     if (cu[0]) snprintf(s_name_buf[0], sizeof s_name_buf[0], "%s", cu);   /* boot: no reader yet */
     led_set(false);   /* start dark; a live zenoh session lights it */
 
@@ -620,10 +620,10 @@ void rover_client_run(const char *broker_uri) {
         memcpy(host, h, hl); host[hl] = 0;
         snprintf(locator, sizeof locator, "tcp/%s:7447", host);
     }
-    ESP_LOGI(TAG, "rover client: id %s as '%s' → %s", s_id, s_topic_id, locator);
+    ESP_LOGI(TAG, "robot client: id %s as '%s' → %s", s_id, s_topic_id, locator);
     {   /* pins default to the macros; NVS overrides when a chassis was configured */
         int pins[6] = { s_pin_ena, s_pin_in1, s_pin_in2, s_pin_enb, s_pin_in3, s_pin_in4 };
-        if (rover_config_load_motor_pins(pins)) {
+        if (robot_config_load_motor_pins(pins)) {
             s_pin_ena = pins[0]; s_pin_in1 = pins[1]; s_pin_in2 = pins[2];
             s_pin_enb = pins[3]; s_pin_in3 = pins[4]; s_pin_in4 = pins[5];
             ESP_LOGI(TAG, "motor pins from NVS");
@@ -632,12 +632,12 @@ void rover_client_run(const char *broker_uri) {
     motor_init();   /* ready before a pwm command can arrive */
 
     /* brcmfmac hub APs (the Pi) drop a power-saving STA right after assoc, so the
-     * rover keeps its radio awake — the one Wi-Fi setting the drive client owns. */
+     * robot keeps its radio awake — the one Wi-Fi setting the drive client owns. */
     esp_wifi_set_ps(WIFI_PS_NONE);
 
     /* Zenoh client to the hub. Read + lease tasks are started EXPLICITLY: the
      * auto_start options don't run them under esp-idf, and without the read task
-     * the rover would publish but never RECEIVE a pwm (subs + queryables go
+     * the robot would publish but never RECEIVE a pwm (subs + queryables go
      * silent). z_open success == connected — there is no separate CONNECTED
      * event to wait on, so it gates reachability the way the 10 s wait used to. */
     z_owned_config_t zcfg;
@@ -686,7 +686,7 @@ void rover_client_run(const char *broker_uri) {
     /* Rebuilt EVERY tick, not once here: a live rename (config_apply) moves
      * the name under this loop, and a topic snapshotted before the loop would
      * keep publishing sys to the old address forever — the dashboard would show
-     * a card that never updates while the rover looked healthy on the wire.
+     * a card that never updates while the robot looked healthy on the wire.
      * A snprintf per 2s is free; the bug it prevents is not. */
     char key[48];
     ESP_LOGI(TAG, "publishing robots/%s/sys every 2 s", s_topic_id);
@@ -704,9 +704,9 @@ void rover_client_run(const char *broker_uri) {
             s_rename_pending = false;
         }
         /* BOOT-tap claim window (hub#10 per-owner isolation): a physical tap opens
-         * ~12 s during which the adapter accepts a {op:claim} for this rover. The
-         * rover only ANNOUNCES claimability — ownership is enforced at the adapter
-         * edge (the sole command path on the ESP tier), never here; a rover stays
+         * ~12 s during which the adapter accepts a {op:claim} for this robot. The
+         * robot only ANNOUNCES claimability — ownership is enforced at the adapter
+         * edge (the sole command path on the ESP tier), never here; a robot stays
          * dumb and drives whatever pwm the gate lets through. The blink is the
          * same physical-ack pattern as identify, so "which board did I just tap".*/
         if (s_claim_press) {
@@ -733,7 +733,7 @@ void rover_client_run(const char *broker_uri) {
             snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);   /* follows a rename */
             int64_t up_ms = esp_timer_get_time() / 1000;
             uint32_t heap = esp_get_free_heap_size();
-            /* STA IP so the dashboard can reach this rover's camera (:81/stream) and
+            /* STA IP so the dashboard can reach this robot's camera (:81/stream) and
              * link to it directly; empty until the uplink has a lease. */
             char ip[16] = "";
             esp_netif_ip_info_t ipi;
@@ -749,14 +749,14 @@ void rover_client_run(const char *broker_uri) {
             }
             /* Uplink RSSI — the dashboard's Signal chip (and the workbench
              * vitals parity CONTRACT.md already names). Only present while
-             * the STA is associated: an island rover has no uplink to rate,
+             * the STA is associated: an island robot has no uplink to rate,
              * and an absent key reads as "no signal to show", not 0 dBm. */
             char rssi[24] = "";
             wifi_ap_record_t apr;
             if (esp_wifi_sta_get_ap_info(&apr) == ESP_OK)
                 snprintf(rssi, sizeof rssi, ",\"rssi_dbm\":%d", apr.rssi);
             /* Latched e-stop acknowledgment — the fleet view verifies each
-             * rover actually heard the retained latch. Absent = clear, the
+             * robot actually heard the retained latch. Absent = clear, the
              * same absent-key idiom as rssi. */
             const char *es = s_estop ? ",\"estop\":true" : "";
             /* board id is metadata in the payload, not the topic (id == name). */

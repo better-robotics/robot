@@ -7,10 +7,10 @@
  *   role_pref = hub   → tier 2: a dedicated operator hub (hub_role_run) — a
  *                       hub-* AP + broker, no drive.
  *   role_pref = auto  → (default) the normal board (board_run, self_broker_ok=1):
- *                       APSTA at boot — its own rover-<id> AP + STA uplink. Joins
+ *                       APSTA at boot — its own robot-<id> AP + STA uplink. Joins
  *                       a hub → drives off it AND drops its own AP; no hub → runs
  *                       a local broker and drives itself (home/island).
- *   role_pref = rover → the same board path, but pinned NOT to self-broker
+ *   role_pref = robot → the same board path, but pinned NOT to self-broker
  *                       (board_run, self_broker_ok=0): it keeps looking for a hub.
  *
  * There is no longer a self-hub claim-by-reboot: the board comes up in APSTA, so
@@ -22,7 +22,7 @@
 #include "nvs_flash.h"
 #include "esp_log.h"
 #include "device_log.h"
-#include "rover_config.h"
+#include "robot_config.h"
 #include "roles.h"
 
 static const char *TAG = "boot";
@@ -38,7 +38,7 @@ void app_main(void) {
         nvs_flash_init();
     }
 
-    rover_role_pref_t role = rover_config_load_role_pref();
+    robot_role_pref_t role = robot_config_load_role_pref();
 #ifdef FORCE_ROLE_HUB
     role = ROLE_HUB;   /* bench validation only (-DFORCE_ROLE_HUB): pin this board to
                         * the dedicated-hub path without needing the config panel */
@@ -49,6 +49,6 @@ void app_main(void) {
     }
     ESP_LOGI(TAG, "role: board%s — APSTA at boot (own AP until a hub takes over; "
                   "local broker when no hub)",
-             role == ROLE_AUTO ? " (auto)" : " (rover-pinned)");
-    board_run(role == ROLE_AUTO);   /* AUTO may self-broker (island); ROVER never does. never returns */
+             role == ROLE_AUTO ? " (auto)" : " (robot-pinned)");
+    board_run(role == ROLE_AUTO);   /* AUTO may self-broker (island); ROBOT never does. never returns */
 }

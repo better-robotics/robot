@@ -1,4 +1,4 @@
-# Applied to every esp32-TARGET build (esp32cam, esp32dev, rover-l298n). IDF loads
+# Applied to every esp32-TARGET build (esp32cam, esp32dev, robot-l298n). IDF loads
 # sdkconfig.defaults.<target> after sdkconfig.defaults — the native way to carry a
 # per-target override, since PlatformIO merges only ONE sdkconfig.defaults and the
 # generated per-env sdkconfig.* files are gitignored (so a hand edit there wouldn't

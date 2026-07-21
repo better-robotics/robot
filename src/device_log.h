@@ -1,7 +1,7 @@
 #ifndef DEVICE_LOG_H
 #define DEVICE_LOG_H
 
-/* The board's own ESP_LOG output, readable over HTTP — "why did my rover do
+/* The board's own ESP_LOG output, readable over HTTP — "why did my robot do
  * that" without a serial cable, which in a classroom means without a laptop,
  * a USB lead, and knowing what a serial monitor is.
  *

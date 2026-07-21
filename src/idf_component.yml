@@ -1,6 +1,6 @@
 ## Managed dependencies for the HUB ROLE of the unified image.
 ## espressif/mosquitto = the on-chip MQTT broker (mosq_broker.h); espressif/mdns
-## advertises hub.local. The rover role uses neither — they cost flash only in
+## advertises hub.local. The robot role uses neither — they cost flash only in
 ## the one image that also carries the hub role. The component manager auto-adds
 ## these to the src component's REQUIRES.
 ##
@@ -22,7 +22,7 @@
 dependencies:
   ## The on-chip MQTT broker (mosq_broker.h) — the hub role's reason to exist.
   espressif/mosquitto: "==2.0.20~8"
-  ## Advertises hub.local / rover-<id>.local.
+  ## Advertises hub.local / robot-<id>.local.
   espressif/mdns: "==1.11.3"
   ## Camera (esp32cam board only). TARGET-GATED: esp32-camera compiles only on
   ## chips with the I2S/LCD_CAM peripheral — pulling it on the C3 (no camera HW)

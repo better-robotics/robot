@@ -8,14 +8,14 @@
 
 /* The per-board Wi-Fi config panel (robot#2 / #17). A single always-on httpd on
  * the board's :80, brought up by board_run right after the AP, so a student can
- * join the open rover-<id> AP, browse rover.local, and set their home Wi-Fi —
+ * join the open robot-<id> AP, browse robot.local, and set their home Wi-Fi —
  * the ISLAND case, which is the only one that needs this: a board with no hub
  * runs no dashboard until it self-brokers, and its uplink is the one thing that
  * can't be configured over a network it hasn't joined yet.
  *
  * The httpd stays up in every mode, but its REACH follows the AP. A hub-joined
  * board has no AP (hub_role.c board_ap_down), so this panel is then reachable
- * only over the hub's LAN at rover-<id>.local — which is fine, because such a
+ * only over the hub's LAN at robot-<id>.local — which is fine, because such a
  * board takes its name and pins over MQTT (cmd/config) and has the hub's own
  * dashboard for everything else.
  *
@@ -28,7 +28,7 @@
  *   GET  /wifi/status live board state (board_status_json, roles.h) — what the
  *                     landing page and status card route on.
  *   GET  /            state-routing landing: holds while the board decides, sends
- *                     a classroom rover to the hub's dashboard, reloads into the
+ *                     a classroom robot to the hub's dashboard, reloads into the
  *                     local dashboard once start_ws_mqtt_bridge takes over /. */
 void wifi_portal_start(void);
 

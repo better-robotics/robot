@@ -7,7 +7,7 @@
  * is target-gated in idf_component.yml (never pulled on the C3, which has no camera
  * peripheral).
  *
- * Serves multipart/x-mixed-replace JPEG at http://<rover>:81/stream — an <img>
+ * Serves multipart/x-mixed-replace JPEG at http://<robot>:81/stream — an <img>
  * source the dashboard card embeds. :81 mirrors the workbench/ESP camera convention
  * so the same URL shape works across the fleet.
  */
@@ -44,7 +44,7 @@ static bool s_running = false;
 #define PCLK_GPIO   22
 
 /* ~15 fps ceiling (see stream_handler): an uncapped QVGA feed runs at the
- * sensor's ~25 fps and its frames share the 2.4 GHz radio with the rover's drive
+ * sensor's ~25 fps and its frames share the 2.4 GHz radio with the robot's drive
  * commands — that airtime contention is felt directly as drive lag. 15 fps is
  * smooth for line-of-sight driving and leaves the radio for control traffic. */
 #define STREAM_FRAME_GAP_MS 50
@@ -109,7 +109,7 @@ static void sccb_postmortem(void)
     i2c_del_master_bus(bus);
 }
 
-/* A bare / on :81 → /stream, so http://<rover>:81 typed by hand also lands on the feed. */
+/* A bare / on :81 → /stream, so http://<robot>:81 typed by hand also lands on the feed. */
 static esp_err_t root_handler(httpd_req_t *req)
 {
     httpd_resp_set_status(req, "302 Found");
@@ -196,7 +196,7 @@ void camera_start(void)
     httpd_register_uri_handler(srv, &u_stream);
     httpd_register_uri_handler(srv, &u_root);
     s_running = true;
-    ESP_LOGI(TAG, "camera up — MJPEG at http://<rover>:81/stream (QVGA)");
+    ESP_LOGI(TAG, "camera up — MJPEG at http://<robot>:81/stream (QVGA)");
 }
 
 bool camera_running(void) { return s_running; }
