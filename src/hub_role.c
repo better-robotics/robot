@@ -371,11 +371,21 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
          * board_ap_down closed. */
         if (!s_ap_up) {
             ESP_LOGI(TAG, "NAT stays off — no AP of our own to route (hub client)");
-        } else if (esp_netif_napt_enable(ap_netif) != ESP_OK) {
+        }
+#if CONFIG_LWIP_IPV4_NAPT
+        else if (esp_netif_napt_enable(ap_netif) != ESP_OK) {
             ESP_LOGE(TAG, "NAPT enable failed");
         } else {
             ESP_LOGI(TAG, "NAT on: AP clients now route out the uplink");
         }
+#else
+        else {
+            /* esp_netif_napt_enable returns ESP_OK even when NAPT is compiled out
+             * (measured 2026-07-21: a CONFIG_LWIP_IPV4_NAPT=n build logged "NAT
+             * on") — the return value can't carry this, so the build config does. */
+            ESP_LOGW(TAG, "NAT unavailable — NAPT not compiled in (CONFIG_LWIP_IPV4_NAPT=n)");
+        }
+#endif
     }
 }
 
