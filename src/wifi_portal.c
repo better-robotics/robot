@@ -376,7 +376,7 @@ static esp_err_t page_get(httpd_req_t *req)
  * user's very first screen was a Wi-Fi form — implying internet is required for a
  * product whose point is working without it — and nothing ever led them onward).
  * It polls /wifi/status and routes to wherever the drive dashboard actually is:
- * reload once THIS board serves it (start_ws_mqtt_bridge takes over "/", so the
+ * reload once THIS board serves it (start_ws_zenoh_bridge takes over "/", so the
  * reload lands on the dashboard), a button to the hub's copy when the board
  * joined a classroom (reachable from this AP via NAPT), a holding line while the
  * board is still deciding. /wifi stays one tap away. */
@@ -1170,7 +1170,7 @@ void wifi_portal_start(void)
     cfg.server_port = 80;
     cfg.ctrl_port = 32768;
     /* 5 (was 3, was 7): this handle also serves the dashboard + the IDE
-     * shell once start_ws_mqtt_bridge registers onto it, and the chip-wide
+     * shell once start_ws_zenoh_bridge registers onto it, and the chip-wide
      * LWIP pool (24, sdkconfig LWIP_MAX_SOCKETS) is shared with mosquitto/
      * robots/DNS/mDNS — a 7 budget let one embedded-IDE page load starve the
      * broker's accept loop (2026-07-13), while 3 made Chrome's keep-alive
@@ -1183,7 +1183,7 @@ void wifi_portal_start(void)
      *   + / + /welcome + /captive/ack + /captive-portal-api
      *   + the 4 captive-portal probe paths below
      *   = 17 registered right after this function returns.
-     * start_ws_mqtt_bridge then drops / (-1) and adds / (dashboard) + /fleet
+     * start_ws_zenoh_bridge then drops / (-1) and adds / (dashboard) + /fleet
      * + /ide/ + /ide (+4) — its ws_root/ws_mqtt live on a SEPARATE httpd
      * (ws_srv), so they don't count here — ota_update_start adds POST /ota +
      * OPTIONS /ota (+2, the preflight the dashboard's cross-origin push

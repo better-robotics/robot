@@ -967,7 +967,7 @@ void board_run(bool self_broker_ok)
      * until it self-brokers, and its uplink can't be set over a network it hasn't
      * joined. A hub-joined board drops its AP below and reaches this panel only
      * over the hub's LAN (robot-<id>.local), which is enough: its name and pins
-     * arrive over MQTT. When the board islands, start_ws_mqtt_bridge registers the
+     * arrive over MQTT. When the board islands, start_ws_zenoh_bridge registers the
      * drive dashboard onto this same :80 handle. */
     wifi_portal_start();
 
@@ -1096,7 +1096,7 @@ void hub_role_run(void)
 
     /* The config panel runs here too (hub.local/wifi): so designating a board as
      * HUB isn't a one-way trip (flip role back to auto), and the operator sets the
-     * venue uplink below at runtime. Must start BEFORE start_ws_mqtt_bridge so the
+     * venue uplink below at runtime. Must start BEFORE start_ws_zenoh_bridge so the
      * dashboard registers onto this shared :80 instead of opening its own. */
     wifi_portal_start();
 
