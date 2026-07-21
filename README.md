@@ -59,7 +59,7 @@ or pio     hub, or      anyone on the hub's match id to   hub pin ·   until tol
   cable again:
 
   ```
-  INSTRUCTOR_PASS=… tools/ota-push.py --host robot-XXXX.local \
+  OPERATOR_PASS=… tools/ota-push.py --host robot-XXXX.local \
       .pio/build/<env>/firmware.bin
   ```
 
@@ -70,9 +70,9 @@ or pio     hub, or      anyone on the hub's match id to   hub pin ·   until tol
   that boots fine and is simply wrong: the board checks that it came up, not
   that it works.
 
-  `INSTRUCTOR_PASS` is the board's instructor password — the same one the hub's
+  `OPERATOR_PASS` is the board's operator password — the same one the hub's
   fleet controls need. It's `change-me` until you set one on the board's own
-  config page (`http://robot-XXXX.local/wifi` → **Instructor password**).
+  config page (`http://robot-XXXX.local/wifi` → **Operator password**).
 
   **Boards flashed before OTA existed need one more USB pass**, to pick up the
   two-slot partition table; until then they answer a push with *"no OTA slot on

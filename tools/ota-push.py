@@ -6,8 +6,8 @@ hostnames. A board only needs USB for its FIRST flash (and for the one
 repartition onto the A/B table); after that it is reachable at
 robot-<id>.local, or hub.local for a dedicated hub.
 
-Auth is the instructor password — the same secret the broker's session auth
-gates on, sent over HTTP Basic. Set INSTRUCTOR_PASS in the environment; the
+Auth is the operator password — the same secret the broker's session auth
+gates on, sent over HTTP Basic. Set OPERATOR_PASS in the environment; the
 firmware's built-in default is "change-me" on a board that never had one set.
 It is passed as an env var and never as an argument, so it stays out of `ps`
 and shell history.
@@ -18,8 +18,8 @@ its self-test is reverted automatically, with no USB trip. This script reports
 what the board said; it cannot itself confirm the new image is good.
 
 Usage:
-    INSTRUCTOR_PASS=... tools/ota-push.py --host robot-a044.local .pio/build/esp32dev/firmware.bin
-    INSTRUCTOR_PASS=... tools/ota-push.py --host a.local --host b.local <bin>
+    OPERATOR_PASS=... tools/ota-push.py --host robot-a044.local .pio/build/esp32dev/firmware.bin
+    OPERATOR_PASS=... tools/ota-push.py --host a.local --host b.local <bin>
     tools/ota-push.py --host robot.local <bin> --dry-run
 """
 import argparse
@@ -35,7 +35,7 @@ TIMEOUT_S = 180   # a 1.3 MB image over one shared AP radio is not a fast transf
 
 def _post(host, blob, password, timeout):
     url = "http://%s/ota" % host
-    auth = base64.b64encode(("instructor:%s" % password).encode()).decode()
+    auth = base64.b64encode(("operator:%s" % password).encode()).decode()
     return urllib.request.Request(
         url, data=blob, method="POST",
         headers={
@@ -95,7 +95,7 @@ def push(host, blob, password, timeout=TIMEOUT_S):
         return False, body.get("error", "refused, no reason given")
     except urllib.error.HTTPError as e:
         # The board's own JSON reason is far better than the status line —
-        # "instructor auth required" beats "HTTP Error 401".
+        # "operator auth required" beats "HTTP Error 401".
         try:
             return False, json.loads(e.read().decode()).get("error", str(e))
         except Exception:
@@ -131,9 +131,9 @@ def main():
             print("  would push -> %s" % h)
         return 0
 
-    password = os.environ.get("INSTRUCTOR_PASS")
+    password = os.environ.get("OPERATOR_PASS")
     if not password:
-        sys.exit("INSTRUCTOR_PASS not set — export it rather than passing it as an argument")
+        sys.exit("OPERATOR_PASS not set — export it rather than passing it as an argument")
 
     failures = 0
     for h in args.host:

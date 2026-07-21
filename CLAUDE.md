@@ -29,7 +29,7 @@ this repo vendors `web/dashboard.html` (drift-checked, `tools/sync-dashboard.sh`
 zenoh-pico has no usrpwd, and esp-mqtt authenticates with username/password
 natively. That capability turned out to gate only one identity in the end:
 the classroom's real boundary is its own Wi-Fi, not a login (confirmed
-2026-07-13) — every robot and browser gets open read+write, and `instructor`
+2026-07-13) — every robot and browser gets open read+write, and `operator`
 is the sole credential, scoped to `fleet/estop` alone (CONTRACT.md § Discovery
 & isolation). See git history for the zenoh-era firmware.
 
@@ -116,10 +116,10 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   classroom Wi-Fi; USB is now only for a board's FIRST flash and for the one
   repartition onto the A/B table. Registers onto the portal's shared `:80` the
   way `ws_mqtt_bridge.c` does, called from BOTH boot roles, gated by HTTP Basic
-  on the `instructor` identity (`board_instructor_pass_ok`, `hub_role.c` — the
+  on the `operator` identity (`board_operator_pass_ok`, `hub_role.c` — the
   same secret as the broker's session auth, so there is nothing to rotate
   twice). Push with `tools/ota-push.py --host robot-<id>.local <bin>`,
-  `INSTRUCTOR_PASS` in the env.
+  `OPERATOR_PASS` in the env.
   - **Rollback is the bootloader's, and it is why the table is `ota_0`+`ota_1`
     with no factory.** `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` boots a pushed
     slot as `PENDING_VERIFY`; `ota_update.c`'s task marks it valid only after
@@ -145,7 +145,7 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
     `PARTITION_TABLE_SINGLE_APP_LARGE` is an inert idf.py fallback that does not
     describe what is on the chip.
   - **Reusing one credential means every surface that spends it must be able to
-    set it.** The config panel's instructor-password field was `role=='hub'`
+    set it.** The config panel's operator-password field was `role=='hub'`
     only — correct while `connect_cb` was its lone reader, since only a hub runs
     a broker, and on a robot the control did nothing. `/ota` runs on EVERY board
     and checks that same password, so hub-gating the field left a robot's OTA
@@ -294,7 +294,7 @@ Two ids, split by job (CONTRACT.md § Discovery & isolation):
   That capability turned out to matter for exactly one identity: the classroom
   redesign (2026-07-13) dropped per-robot credentials entirely — a robot's
   name is a topic address, not something MQTT auth gates — and kept
-  username/password for `instructor` alone, gating only `fleet/estop`. The
+  username/password for `operator` alone, gating only `fleet/estop`. The
   robot itself now connects with no MQTT auth at all (`robot_role.c`).
 - **WPA2 join fails against the Pi's brcmfmac AP** — 4-way handshake timeout
   (`run → init (0xf00)` loop) despite correct PSK; open AP joins in ~6 s. C3 client

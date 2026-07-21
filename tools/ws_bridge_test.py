@@ -28,7 +28,7 @@ def test_reject():
     return rc not in (0, None)
 
 def test_roundtrip():
-    c = newc("instructor", "change-me")
+    c = newc("operator", "change-me")
     got = {}
     def on_connect(cl, u, f, rc, p):
         got["conn"] = getattr(rc, "value", rc)
