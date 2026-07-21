@@ -952,8 +952,13 @@ static const char WELCOME_BODY[] =
 "</div>"
 /* Post-Accept the device is released (captive_accepted, uplink-independent), so
  * the OS trusts the Wi-Fi and target=_blank opens the phone's REAL browser —
- * even offline, still connected to the board. */
+ * even offline, still connected to the board. This page then stays parked on
+ * /welcome?done=1 beside the opened dashboard: the captive surface is an OS
+ * sandbox nothing can close from inside (window.close is dead there,
+ * industry-wide), so the line below turns the leftover into an instruction.
+ * Mirrors the Pi's welcome.html (hub/pi/src) — keep the twins in sync. */
 "<div class=card id=after hidden><h2>You&#8217;re set</h2>"
+"<p class=s>You can close this window once the dashboard is open.</p>"
 "<a class=\"btn btn-primary\" id=dashgo2 target=_blank rel=noopener hidden>Open the dashboard</a></div>"
 "</main>"
 "<script>";
