@@ -1049,7 +1049,7 @@ void board_run(bool self_broker_ok)
             ESP_LOGW(TAG, "no hub reachable — self-hubbing (home mode, island)");
             if (!broker_started) {
                 start_zenoh_hub();   /* peer-listen :7447 + WS-JSON adapter (was broker + WS bridge) */
-                xTaskCreate(hub_watch_task, "hub-watch", 4096, NULL, 4, NULL);
+                xTaskCreate(hub_watch_task, "hub-watch", 2048, NULL, 4, NULL);
                 broker_started = true;
                 vTaskDelay(pdMS_TO_TICKS(2000));   /* let the listener bind :7447 first */
             }

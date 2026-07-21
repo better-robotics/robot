@@ -9,3 +9,11 @@
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_IGNORE_NOTFOUND=y
 CONFIG_SPIRAM_USE_MALLOC=y
+
+# Run the classic ESP32 at its full 240 MHz (board default is 160). The hub role
+# — zenoh executor + WS-JSON bridge + per-sample cJSON fan-out — is the heaviest
+# workload on these boards, and 240 buys ~50% more headroom for it and the drive
+# loop. Costs more power/heat, acceptable for a bench/classroom robot on USB or a
+# pack. The C3 is a different target (maxes at 160) and never reads this file.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240

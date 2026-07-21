@@ -537,13 +537,6 @@ static bool form_field(const char *body, const char *key, char *out, size_t outl
     return false;
 }
 
-static void reboot_task(void *arg)
-{
-    (void)arg;
-    vTaskDelay(pdMS_TO_TICKS(1500));   /* let the HTTP response flush + socket close */
-    ESP_LOGW(TAG, "config-apply restart (new Wi-Fi or role)");
-    esp_restart();
-}
 
 /* Drain a small form POST into buf (cap includes the NUL terminator). */
 static void read_form_body(httpd_req_t *req, char *buf, size_t cap)
@@ -603,7 +596,7 @@ static esp_err_t save_post(httpd_req_t *req)
     /* A config-apply reboot: the loop reads NVS only at the top of a pass but sits
      * blocked driving, so a restart is the simplest correct way to re-dial the new
      * network. NOT the deleted mode-switch reboot — always-APSTA comes right back up. */
-    xTaskCreate(reboot_task, "cfg-reboot", 2048, NULL, 5, NULL);
+    board_schedule_reboot("config-apply restart (new Wi-Fi or role)");
     return ESP_OK;
 }
 
@@ -623,7 +616,7 @@ static esp_err_t forget_post(httpd_req_t *req)
     ESP_LOGW(TAG, "forgot the stored uplink — restarting as a fresh island");
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "forgotten");
-    xTaskCreate(reboot_task, "cfg-reboot", 2048, NULL, 5, NULL);
+    board_schedule_reboot("config-apply restart (new Wi-Fi or role)");
     return ESP_OK;
 }
 
@@ -682,7 +675,7 @@ static esp_err_t connect_post(httpd_req_t *req)
         return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"could not save credentials\"}");
     ESP_LOGI(TAG, "uplink '%s' verified via /wifi/connect — saving + restarting to settle in", ssid);
     httpd_resp_sendstr(req, "{\"ok\":true}");
-    xTaskCreate(reboot_task, "cfg-reboot", 2048, NULL, 5, NULL);
+    board_schedule_reboot("config-apply restart (new Wi-Fi or role)");
     return ESP_OK;
 }
 
@@ -739,7 +732,7 @@ static esp_err_t role_post(httpd_req_t *req)
     ESP_LOGW(TAG, "role set to '%s' — restarting into the new dispatch", role_str(rp));
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "ok");
-    xTaskCreate(reboot_task, "role-reboot", 2048, NULL, 5, NULL);
+    board_schedule_reboot("config-apply restart (new Wi-Fi or role)");
     return ESP_OK;
 }
 

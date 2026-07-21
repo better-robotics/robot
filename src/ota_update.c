@@ -94,13 +94,6 @@ static void mark_valid_task(void *arg)
     vTaskDelete(NULL);
 }
 
-static void reboot_task(void *arg)
-{
-    (void)arg;
-    vTaskDelay(pdMS_TO_TICKS(1500));   /* let the HTTP response flush + socket close */
-    ESP_LOGW(TAG, "rebooting into the pushed image");
-    esp_restart();
-}
 
 /* ── CORS ─────────────────────────────────────────────────────────────────────
  * The dashboard is served BY THE HUB and pushes to a robot's own IP, so every
@@ -242,7 +235,7 @@ static esp_err_t ota_post(httpd_req_t *req)
     snprintf(ok, sizeof ok, "{\"ok\":true,\"slot\":\"%s\"}", dst->label);
     httpd_resp_sendstr(req, ok);
     ESP_LOGW(TAG, "armed %s; rebooting", dst->label);
-    xTaskCreate(reboot_task, "ota-reboot", 2048, NULL, 5, NULL);
+    board_schedule_reboot("rebooting into the pushed image");
     return ESP_OK;
 }
 

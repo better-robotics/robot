@@ -105,7 +105,7 @@ void robot_button_start(void) {
      * The AI-Thinker CAM has no user button anyway — skip it; recover via reflash. */
     ESP_LOGI(TAG, "recover button disabled (GPIO0 is the camera XCLK on this board)");
 #else
-    xTaskCreate(button_task, "button", 2048, NULL, 5, NULL);
+    xTaskCreate(button_task, "button", 1280, NULL, 5, NULL);
 #endif
 }
 
@@ -496,7 +496,7 @@ static void identify_apply(const char *json, int len) {
     if (s_blinking) return;
     s_blinking = true;
     ESP_LOGI(TAG, "identify — blinking the LED");
-    xTaskCreate(blink_task, "blink", 2048, NULL, 4, NULL);
+    xTaskCreate(blink_task, "blink", 1280, NULL, 4, NULL);
 }
 
 /* Reprovision: identity destruction. It arrives on this board's own name
@@ -712,7 +712,7 @@ void robot_client_run(const char *broker_uri) {
         if (s_claim_press) {
             s_claim_press = false;
             s_claimable_until_us = esp_timer_get_time() + 12LL * 1000000;
-            if (!s_blinking) { s_blinking = true; xTaskCreate(blink_task, "blink", 2048, NULL, 4, NULL); }
+            if (!s_blinking) { s_blinking = true; xTaskCreate(blink_task, "blink", 1280, NULL, 4, NULL); }
             ESP_LOGW(TAG, "claim window open ~12s — tap 'Claim' on the dashboard");
         }
         /* Announce claimability while the window is live, riding the 2 s sys

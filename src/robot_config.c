@@ -1,11 +1,26 @@
 #include "robot_config.h"
 #include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_system.h"
+#include "esp_log.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "provisioning_util.h"
 #include "roles.h"   /* HUB_SSID_PREFIX — hub-pin plausibility check */
 
 #define NS "robot"
+static const char *TAG = "config";
+
+static void reboot_task(void *reason) {
+    vTaskDelay(pdMS_TO_TICKS(1500));   /* let the HTTP response flush + socket close */
+    ESP_LOGW(TAG, "%s", reason ? (const char *)reason : "restart");
+    esp_restart();
+}
+
+void board_schedule_reboot(const char *reason) {
+    xTaskCreate(reboot_task, "reboot", 2048, (void *)reason, 5, NULL);
+}
 
 static bool get_str(nvs_handle_t h, const char *key, char *out, size_t cap) {
     size_t len = cap;

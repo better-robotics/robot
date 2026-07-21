@@ -30,6 +30,13 @@ void hub_role_run(void);
 void robot_client_run(const char *broker_uri);
 void robot_button_start(void);
 
+/* Deferred reboot: spawns a task that waits ~1.5 s — so the HTTP response that
+ * triggered the reboot flushes and its socket closes first — then esp_restart.
+ * `reason` (a string literal; the pointer is handed to the task, not copied) is
+ * logged. The single home for the config-apply reboot (wifi_portal.c) and the
+ * post-OTA reboot (ota_update.c), which were the same 1.5 s-flush task twice. */
+void board_schedule_reboot(const char *reason);
+
 /* Milliseconds since the last drive (pwm) command, or INT64_MAX if none this
  * boot. hub_watch (hub_role.c) reads it to skip its yield-scan while a board is
  * being actively driven — an active scan briefly interrupts AP+STA, so an island
