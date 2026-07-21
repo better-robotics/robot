@@ -15,7 +15,7 @@
  *       The only mode change is APSTA→STA on a hub join, which is safe live; the
  *       way BACK is a clean restart, never a live switch.
  *
- *   hub_role_run()             — tier 2: a dedicated instructor hub. Raises a
+ *   hub_role_run()             — tier 2: a dedicated operator hub. Raises a
  *       `hub-*` AP (the SSID a rover's scan joins → it gathers a fleet), runs the
  *       broker, and does NOT drive (broker/AP vs real-time motors on one radio,
  *       hub#2). Chosen deliberately via role_pref=HUB.
@@ -66,8 +66,8 @@
 #define AP_CHANNEL  1                  /* overridden to match STA channel in APSTA (single radio) */
 #define AP_MAX_CONN 8                  /* esp32_nat_router's documented ceiling */
 
-#ifndef INSTRUCTOR_PASS
-#define INSTRUCTOR_PASS "change-me"     /* the one gated identity — see board_instructor_pass_ok */
+#ifndef OPERATOR_PASS
+#define OPERATOR_PASS "change-me"     /* the one gated identity — see board_operator_pass_ok */
 #endif
 
 /* ws_zenoh_bridge.c — the WS-JSON adapter: browsers reach the hub's Zenoh session
@@ -278,13 +278,13 @@ int board_status_json(char *buf, size_t len)
 /* Auth: the classroom's real boundary is the hub's own Wi-Fi perimeter, not a
  * login (CONTRACT.md § Discovery & isolation) — every board and browser reaches
  * the fabric with no credential at all; a name is a topic address, not a
- * password. The one gated identity is "instructor", and its only power is
+ * password. The one gated identity is "operator", and its only power is
  * engaging/clearing fleet/estop: deliberate friction on the one action that
  * shouldn't be a stray tap. Under MQTT this was the broker's whole-session
  * accept (connect_cb); under Zenoh it is enforced per-action in the WS-JSON
  * adapter (ws_zenoh_bridge gates a fleet/estop write on this same password) —
  * stronger than a session-wide accept, and the reason connect_cb is gone. */
-/* The instructor credential, in one place: NVS first, compile-time default
+/* The operator credential, in one place: NVS first, compile-time default
  * second. The literal is plaintext in the image and firmware.yml publishes
  * .bins from a PUBLIC repo, so a baked-in secret ships to whoever downloads
  * one; NVS keeps a real classroom's password off the shared image. Read
@@ -292,12 +292,12 @@ int board_status_json(char *buf, size_t len)
  *
  * Shared with ota_update.c (POST /ota), which gates on the same identity over
  * HTTP Basic — one secret for both, so there is nothing to rotate twice. */
-bool board_instructor_pass_ok(const char *given)
+bool board_operator_pass_ok(const char *given)
 {
     if (!given) return false;
     char nvs_pass[65];
-    rover_config_load_instructor_pass(nvs_pass);
-    const char *want = nvs_pass[0] ? nvs_pass : INSTRUCTOR_PASS;
+    rover_config_load_operator_pass(nvs_pass);
+    const char *want = nvs_pass[0] ? nvs_pass : OPERATOR_PASS;
     return strcmp(given, want) == 0;
 }
 
@@ -791,11 +791,11 @@ const char *board_wifi_try_join(const char *ssid, const char *pass)
 
 /* ── hub-watch: an island yields to a real hub.
  * A board islanded because it saw no hub — but one may appear just after (a Pi
- * boots ~30-60 s slower than an ESP; a instructor's hub is switched on; or our own
+ * boots ~30-60 s slower than an ESP; a operator's hub is switched on; or our own
  * boot scan simply missed it). For a bounded window, watch for any `hub-*` and
  * step down to it. This is SAFE against peer islands because an island raises
  * `rover-<id>`, NOT `hub-*` — so a `hub-*` beacon can only be a *real* designated
- * hub (a Pi `hub-pi-*` or a tier-2 instructor hub), never another home board.
+ * hub (a Pi `hub-pi-*` or a tier-2 operator hub), never another home board.
  * Yielding = a clean esp_restart (NOT a mode switch, no RTC flag): board_run
  * re-runs, discovers the now-present hub, and joins it as a rover.
  *
@@ -861,7 +861,7 @@ static void hub_watch_task(void *arg)
 /* The hub's Zenoh backbone — a peer-listen session rovers connect to, replacing
  * the embedded MQTT broker (mosq_broker_run). Opened once; the WS-JSON adapter
  * (ws_zenoh_bridge) rides the SAME session for the browser edge, and owns the
- * fleet/estop queryable latch + the instructor auth gate that the broker's
+ * fleet/estop queryable latch + the operator auth gate that the broker's
  * connect_cb used to carry — moved to the app layer, which is where a
  * per-action e-stop gate belongs (stronger than a whole-session accept). Unlike
  * mosq_broker_run this does NOT block: the session runs in its read/lease tasks,
@@ -1078,7 +1078,7 @@ void board_run(bool self_broker_ok)
     }
 }
 
-/* ── hub_role_run: tier-2 dedicated instructor hub ─────────────────────────────
+/* ── hub_role_run: tier-2 dedicated operator hub ─────────────────────────────
  * role_pref=HUB. Raises a hub-* AP a rover's scan joins, runs the broker, does
  * NOT drive. Never returns (blocks in the broker). */
 void hub_role_run(void)
@@ -1095,7 +1095,7 @@ void hub_role_run(void)
                                                    * never drops its AP. */
 
     /* The config panel runs here too (hub.local/wifi): so designating a board as
-     * HUB isn't a one-way trip (flip role back to auto), and the instructor sets the
+     * HUB isn't a one-way trip (flip role back to auto), and the operator sets the
      * venue uplink below at runtime. Must start BEFORE start_ws_mqtt_bridge so the
      * dashboard registers onto this shared :80 instead of opening its own. */
     wifi_portal_start();

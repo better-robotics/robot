@@ -446,7 +446,7 @@ static void config_apply(const char *json, int len) {
 }
 
 /* ── cmd/identify: blink the LED so a physical board can be matched to its id ──
- * The assign flow's missing physical link: the instructor sees rover-c9d0 on
+ * The assign flow's missing physical link: the operator sees rover-c9d0 on
  * screen and three identical boards on the desk. ~6 s of 2 Hz blinking, then the
  * LED returns to its liveness meaning (on = connected to the broker). */
 static volatile bool s_blinking = false;

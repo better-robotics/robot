@@ -18,7 +18,7 @@
  * self-brokers). Defined in hub_role.c (which owns the Wi-Fi + broker services). */
 void board_run(bool self_broker_ok);
 
-/* Tier 2: a dedicated instructor hub — hub-* AP + broker + NAT, no drive
+/* Tier 2: a dedicated operator hub — hub-* AP + broker + NAT, no drive
  * (hub_role.c). Chosen via role_pref=HUB. */
 void hub_role_run(void);
 
@@ -37,11 +37,11 @@ void rover_button_start(void);
 int64_t rover_ms_since_drive(void);
 
 /* The one gated identity, checked in one place (hub_role.c): NVS-stored password
- * first, compile-time INSTRUCTOR_PASS second, false for NULL. Used by the
+ * first, compile-time OPERATOR_PASS second, false for NULL. Used by the
  * broker's session auth and by POST /ota (ota_update.c) — the same secret gates
  * "could take the room down over MQTT" and "could take the room down by
  * reflashing it", so there is nothing to rotate twice. */
-bool board_instructor_pass_ok(const char *given);
+bool board_operator_pass_ok(const char *given);
 
 /* SSID classification shared by discovery and hub-watch (hub_role.c): any open
  * "hub-*" is a hub to join (peer islands advertise rover-<id>, never hub-*). */

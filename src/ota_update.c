@@ -25,8 +25,8 @@ static const char *TAG = "ota";
 #define OTA_SELFTEST_MS 30000
 
 /* ── auth ─────────────────────────────────────────────────────────────────────
- * HTTP Basic as "instructor", against the same secret the broker's session auth
- * uses (board_instructor_pass_ok, hub_role.c).
+ * HTTP Basic as "operator", against the same secret the broker's session auth
+ * uses (board_operator_pass_ok, hub_role.c).
  *
  * Basic sends base64, which is not encryption — on this plain-HTTP :80 the
  * password is effectively on the wire in clear. That is deliberate and matches
@@ -62,8 +62,8 @@ static bool basic_auth_ok(httpd_req_t *req)
     *colon = 0;
     const char *user = (const char *)dec, *pass = colon + 1;
 
-    if (strcmp(user, "instructor") != 0) return false;
-    return board_instructor_pass_ok(pass);
+    if (strcmp(user, "operator") != 0) return false;
+    return board_operator_pass_ok(pass);
 }
 
 /* ── mark-valid ───────────────────────────────────────────────────────────────
@@ -143,8 +143,8 @@ static esp_err_t ota_post(httpd_req_t *req)
          * way. Logged without the attempt's credentials, ever. */
         httpd_resp_set_status(req, "401 Unauthorized");
         httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"hub\"");
-        ESP_LOGW(TAG, "rejected an /ota push: bad or missing instructor auth");
-        return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"instructor auth required\"}");
+        ESP_LOGW(TAG, "rejected an /ota push: bad or missing operator auth");
+        return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"operator auth required\"}");
     }
 
     const esp_partition_t *dst = esp_ota_get_next_update_partition(NULL);
@@ -274,6 +274,6 @@ void ota_update_start(void)
         xTaskCreate(mark_valid_task, "ota-verify", 3072, NULL, 4, NULL);
     }
 
-    ESP_LOGI(TAG, "firmware push at POST /ota (instructor auth), running from %s",
+    ESP_LOGI(TAG, "firmware push at POST /ota (operator auth), running from %s",
              run ? run->label : "?");
 }

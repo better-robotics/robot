@@ -11,7 +11,7 @@
  *   {op:"sub", key} / {op:"unsub", key}   register/drop a per-client key filter
  *   {op:"pub", key, val}                   z_put (fleet/estop gated on auth)
  *   {op:"get", key, val, id}  -> reply     z_get; reply returns as {op:reply,id,val}
- *   {op:"auth", password}     -> {ok}      instructor gate (board_instructor_pass_ok)
+ *   {op:"auth", password}     -> {ok}      operator gate (board_operator_pass_ok)
  *
  *   hub -> client: {key, val}              a delivered subscription sample
  *
@@ -35,7 +35,7 @@
 #include "lwip/sockets.h"
 #include "cJSON.h"
 #include "zenoh-pico.h"
-#include "roles.h"          /* board_uplink, board_instructor_pass_ok */
+#include "roles.h"          /* board_uplink, board_operator_pass_ok */
 #include "wifi_portal.h"    /* share the board's always-on :80 */
 
 #define WS_PORT      9001
@@ -49,7 +49,7 @@ typedef struct {
     volatile bool in_use;
     httpd_handle_t server;
     int  client_fd;
-    bool authed;                     /* instructor — gates fleet/estop writes */
+    bool authed;                     /* operator — gates fleet/estop writes */
     char subs[MAX_SUBS][KEYLEN];
     int  nsubs;
 } client_t;
@@ -211,7 +211,7 @@ static void handle_op(client_t *c, const char *text, size_t len) {
             cJSON *val = cJSON_GetObjectItem(root, "val");
             bool is_estop = !strcmp(key->valuestring, "fleet/estop");
             if (is_estop && !c->authed) {
-                ws_send_json(c, "{\"op\":\"error\",\"reason\":\"estop requires instructor auth\"}");
+                ws_send_json(c, "{\"op\":\"error\",\"reason\":\"estop requires operator auth\"}");
             } else if (val) {
                 if (is_estop) {
                     /* Update the hub-owned latch BEFORE the put — a joining rover's
@@ -228,7 +228,7 @@ static void handle_op(client_t *c, const char *text, size_t len) {
             do_get(c, key->valuestring, val, cJSON_IsString(jid) ? jid->valuestring : "");
         } else if (!strcmp(o, "auth")) {
             const cJSON *pw = cJSON_GetObjectItem(root, "password");
-            c->authed = cJSON_IsString(pw) && board_instructor_pass_ok(pw->valuestring);
+            c->authed = cJSON_IsString(pw) && board_operator_pass_ok(pw->valuestring);
             char r[48];
             snprintf(r, sizeof r, "{\"op\":\"auth\",\"ok\":%s}", c->authed ? "true" : "false");
             ws_send_json(c, r);

@@ -50,21 +50,21 @@ esp_err_t rover_config_set_motor_pins(const int pins[6]);
 void rover_config_load_hub_pin(char pin[33]);
 esp_err_t rover_config_set_hub_pin(const char *pin);
 
-/* Instructor password for the hub role's connect_cb (fleet/estop is the one
+/* Operator password for the hub role's connect_cb (fleet/estop is the one
  * thing the open ACL can't hand out for free). Stored in NVS, NOT compiled in:
- * INSTRUCTOR_PASS is a plaintext literal in the image, `robot` is a public repo,
+ * OPERATOR_PASS is a plaintext literal in the image, `robot` is a public repo,
  * and firmware.yml uploads flashable .bins — so a build-time secret ships to
  * anyone who downloads one, and `strings firmware.bin` reads it straight out.
  * NVS keeps it off the shared image and per-board, changeable without a
  * reflash, exactly like the Wi-Fi credential above. Unset → the compile-time
- * INSTRUCTOR_PASS default, so an un-provisioned board behaves as before.
+ * OPERATOR_PASS default, so an un-provisioned board behaves as before.
  * Only a board someone designates HUB ever consults this: one step, once, not
  * per-rover provisioning (the cost that killed the old credential table). */
-void rover_config_load_instructor_pass(char pass[65]);
-esp_err_t rover_config_set_instructor_pass(const char *pass);
+void rover_config_load_operator_pass(char pass[65]);
+esp_err_t rover_config_set_operator_pass(const char *pass);
 
 /* Boot role for the unified image. The dispatcher (main.c) reads this to pick
- * board_run (AUTO/ROVER, APSTA at boot) vs hub_role_run (HUB, tier-2 instructor
+ * board_run (AUTO/ROVER, APSTA at boot) vs hub_role_run (HUB, tier-2 operator
  * hub). AUTO is the default: the board may become its own island if no hub is
  * found; ROVER pins it to never self-broker; HUB makes it a dedicated hub. Set
  * from the hub dashboard / config page. Stored as one byte under "role"; load

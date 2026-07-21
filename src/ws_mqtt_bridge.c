@@ -35,7 +35,7 @@
  * httpd, broker clients, DNS, and mDNS. The dashboard holds ONE session per
  * page (sign-in ends its anonymous fleet-view client) — before that fix a
  * single signed-in laptop held two, filled the old 2-slot table alone, and
- * instructor sign-in stalled on "No answer from the hub" (bench 2026-07-13).
+ * operator sign-in stalled on "No answer from the hub" (bench 2026-07-13).
  * Three slots = dashboard + IDE + one more phone; the Pi is the
  * classroom-scale hub. The cap itself stays hard: the same bench day showed
  * an oversized budget lets page loads starve mosquitto's accept loop. */
@@ -309,7 +309,7 @@ static esp_err_t ide_redirect_handler(httpd_req_t *req)
  * takes the pill from HERE, not /wifi/status (dashboard.html UPLINK_MSG) — so a
  * board joined to a venue whose network has its own captive gate reported "full",
  * the page's carefully-worded "portal" message ("one sign-in covers the whole
- * classroom") could never fire, and the instructor got silence. Silence was the
+ * classroom") could never fire, and the operator got silence. Silence was the
  * exact failure the 2026-07-14 investigation existed to kill. */
 static esp_err_t fleet_handler(httpd_req_t *req)
 {
@@ -336,7 +336,7 @@ static esp_err_t fleet_handler(httpd_req_t *req)
      * it (the broker admits every client with no credential, on an open AP), so
      * it is fine for showing a fact and disqualifying for anything the dashboard
      * sends a secret to: a fake rover pointing at a laptop would collect the
-     * instructor password from the next person who pressed Update.
+     * operator password from the next person who pressed Update.
      *
      * These two facts are ours, not the beacon's: the station is associated to
      * our AP, and our own DHCP server chose its address. The id derives from the

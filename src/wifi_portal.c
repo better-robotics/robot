@@ -172,7 +172,7 @@ static const char PAGE_CSS[] =
  * recedes to plain ink once a password is set (same rule the dashboard's
  * identity chip follows). Carried with a glyph + words, never hue alone. */
 ".warn{color:var(--warn-ink);font-weight:600}"
-/* Advanced disclosure: role + instructor password fold away so the Wi-Fi task
+/* Advanced disclosure: role + operator password fold away so the Wi-Fi task
  * is the whole page for a student. A <details class=card> — the summary is the
  * card heading, the two controls inside get smaller sub-headings so the
  * hierarchy reads section > item. Collapsed by default. */
@@ -213,7 +213,7 @@ static const char PAGE_BODY[] =
  * on any board still on the built-in password — that credential gates OTA on
  * EVERY board, so a silent default is a whole-fleet reflash risk. setprofwarn
  * clears it once a real one is stored. */
-"<p class=\"s warn\" id=profwarn hidden>&#9888; Still the built-in instructor password &#8212; anyone on this Wi-Fi can stop the whole class or reflash this board. Set one under Advanced below.</p>"
+"<p class=\"s warn\" id=profwarn hidden>&#9888; Still the built-in operator password &#8212; anyone on this Wi-Fi can stop the whole class or reflash this board. Set one under Advanced below.</p>"
 "<details class=card id=adv>"
 "<summary>Advanced</summary>"
 "<h2>Board role</h2>"
@@ -225,7 +225,7 @@ static const char PAGE_BODY[] =
 "</select>"
 "<button onclick=setrole() class=btn>Apply role &amp; restart</button>"
 "<div id=rmsg class=s></div>"
-/* Instructor password. EVERY board checks it now — a hub's broker at
+/* Operator password. EVERY board checks it now — a hub's broker at
  * connect_cb, and any board's POST /ota (ota_update.c) — so the field renders
  * regardless of role; see the fetch below for what that cost when it didn't.
  * NVS, not a build flag: the compile-time literal is plaintext in the image and
@@ -234,9 +234,9 @@ static const char PAGE_BODY[] =
  * stored (so the field can render without leaking it); "-" clears back to the
  * compile-time default. */
 "<div id=profwrap hidden>"
-"<h2>Instructor password</h2>"
+"<h2>Operator password</h2>"
 "<p class=s id=profnote>Gates the fleet-wide emergency stop and firmware updates over Wi-Fi. Leave blank to keep the current one; &quot;-&quot; resets it to the built-in default.</p>"
-"<input id=profpass type=password placeholder=\"new instructor password\" autocapitalize=off autocorrect=off>"
+"<input id=profpass type=password placeholder=\"new operator password\" autocapitalize=off autocorrect=off>"
 "<button onclick=setprof() class=btn>Save password</button>"
 "<div id=pmsg class=s></div>"
 "</div>"
@@ -354,9 +354,9 @@ static const char PAGE_BODY[] =
 "if(!v){m.textContent='Enter a password, or \\u2212 to reset to the built-in default.';return}"
 "m.textContent='saving\\u2026';"
 "let f=new URLSearchParams();f.append('pass',v);"
-"try{let r=await(await fetch('/wifi/instructor',{method:'POST',body:f})).json();"
+"try{let r=await(await fetch('/wifi/operator',{method:'POST',body:f})).json();"
 "m.textContent=r.ok?(v=='-'?'Reset to the built-in default. New connections use it immediately.':"
-"'Saved. New instructor connections use it immediately \\u2014 no restart needed.'):"
+"'Saved. New operator connections use it immediately \\u2014 no restart needed.'):"
 "('Couldn\\u2019t save: '+(r.error||'try again.'));"
 /* The warning tracks what was actually stored: clearing puts the public
  * default back, so the amber returns rather than staying dismissed. */
@@ -695,7 +695,7 @@ static esp_err_t connect_post(httpd_req_t *req)
 
 /* ── Board role (#2 tier-2 designate) ─────────────────────────────────────────
  * role_pref selects the boot dispatch (main.c): auto/rover → board_run, hub →
- * hub_role_run. Exposing it here is what lets a instructor turn any board into the
+ * hub_role_run. Exposing it here is what lets a operator turn any board into the
  * classroom hub — and back — without reflashing. The hub ALSO serves this panel
  * (hub_role_run calls wifi_portal_start), so designating HUB isn't a one-way trip. */
 static const char *role_str(rover_role_pref_t r)
@@ -705,16 +705,16 @@ static const char *role_str(rover_role_pref_t r)
 
 static esp_err_t role_get(httpd_req_t *req)
 {
-    /* prof_default mirrors board_instructor_pass_ok's own test (`nvs_pass[0] ?
+    /* prof_default mirrors board_operator_pass_ok's own test (`nvs_pass[0] ?
      * nvs : baked`): unset NVS means this board still admits the compile-time
-     * INSTRUCTOR_PASS, which ships in every published .bin — i.e. Stop-all AND
+     * OPERATOR_PASS, which ships in every published .bin — i.e. Stop-all AND
      * POST /ota are gated by a public string. Computed for every role, not just
      * hub: since /ota, a rover has something worth gating too. Discloses
      * nothing — anyone on the open AP can establish the same fact with one
      * CONNECT, or one /ota probe. Told here, not polled from /wifi/status: it
      * changes on a save, never on its own. */
     char nvs_pass[65];
-    rover_config_load_instructor_pass(nvs_pass);
+    rover_config_load_operator_pass(nvs_pass);
     char j[64];
     snprintf(j, sizeof j, "{\"role\":\"%s\",\"prof_default\":%s}",
              role_str(rover_config_load_role_pref()),
@@ -750,19 +750,19 @@ static esp_err_t role_post(httpd_req_t *req)
     return ESP_OK;
 }
 
-/* POST /wifi/instructor — body `pass=<value>`. Sets the hub role's instructor
- * password in NVS (rover_config_set_instructor_pass), which connect_cb reads
+/* POST /wifi/operator — body `pass=<value>`. Sets the hub role's operator
+ * password in NVS (rover_config_set_operator_pass), which connect_cb reads
  * per-connection, so a rotation takes effect on the next connect with no
- * reboot. "-" clears back to the compile-time INSTRUCTOR_PASS.
+ * reboot. "-" clears back to the compile-time OPERATOR_PASS.
  *
- * NVS and not a build flag: INSTRUCTOR_PASS is a plaintext literal in the
+ * NVS and not a build flag: OPERATOR_PASS is a plaintext literal in the
  * image, `robot` is a public repo, and firmware.yml uploads flashable .bins —
  * a baked-in secret ships to everyone who downloads one, and `strings
  * firmware.bin` reads it out. This keeps a real classroom's password off the
  * shared image and per-board.
  *
  * Never echoes the stored value back: the page can set it, not read it. */
-static esp_err_t instructor_post(httpd_req_t *req)
+static esp_err_t operator_post(httpd_req_t *req)
 {
     if (reject_cross_origin(req)) return ESP_OK;
     char body[128];
@@ -774,18 +774,18 @@ static esp_err_t instructor_post(httpd_req_t *req)
         return httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"missing password\"}");
     }
     /* "-" is the clear sentinel, mirroring cmd/config's hub-pin convention.
-       An empty stored secret would admit EVERY client as instructor, so
-       rover_config_set_instructor_pass("") erases instead of storing. */
+       An empty stored secret would admit EVERY client as operator, so
+       rover_config_set_operator_pass("") erases instead of storing. */
     const bool clearing = strcmp(pass, "-") == 0;
-    esp_err_t e = rover_config_set_instructor_pass(clearing ? "" : pass);
+    esp_err_t e = rover_config_set_operator_pass(clearing ? "" : pass);
     if (e != ESP_OK) {
-        ESP_LOGE(TAG, "set instructor pass failed: %s", esp_err_to_name(e));
+        ESP_LOGE(TAG, "set operator pass failed: %s", esp_err_to_name(e));
         return httpd_resp_sendstr(req,
             e == ESP_ERR_INVALID_ARG ? "{\"ok\":false,\"error\":\"too long (max 64)\"}"
                                      : "{\"ok\":false,\"error\":\"could not save\"}");
     }
     /* Never log the value. */
-    ESP_LOGW(TAG, "instructor password %s", clearing ? "reset to the built-in default" : "changed");
+    ESP_LOGW(TAG, "operator password %s", clearing ? "reset to the built-in default" : "changed");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
 
@@ -1179,7 +1179,7 @@ void wifi_portal_start(void)
      * hits this chip, every asset after it goes to GitHub Pages. */
     cfg.max_open_sockets = 5;
     /* True peak on THIS shared handle:
-     *   /wifi{,/scan,/save,/connect,/forget,/role×2,/status,/instructor}
+     *   /wifi{,/scan,/save,/connect,/forget,/role×2,/status,/operator}
      *   + / + /welcome + /captive/ack + /captive-portal-api
      *   + the 4 captive-portal probe paths below
      *   = 17 registered right after this function returns.
@@ -1190,7 +1190,7 @@ void wifi_portal_start(void)
      * needs), and device_log_serve adds GET /log (+1)
      * = 24 peak. +1 headroom over that measured peak, not a round-number guess.
      * This is a COUNTED budget: adding a route without bumping it silently
-     * costs the last one registered (/wifi/instructor took it from 18 to 19 on
+     * costs the last one registered (/wifi/operator took it from 18 to 19 on
      * 2026-07-16, which would have left zero headroom at 19; dropping the IDE's
      * /ide/?* wildcard took it back to 18; /ota, its preflight and /log took it
      * to 21; /success.txt (Firefox probe) took it to 22 on 2026-07-19; the IDE
@@ -1223,7 +1223,7 @@ void wifi_portal_start(void)
     httpd_uri_t u_rget  = { .uri = "/wifi/role",   .method = HTTP_GET,  .handler = role_get };
     httpd_uri_t u_rpost = { .uri = "/wifi/role",   .method = HTTP_POST, .handler = role_post };
     httpd_uri_t u_stat  = { .uri = "/wifi/status", .method = HTTP_GET,  .handler = status_get };
-    httpd_uri_t u_prof  = { .uri = "/wifi/instructor", .method = HTTP_POST, .handler = instructor_post };
+    httpd_uri_t u_prof  = { .uri = "/wifi/operator", .method = HTTP_POST, .handler = operator_post };
     httpd_uri_t u_root  = { .uri = "/",            .method = HTTP_GET,  .handler = landing_get };
     /* The captive-portal Accept flip — see probe_redirect's comment above. */
     httpd_uri_t u_welcome = { .uri = "/welcome",     .method = HTTP_GET,  .handler = welcome_get };

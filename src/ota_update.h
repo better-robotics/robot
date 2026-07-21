@@ -8,7 +8,7 @@
  * ws_mqtt_bridge.c registers the dashboard — no new listener, no new port, and
  * both boot roles get it from one call site each.
  *
- *   POST /ota   body = firmware.bin, auth = HTTP Basic as "instructor".
+ *   POST /ota   body = firmware.bin, auth = HTTP Basic as "operator".
  *               Streams to the inactive slot, then reboots into it.
  *
  * Safety is the bootloader's, not ours: partitions.csv is ota_0 + ota_1 and

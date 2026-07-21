@@ -4,7 +4,7 @@
  * One firmware, decided from role_pref in NVS (README "How a board decides
  * what to be"):
  *
- *   role_pref = hub   → tier 2: a dedicated instructor hub (hub_role_run) — a
+ *   role_pref = hub   → tier 2: a dedicated operator hub (hub_role_run) — a
  *                       hub-* AP + broker, no drive.
  *   role_pref = auto  → (default) the normal board (board_run, self_broker_ok=1):
  *                       APSTA at boot — its own rover-<id> AP + STA uplink. Joins
@@ -44,7 +44,7 @@ void app_main(void) {
                         * the dedicated-hub path without needing the config panel */
 #endif
     if (role == ROLE_HUB) {
-        ESP_LOGI(TAG, "role: hub (role_pref, tier 2) — dedicated instructor hub, no drive");
+        ESP_LOGI(TAG, "role: hub (role_pref, tier 2) — dedicated operator hub, no drive");
         hub_role_run();     /* never returns (blocks serving the zenoh fabric) */
     }
     ESP_LOGI(TAG, "role: board%s — APSTA at boot (own AP until a hub takes over; "
