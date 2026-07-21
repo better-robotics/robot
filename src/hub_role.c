@@ -146,6 +146,7 @@ void board_uplink_ssid_json(char out[65])
  * captured so /welcome can hand it to the user. No answer → NONE. */
 static volatile board_uplink_t s_uplink_verdict = BOARD_UPLINK_NONE;
 static char s_portal_url[160];
+static TaskHandle_t s_uplink_probe;   /* the probe task — GOT_IP wakes it to re-probe now */
 
 board_uplink_t board_uplink(void)
 {
@@ -155,11 +156,6 @@ board_uplink_t board_uplink(void)
 void board_portal_url(char out[160])
 {
     snprintf(out, 160, "%s", s_portal_url);
-}
-
-bool board_has_uplink(void)
-{
-    return board_uplink() == BOARD_UPLINK_FULL;
 }
 
 static board_uplink_t probe_uplink_once(void)
@@ -240,8 +236,10 @@ static void uplink_probe_task(void *arg)
         /* Same cadence drives the captive presence reaper: forget the Accept of
          * any device that has left the AP, so its next join is greeted again. */
         captive_reap_absent();
-        /* Faster while not-full: someone is likely mid-onboarding on /welcome. */
-        vTaskDelay(pdMS_TO_TICKS(s_uplink_verdict == BOARD_UPLINK_FULL ? 15000 : 5000));
+        /* Faster while not-full: someone is likely mid-onboarding on /welcome. A
+         * fresh STA lease (GOT_IP) notifies us to return early, so a new join stops
+         * reporting NONE within a tick instead of waiting out the poll interval. */
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(s_uplink_verdict == BOARD_UPLINK_FULL ? 15000 : 5000));
     }
 }
 
@@ -361,6 +359,7 @@ static void wifi_events(void *arg, esp_event_base_t base, int32_t id, void *data
         ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
         s_gw = e->ip_info.gw;
         s_sta_got_ip = true;
+        if (s_uplink_probe) xTaskNotifyGive(s_uplink_probe);   /* probe NOW, don't sit on stale NONE */
         s_redial_fails = 0;   /* connected — the next outage starts at fast retries again */
         ESP_LOGI(TAG, "uplink up, got IP " IPSTR " — enabling NAT (probe decides full vs portal)",
                  IP2STR(&e->ip_info.ip));
@@ -543,7 +542,7 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, const char
     /* One probe task for the boot, both entry points — the uplink verdict
      * (none/portal/full) that /wifi/status, dns_server.c, and the captive
      * Accept flip all read. */
-    xTaskCreate(uplink_probe_task, "uplink-probe", 4096, NULL, 4, NULL);
+    xTaskCreate(uplink_probe_task, "uplink-probe", 4096, NULL, 4, &s_uplink_probe);
 }
 
 /* Set the STA config and (re)connect, waiting up to 30 s for an IP. In APSTA a
@@ -809,18 +808,22 @@ const char *board_wifi_try_join(const char *ssid, const char *pass)
  * idle-gated, that's an invisible ~100 ms blip every 20 s with nobody driving.) */
 #define HUB_WATCH_SCAN_MS    20000   /* slow — an active scan interrupts AP+STA briefly */
 #define HUB_WATCH_DRIVE_QUIET_MS 5000 /* skip the scan if driven within this window */
-#define HUB_SCAN_MAX_AP 20           /* heap-sized cap; a classroom sees far fewer hubs */
 
 static bool sees_hub_to_yield_to(const uint8_t self_bssid[6])
 {
     wifi_scan_config_t sc = { .show_hidden = false };
     if (esp_wifi_scan_start(&sc, true) != ESP_OK) return false;
-    /* Heap, NOT stack: wifi_ap_record_t is ~80 B on IDF 5.5, so [20] is ~1.6 KB —
-     * a stack array here overran hub-watch's task stack and panicked the board into
-     * a reboot loop (Stack protection fault, observed on the C3 2026-07-09). */
-    wifi_ap_record_t *ap = malloc(HUB_SCAN_MAX_AP * sizeof *ap);
+    uint16_t n = 0;
+    esp_wifi_scan_get_ap_num(&n);   /* the TRUE count, like boot discovery's scan_for_hub.
+                                     * A fixed cap (was [20]) silently drops any hub-* past
+                                     * it, so in dense RF an island could NEVER see — and
+                                     * never yield to — a real hub. Live-resize needs all. */
+    if (n == 0) return false;
+    /* Heap, NOT stack: wifi_ap_record_t is ~80 B on IDF 5.5, so an on-stack array
+     * overran hub-watch's task stack and panicked the board into a reboot loop
+     * (Stack protection fault, observed on the C3 2026-07-09). */
+    wifi_ap_record_t *ap = malloc(n * sizeof *ap);
     if (!ap) return false;
-    uint16_t n = HUB_SCAN_MAX_AP;
     bool yield = false;
     char pin[33];
     robot_config_load_hub_pin(pin);   /* a pinned island yields ONLY to its own hub */

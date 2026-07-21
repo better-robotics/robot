@@ -426,6 +426,12 @@ chosen-against:
     lost internet, because we'd told iOS this network had it when it didn't.
     `captive_accepted()` now also requires `board_has_uplink()` (live, not
     cached) — the flip only ever fires when the claim is actually true.
+    **Reversed 2026-07-17:** this uplink gate was removed to match the Pi — the
+    flip now fires unconditionally, even on a pure-island board, because
+    dismissing the sheet is what lets the dashboard open in the phone's real
+    browser offline. The "other apps lose internet until they leave" cost above
+    is now accepted on purpose; the `board_has_uplink()` helper was deleted with
+    the gate. Source of truth: the ACCEPTED-table note in `wifi_portal.c`.
   - **The real fix for "no real uplink" wasn't a better apology — it was
     onboarding.** A captive network that will never have internet isn't the
     common case any commercial captive portal handles (a hotel's gate is
@@ -454,8 +460,9 @@ chosen-against:
       DHCP lease predates the uplink keeps THIS board as resolver for up to
       the 120-min lease, so wildcard-hijacking forever meant "trusted
       network, every website is the robot." The responder now forwards
-      queries to the uplink's real DNS whenever `board_has_uplink()`, hijacks
-      only while offline — checked per query, immune to lease races.
+      queries to the uplink's real DNS whenever there's an uplink (`board_uplink()`
+      is FULL or PORTAL), hijacks only while offline — checked per query, immune
+      to lease races.
     - **Continue is a real navigation** (`location.href='/welcome?done=1'`),
       not a fetch+DOM swap: the CNA re-runs its captivity probe only on
       full-page loads — an AJAX-only accept leaves the sheet stuck on Cancel.

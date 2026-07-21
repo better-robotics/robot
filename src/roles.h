@@ -86,11 +86,11 @@ int  board_status_json(char *buf, size_t len);   /* → bytes written (snprintf)
 typedef enum { BOARD_UPLINK_NONE, BOARD_UPLINK_PORTAL, BOARD_UPLINK_FULL } board_uplink_t;
 board_uplink_t board_uplink(void);
 void board_portal_url(char out[160]);   /* the venue gate's Location, "" unknown */
-bool board_has_uplink(void);   /* verdict == FULL — the signal /wifi/status's
-                                 * "uplink":"full" reports; wifi_portal.c's captive-portal
-                                 * Accept flip gates on this so it never tells iOS a
-                                 * board without working internet (island OR venue-walled)
-                                 * has it (2026-07-14). */
+/* NB: the captive Accept flip is NOT gated on the uplink verdict — it flips to
+ * genuine-success even offline (reversed 2026-07-17 to match the Pi; see the
+ * ACCEPTED-table note in wifi_portal.c). A board_has_uplink()==FULL helper used
+ * to gate it and was removed with the gate — /wifi/status reads board_uplink()
+ * directly. */
 
 /* A scanned network, deduped by SSID (strongest kept). A flat struct so the Wi-Fi
  * config panel (wifi_portal.c) can list networks without pulling in esp_wifi.h.

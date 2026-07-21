@@ -33,7 +33,7 @@
 #include "esp_netif.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
-#include "roles.h"        /* board_has_uplink — hijack vs. forward, per query */
+#include "roles.h"        /* board_uplink() — hijack vs. forward (FULL/PORTAL), per query */
 #include "dns_server.h"
 
 static const char *TAG = "dns-server";

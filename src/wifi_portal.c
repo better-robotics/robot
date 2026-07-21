@@ -919,12 +919,13 @@ void captive_reap_absent(void)
  * Continue is a separate, narrower job: it's what calls /captive/ack, which
  * is what lets the OS's OWN captive sheet auto-dismiss (genuine-success
  * probe answers) instead of sitting on a dead Cancel button. That signal
- * doubles as "trust this Wi-Fi for real routing" to the OS, so it only
- * appears once board_has_uplink() is true server-side (captive_accepted())
- * — offering it sooner would tell a phone it has internet through a board
- * that doesn't, which breaks the phone's own cellular fallback (hardware-
- * verified 2026-07-14, this same file). Continue only ever helps the sheet
- * close cleanly; it was never the only way to the dashboard. */
+ * doubles as "trust this Wi-Fi for real routing" to the OS, and is offered
+ * regardless of the board's own uplink — the 2026-07-14 gate (flip only when the
+ * board had a full uplink) was reversed 2026-07-17 to match the Pi; see the
+ * ACCEPTED-table note above. The deliberately-accepted cost: a phone trusts a
+ * pure-island board's "internet" and won't fall back to cellular until it leaves.
+ * Continue only ever helps the sheet close cleanly; it was never the only way to
+ * the dashboard. */
 /* Split so welcome_get() can splice a runtime AP_BASE between them (the AP's own
  * IP, computed once at wifi_portal_start() — see s_ap_base below). AP_BASE is
  * the literal IP the dashboard link and its printed address must use: dash is a

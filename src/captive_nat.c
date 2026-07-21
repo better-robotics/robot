@@ -291,6 +291,12 @@ void captive_nat_install(struct netif *ap_netif_impl)
 {
     if (s_installed) return;
     s_own_ip = ip_2_ip4(&ap_netif_impl->ip_addr)->addr;
+    /* We hijack the AP netif's raw input/linkoutput fn-pointers — lwIP internals,
+     * NOT a stable public API — and the rewrite paths assume a single pbuf (they
+     * read only p->len and pass a chained/oversized pbuf through untouched, which
+     * is safe today because captive-probe HTTP is small). RE-VERIFY THIS FILE on
+     * any ESP-IDF/lwIP bump: a changed netif struct or pbuf model breaks it
+     * SILENTLY (no captive redirect), never with a compile error. */
     s_orig_input = ap_netif_impl->input;
     s_orig_linkoutput = ap_netif_impl->linkoutput;
     ap_netif_impl->input = captive_nat_input;
