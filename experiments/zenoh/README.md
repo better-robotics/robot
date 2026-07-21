@@ -38,13 +38,21 @@ working recipe.
   the `set_led` queryable, and the `fleet/estop` latch all round-trip.
 - **ESP-hub tier**: rover ⟷ `hub.c` (on an ESP32-C3) — telemetry up **and**
   commands down, both directions, no Pi.
-- **Browser edge** (`hub-ws/`): **boot + coexistence verified** on a C3 — the
-  adapter firmware comes up as `hub-f825`, opens its zenoh peer + read/lease
-  tasks, stands up the WS adapter on `:9001` and the page on `:80`, stays
-  healthy (heap ~164 KB), and the rover re-joins its AP. The ESP-specific risk
-  (an `httpd` WS server sharing the chip with zenoh-pico's own tasks/sockets) is
-  retired. The end-to-end round-trip *through* the adapter (via `ws-client-rig/`)
-  is built and staged; run it once the bench USB is stable to close the proof.
+- **Browser edge** (`hub-ws/` + `ws-client-rig/`): **round-trip proven** on three
+  boards — an ESP32-CAM (browser stand-in) drove the adapter on a C3 hub, which
+  round-tripped to a real rover, no Pi and without borrowing the laptop's Wi-Fi.
+  All legs passed: rover telemetry fanned out through the adapter (40 frames),
+  the instructor auth gate refused an unauthenticated `fleet/estop` write and
+  accepted it after `{op:auth}`, and a `get` on `robots/<id>/led` returned the
+  rover's queryable reply (`{"status":"ok"}`) back through the adapter. The
+  ESP-specific risk (an `httpd` WS server sharing the chip with zenoh-pico's own
+  tasks/sockets) is retired. This closes the last "to-verify" gate in
+  `hub/zenoh-migration.md`.
+  - One confirmed Zenoh semantic the rig pinned: a session's own `z_put` is **not**
+    delivered to that same session's local subscriber, so the hub never sees its
+    own `hub/heartbeat` — outbound is proven by the remote rover's traffic, never
+    by a self-published beat. Gate any adapter test on remote traffic, not a local
+    loopback.
 
 Rover firmware: **879 KB** (43% of the A/B OTA slot). Hub: **920 KB** (45%).
 Hub-with-adapter: **997 KB** (49%). Test rig: **954 KB**.
