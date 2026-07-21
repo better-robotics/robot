@@ -59,6 +59,12 @@ static void led_set(bool on) {
     gpio_set_level(LED_GPIO, LED_ACTIVE_LOW ? !on : on);
 }
 
+/* A physical BOOT tap opens a per-owner CLAIM WINDOW (hub#10): presence-proof
+ * that the person claiming this rover is standing at it. Set by button_task on a
+ * short press+release, consumed by the sys loop (which owns the zenoh session and
+ * is the only task that may z_put the announce). */
+static volatile bool s_claim_press = false;
+
 static void button_task(void *p) {
     gpio_config_t io = {
         .pin_bit_mask = 1ULL << BUTTON_GPIO,
@@ -67,12 +73,25 @@ static void button_task(void *p) {
     };
     gpio_config(&io);
     int held = 0;
+    bool was_down = false;
     for (;;) {
-        held = (gpio_get_level(BUTTON_GPIO) == 0) ? held + 1 : 0;
-        if (held >= 10) {
-            ESP_LOGI(TAG, "button held — rebooting");
-            esp_restart();
+        bool down = (gpio_get_level(BUTTON_GPIO) == 0);
+        if (down) {
+            held++;
+            if (held >= 10) {   /* ~1 s hold → reboot (recover a wedged rover) */
+                ESP_LOGI(TAG, "button held — rebooting");
+                esp_restart();
+            }
+        } else {
+            /* Release after a short press (~200–900 ms) → a TAP, distinct from
+             * the hold-to-reboot above: opens the claim window. */
+            if (was_down && held >= 2) {
+                s_claim_press = true;
+                ESP_LOGI(TAG, "button tapped — opening claim window");
+            }
+            held = 0;
         }
+        was_down = down;
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -119,6 +138,7 @@ static volatile const char *s_topic_id_v = s_name_buf[0];
 static volatile bool s_session_up = false;   /* live zenoh session; drives dead-session self-heal */
 static volatile int64_t s_last_drive_us = INT64_MIN;  /* esp_timer time of the last pwm; hub_watch reads it */
 static volatile bool s_estop = false;     /* fleet/estop latch — non-zero pwm refused while set */
+static volatile int64_t s_claimable_until_us = INT64_MIN;  /* claim window end (hub#10); announced while live */
 
 /* The zenoh drive session + its name-scoped subscribers. The estop subscriber is
  * fleet-wide (never renamed); the four name-scoped ones re-point on a rename. */
@@ -682,6 +702,32 @@ void rover_client_run(const char *broker_uri) {
             if (declare_name_subs(s_topic_id) == 0)
                 ESP_LOGW(TAG, "re-subscribed as '%s' — no reboot", s_topic_id);
             s_rename_pending = false;
+        }
+        /* BOOT-tap claim window (hub#10 per-owner isolation): a physical tap opens
+         * ~12 s during which the adapter accepts a {op:claim} for this rover. The
+         * rover only ANNOUNCES claimability — ownership is enforced at the adapter
+         * edge (the sole command path on the ESP tier), never here; a rover stays
+         * dumb and drives whatever pwm the gate lets through. The blink is the
+         * same physical-ack pattern as identify, so "which board did I just tap".*/
+        if (s_claim_press) {
+            s_claim_press = false;
+            s_claimable_until_us = esp_timer_get_time() + 12LL * 1000000;
+            if (!s_blinking) { s_blinking = true; xTaskCreate(blink_task, "blink", 2048, NULL, 4, NULL); }
+            ESP_LOGW(TAG, "claim window open ~12s — tap 'Claim' on the dashboard");
+        }
+        /* Announce claimability while the window is live, riding the 2 s sys
+         * cadence (a dashboard paints its Claim button within one tick). No
+         * explicit close frame: the adapter/dashboard expire the window a few
+         * seconds after the last announce, so there is no cross-device clock to
+         * agree on — "recently announced" is the whole contract. */
+        if (esp_timer_get_time() < s_claimable_until_us) {
+            char ck[48];
+            snprintf(ck, sizeof ck, "robots/%s/claimable", s_topic_id);
+            z_view_keyexpr_t cke;
+            z_view_keyexpr_from_str_unchecked(&cke, ck);
+            z_owned_bytes_t cp;
+            z_bytes_copy_from_str(&cp, "{\"open\":true}");
+            z_put(z_loan(s_session), z_loan(cke), z_move(cp), NULL);
         }
         {
             snprintf(key, sizeof key, "robots/%s/sys", s_topic_id);   /* follows a rename */
