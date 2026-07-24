@@ -1,7 +1,7 @@
 #!/bin/sh
 # Vendor the classroom dashboard into this firmware.
 #
-# dashboard.html is CANONICAL in better-robotics/hub (the monorepo shares one
+# dashboard.html is CANONICAL in sprocket-robotics/hub (the monorepo shares one
 # copy across pi/ and the ESP hub). This repo embeds a synced copy so the hub
 # role can serve the full UI offline (EMBED_TXTFILES, src/CMakeLists.txt). The
 # vendored copy is kept byte-identical to canonical so drift is a plain diff.
@@ -16,7 +16,7 @@ dst="$here/../web/dashboard.html"
 
 if [ ! -f "$src" ]; then
   echo "canonical dashboard not found: $src" >&2
-  echo "  clone better-robotics/hub as a sibling, or set HUB_REPO=path/to/hub" >&2
+  echo "  clone sprocket-robotics/hub as a sibling, or set HUB_REPO=path/to/hub" >&2
   exit 2
 fi
 

@@ -57,7 +57,7 @@ def read(path, what):
             return f.read()
     except OSError as e:
         print(f"captive-probes: cannot read {what}: {e}", file=sys.stderr)
-        print(f"  clone better-robotics/hub as a sibling, or set HUB_REPO=path/to/hub",
+        print(f"  clone sprocket-robotics/hub as a sibling, or set HUB_REPO=path/to/hub",
               file=sys.stderr)
         sys.exit(2)
 

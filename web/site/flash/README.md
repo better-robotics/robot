@@ -34,11 +34,11 @@ from the hub repo), not an ESP chip. The landing page notes that path separately
 ## This site lives beside the firmware it flashes
 
 `web/site/` is the whole GitHub Pages site this repo serves at
-**https://better-robotics.github.io/robot/** — the flasher, one page, no build
+**https://sprocket-robotics.github.io/robot/** — the flasher, one page, no build
 step. It sits in `robot` on purpose: the flasher exists only to write `robot`'s
 firmware, so its board table, its offsets, and the images all originate here, and
 one commit moves the flasher and the firmware together. The org apex
-(`better-robotics.github.io`) is a thin landing page that links here; it carries
+(`sprocket-robotics.github.io`) is a thin landing page that links here; it carries
 no flasher and no board names.
 
 ## Images (`bin/<target>/`)

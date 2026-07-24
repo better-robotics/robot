@@ -1,7 +1,7 @@
 # Zenoh firmware spikes — hardware-proven reference
 
 Bring-up spikes for the **MQTT → Zenoh transport migration**
-(tracked in [`better-robotics/hub#9`](https://github.com/better-robotics/hub/issues/9);
+(tracked in [`sprocket-robotics/hub#9`](https://github.com/sprocket-robotics/hub/issues/9);
 wire spec: `hub/zenoh-migration.md`). These are **not** production firmware — the
 config is hardcoded and they don't touch NVS/naming/motor pins. They exist to
 prove the transport works on real silicon and to hand the production port

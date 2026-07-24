@@ -21,8 +21,8 @@ incrementality below.
 Runs before every build (platformio.ini `extra_scripts = pre:...`); writes
 each .c only when its content changed, so it never dirties the tree or forces
 a needless rebuild. The .c files are gitignored — this hook is the single
-generator; web/ (vendored: dashboard.html from better-robotics/hub,
-ide_shell.html from better-robotics/ide) is the source of truth.
+generator; web/ (vendored: dashboard.html from sprocket-robotics/hub,
+ide_shell.html from sprocket-robotics/ide) is the source of truth.
 """
 import gzip
 import hashlib

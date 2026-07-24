@@ -47,16 +47,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: better-robotics/hub
+          repository: sprocket-robotics/hub
           path: .hub
       - name: The vendored dashboard is byte-identical to hub's canonical copy
         run: HUB_REPO="$PWD/.hub" tools/sync-dashboard.sh --check
       # Same seam again for the IDE loader shell: canonical in
-      # better-robotics/ide (beside the app whose CORS/markup contract it
+      # sprocket-robotics/ide (beside the app whose CORS/markup contract it
       # leans on), vendored here as web/ide_shell.html, served at /ide/.
       - uses: actions/checkout@v4
         with:
-          repository: better-robotics/ide
+          repository: sprocket-robotics/ide
           path: .ide
       - name: The vendored IDE shell is byte-identical to ide's canonical copy
         run: IDE_REPO="$PWD/.ide" tools/sync-ide-shell.sh --check
@@ -113,7 +113,7 @@ jobs:
         if: matrix.env == 'esp32dev'
         run: pio check -e esp32dev --fail-on-defect=medium --fail-on-defect=high
 
-  # The flasher at better-robotics.github.io serves these bytes to students. It
+  # The flasher at sprocket-robotics.github.io serves these bytes to students. It
   # used to serve whatever a maintainer's laptop compiled, and a local checkout
   # has gitignored build inputs (src/wifi_creds.h among them) that a clean clone
   # does not — so what ended up inside a public image depended on the machine,
@@ -196,7 +196,7 @@ jobs:
           # edit on the site.
           cat > out/manifest.json <<EOF
           {
-            "source": "better-robotics/robot",
+            "source": "sprocket-robotics/robot",
             "commit": "$(git rev-parse --short HEAD)",
             "release": "firmware-latest",
             "refreshed": "$(date -u +%F)",
@@ -217,7 +217,7 @@ jobs:
           gh release create firmware-latest out/* \
             --target "$GITHUB_SHA" \
             --title "Firmware from main" \
-            --notes "Images built from ${GITHUB_SHA} by run ${GITHUB_RUN_ID}. The flasher at better-robotics.github.io deploys from this release."
+            --notes "Images built from ${GITHUB_SHA} by run ${GITHUB_RUN_ID}. The flasher at sprocket-robotics.github.io deploys from this release."
 
       # The release is a downloadable-artifact channel (grab a .bin and flash by
       # hand, the way sdflash streams a Pi image) and the provenance the flasher's
@@ -226,7 +226,7 @@ jobs:
       # lag the release. The cross-repo poll that once could — and did, 15-commit
       # stale and green, 2026-07-17 — is gone with the repo boundary it crossed.
 
-  # Serve the flasher at better-robotics.github.io/robot/ from the SAME run that
+  # Serve the flasher at sprocket-robotics.github.io/robot/ from the SAME run that
   # built the images. web/site/ is the whole static site (the flash landing page +
   # the esptool module); this run's images are laid out beside it the way flash.js
   # addresses them, so the page and the bytes it writes are always one commit.
@@ -284,7 +284,7 @@ jobs:
           # downloaded and diffed against a board dump.
           cat > _site/flash/bin/manifest.json <<EOF
           {
-            "source": "better-robotics/robot",
+            "source": "sprocket-robotics/robot",
             "commit": "$(git rev-parse --short HEAD)",
             "release": "firmware-latest",
             "refreshed": "$(date -u +%F)",

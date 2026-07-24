@@ -5,7 +5,7 @@ One ESP32 image, both ends of the wire. Every board is a **robot** — a
 whole hub** (open Wi-Fi AP + Zenoh endpoint + dashboard) the moment a room needs
 one. Runtime decisions, never builds: boards flash identically and get named
 later. The contract and the Raspberry Pi hub live at
-[`better-robotics/hub`](https://github.com/better-robotics/hub).
+[`sprocket-robotics/hub`](https://github.com/sprocket-robotics/hub).
 
 ## How a board decides what to be
 
@@ -52,7 +52,7 @@ or pio     hub, or      anyone on the hub's match id to   hub pin ·   until tol
            islands      Wi-Fi can drive it   desk robot    motor pins  otherwise
 ```
 
-- **Flash from a browser** — [better-robotics.github.io](https://better-robotics.github.io/)
+- **Flash from a browser** — [sprocket-robotics.github.io](https://sprocket-robotics.github.io/)
   (desktop Chrome/Edge over USB) — or `pio run -e <env> -t upload`
   (envs: `esp32dev` · `esp32c3-supermini` · `esp32cam` · `robot-l298n`).
 - **Update over Wi-Fi after that** — a freshly flashed board never needs the
@@ -145,7 +145,7 @@ src/
 ├── camera.c             ESP32-CAM MJPEG (:81)
 ├── robot_config.c       NVS — network, name identity, motor pins, boot role, hub pin
 └── provisioning_util.c  pure helpers: robot id, locator, hub admission (unit-tested)
-web/dashboard.html       VENDORED from better-robotics/hub — tools/sync-dashboard.sh --check
+web/dashboard.html       VENDORED from sprocket-robotics/hub — tools/sync-dashboard.sh --check
 tools/                   dashboard embed (pre-build hook) + sync/drift-check
 test/test_util/          Unity tests for the pure helpers
 ```

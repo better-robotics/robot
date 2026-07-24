@@ -4,7 +4,7 @@
 Loops `pio run -e <env> -t upload --upload-port <port>` over every serial
 port whose USB vendor ID matches a known ESP32 bridge chip, and maps that
 VID straight to the matching platformio.ini env. Same VID allowlist as
-better-robotics/workbench's docs/recovery/boards.js:ESP_USB_VIDS (FTDI,
+sprocket-robotics/workbench's docs/recovery/boards.js:ESP_USB_VIDS (FTDI,
 CP210x, CH340, Espressif native USB-CDC) — a hub's USB-gadget console or
 any other unrelated serial device on the bus reports a different vendor ID
 and gets skipped instead of getting an esptool sync thrown at it.

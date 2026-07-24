@@ -9,7 +9,7 @@
 # We compile them as normal sources instead of an objcopy/.S embed because
 # PlatformIO's SCons build doesn't wire a generated .S into the link. The
 # generator writes them from web/ (VENDORED: dashboard.html canonical in
-# better-robotics/hub, ide_shell.html in better-robotics/ide; resync via
+# sprocket-robotics/hub, ide_shell.html in sprocket-robotics/ide; resync via
 # tools/sync-dashboard.sh / tools/sync-ide-shell.sh).
 idf_component_register(SRCS "main.c" "robot_role.c" "hub_role.c" "ws_zenoh_bridge.c"
                              "wifi_portal.c" "dns_server.c" "camera.c" "dashboard_html.c" "ide_shell_html.c"

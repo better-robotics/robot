@@ -531,7 +531,7 @@ static void wifi_apsta_up(const char *ap_ssid, const char *mdns_host, const char
      * falls out of dropping the AP (board_ap_down). */
     if (mdns_init() == ESP_OK) {
         mdns_hostname_set(mdns_host);
-        mdns_instance_name_set("Better Robotics");
+        mdns_instance_name_set("Sprocket Robotics");
         mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
         ESP_LOGI(TAG, "mDNS up: dashboard also at http://%s.local/", mdns_host);
         esp_netif_ip_info_t ap_ip = {0};

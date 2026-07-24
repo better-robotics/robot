@@ -1,7 +1,7 @@
 #!/bin/sh
 # Vendor the IDE loader shell into this firmware.
 #
-# shell.html is CANONICAL in better-robotics/ide (it lives beside the app
+# shell.html is CANONICAL in sprocket-robotics/ide (it lives beside the app
 # whose CORS/markup contract it depends on — see the header comment in the
 # file itself). The hub role serves the vendored copy at /ide/: a ~2 KB stub
 # that fetches the full editor from the ide repo's GitHub Pages deploy at
@@ -18,7 +18,7 @@ dst="$here/../web/ide_shell.html"
 
 if [ ! -f "$src" ]; then
   echo "canonical shell not found: $src" >&2
-  echo "  clone better-robotics/ide as a sibling, or set IDE_REPO=path/to/ide" >&2
+  echo "  clone sprocket-robotics/ide as a sibling, or set IDE_REPO=path/to/ide" >&2
   exit 2
 fi
 

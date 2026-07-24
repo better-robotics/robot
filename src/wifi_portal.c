@@ -63,11 +63,11 @@ static httpd_handle_t s_http = NULL;
  * .list-group is the iOS grouped-inset list — ONE filled panel with hairline
  * separators, which is what iPhone/Android Settings › Wi-Fi actually are.
  * Keep in sync with dashboard.html on touch; the tokens must match byte-for-
- * byte (hub@f005439 converged them with better-robotics.github.io+workbench). */
+ * byte (hub@f005439 converged them with sprocket-robotics.github.io+workbench). */
 static const char HEAD[] =
 "<!doctype html><html><head><meta charset=utf-8>"
 "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-"<title>BetterRobotics</title><style>"
+"<title>SprocketRobotics</title><style>"
 ":root{color-scheme:dark;--bg:#1a1d20;--surface:#212529;--inset:#2a3037;"
 "--ink:#e9ecef;--ink-muted:#adb5bd;--ink-faint:#8b929b;"
 "--border:rgba(255,255,255,0.10);--border-strong:rgba(255,255,255,0.18);"
@@ -1062,7 +1062,7 @@ static esp_err_t captive_api_get(httpd_req_t *req)
 
 /* OS-native captive-portal connectivity probes (robot's own island onboarding,
  * NOT the classroom/MDM auto-join flow — CLAUDE.md § Status & design history).
- * The genuine-success bodies below are the table in better-robotics/hub's
+ * The genuine-success bodies below are the table in sprocket-robotics/hub's
  * CONTRACT.md § Captive onboarding — the single spec this and the Pi's hubd.rs
  * both reconcile to; keep every row byte-identical across both hubs.
  * Apple, Android, and Windows each fire a GET against one of these fixed,

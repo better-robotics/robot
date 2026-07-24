@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- The ESP32-hub loader shell — served by the hub-role firmware at /ide/
-     (better-robotics/robot vendors this file; tools/sync-ide-shell.sh).
+     (sprocket-robotics/robot vendors this file; tools/sync-ide-shell.sh).
 
      WHY THIS EXISTS: the full bundle (619 KB gzipped) was dropped from the
      firmware so two A/B OTA slots fit its 4 MB flash, and a student can't
@@ -31,7 +31,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>ide — better-robotics</title>
+<title>ide — sprocket-robotics</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <style>
@@ -48,7 +48,11 @@
 <p id="msg">Loading the code editor…</p>
 <script>
 (async () => {
-  const BASE = "https://better-robotics.github.io/ide/";
+  // The one URL in the project that MUST carry the host literally: this page is
+  // served by the chip, so anything relative resolves to the chip, not Pages.
+  // Canonical here — robot/web/ide_shell.html is vendored from it and CI-checked
+  // (tools/sync-ide-shell.sh --check), so the host is stated exactly once.
+  const BASE = "https://sprocket-robotics.github.io/ide/";
   const fail = (why) => {
     document.getElementById("msg").innerHTML =
       "The code editor loads from the internet, and this hub can’t reach it right now" +

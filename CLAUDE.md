@@ -1,7 +1,7 @@
 # robot — project context
 
 ESP32 firmware for the classroom Robotics Hub
-([`better-robotics/hub`](https://github.com/better-robotics/hub)). **One unified
+([`sprocket-robotics/hub`](https://github.com/sprocket-robotics/hub)). **One unified
 image, APSTA at boot** (self-election collapsed into an AP+STA board 2026-07-09;
 the AP drops while joined to a hub 2026-07-15 — see below):
 
@@ -15,7 +15,7 @@ the AP drops while joined to a hub 2026-07-15 — see below):
   `tcp/…:7447` (CONTRACT.md § Discovery & isolation).
 - **`hub_role_run`** (`hub_role.c`): the *whole* on-chip hub — AP+STA+NAPT +
   a Zenoh peer-listen session + WS-JSON adapter + served dashboard — as a **dedicated** tier-2 hub
-  (`role_pref=HUB`, `hub-*` AP, no drive). Folded in from `better-robotics/hub/esp32`.
+  (`role_pref=HUB`, `hub-*` AP, no drive). Folded in from `sprocket-robotics/hub/esp32`.
   The island path reuses these same services against a `robot-<id>` AP.
 
 `src/main.c` dispatches on `role_pref`; `hub_role.c` owns the Wi-Fi + Zenoh hub
@@ -89,13 +89,13 @@ telemetry), never part of a name. Don't "fix" role-prefixed identifiers
   `src/dashboard_html.c` + `src/ide_shell_html.c` — each page as a plain
   gzipped byte array — from `web/`, compiled as ordinary sources. Both web
   files are VENDORED copies (`dashboard.html` canonical in the `hub` monorepo,
-  `ide_shell.html` in `better-robotics/ide`); `tools/sync-dashboard.sh` /
+  `ide_shell.html` in `sprocket-robotics/ide`); `tools/sync-dashboard.sh` /
   `tools/sync-ide-shell.sh` resync them and `--check` gates drift (both run
   in CI). The generated `.c` files are gitignored.
 - **`web/site/` is served, not embedded** — the whole GitHub Pages site at
-  [`better-robotics.github.io/robot/`](https://better-robotics.github.io/robot/):
+  [`sprocket-robotics.github.io/robot/`](https://sprocket-robotics.github.io/robot/):
   the browser flasher (Web Serial + vendored esptool-js) that writes a blank
-  ESP32 with this repo's firmware. It moved here from `better-robotics.github.io`
+  ESP32 with this repo's firmware. It moved here from `sprocket-robotics.github.io`
   on 2026-07-21 so the flasher rides the same commit as the images it flashes —
   `firmware.yml`'s `pages` job lays this run's `.bin` trios under
   `web/site/flash/bin/<board>/` and deploys in the same run, no cross-repo poll or
