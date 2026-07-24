@@ -180,7 +180,7 @@ static const char PAGE_BODY[] =
 /* Set the embed class synchronously before first paint (no topbar flash) when
  * the dashboard iframes this panel with ?embed=1. */
 "<script>if(location.search.indexOf('embed')>=0)document.documentElement.className='embed'</script>"
-"<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
+"<header class=topbar><h1><span class=a>Sprocket</span><span class=b>Robotics</span></h1></header>"
 "<main>"
 /* Live status first (#21 UX fix): the panel used to be write-only — no way to see
  * what's configured, whether a save landed, or where the dashboard is. */
@@ -377,7 +377,7 @@ static const char LANDING_CSS[] =
 ".foot{text-align:center}.foot a{color:var(--ink-muted)}";
 
 static const char LANDING_BODY[] =
-"<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
+"<header class=topbar><h1><span class=a>Sprocket</span><span class=b>Robotics</span></h1></header>"
 "<main>"
 "<div class=card><h2 id=bn>&#8230;</h2><p class=s id=st>Starting up&#8230;</p><div id=act></div></div>"
 "<p class=\"s foot\"><a href=/wifi>Wi-Fi &amp; role settings</a></p>"
@@ -934,7 +934,7 @@ void captive_reap_absent(void)
  * on this AP may not resolve. Same "never hand a walled-garden client a
  * hostname" rule s_welcome_url follows for the initial redirect. */
 static const char WELCOME_BODY[] =
-"<header class=topbar><h1><span class=a>Better</span><span class=b>Robotics</span></h1></header>"
+"<header class=topbar><h1><span class=a>Sprocket</span><span class=b>Robotics</span></h1></header>"
 "<main>"
 "<div class=card id=before><h2>Welcome</h2>"
 "<p class=s id=lede>Checking this board&#8230;</p>"
